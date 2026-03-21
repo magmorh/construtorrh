@@ -238,24 +238,27 @@ export default function Relatorios() {
         const limite = new Date()
         limite.setDate(hoje.getDate() + 30)
         const { data, error } = await supabase
-          .from('epi_registros')
-          .select('data_validade, epi_nome, colaboradores(nome, chapa)')
-          .eq('devolvido', false)
+          .from('colaborador_epi')
+          .select('data_validade, epi_catalogo(nome), colaboradores(nome, chapa)')
+          .eq('status', 'ativo')
+          .not('data_validade', 'is', null)
           .lte('data_validade', limite.toISOString().slice(0, 10))
           .gte('data_validade', hoje.toISOString().slice(0, 10))
           .order('data_validade')
         if (error) throw error
         type EpiRow = {
-          data_validade: string | null; epi_nome: string | null
+          data_validade: string | null
+          epi_catalogo: { nome: string } | { nome: string }[] | null
           colaboradores: { nome: string; chapa: string }[] | { nome: string; chapa: string } | null
         }
         setEpisData((data as unknown as EpiRow[]).map((r) => {
           const validade = new Date(r.data_validade + 'T00:00:00')
           const dias = Math.ceil((validade.getTime() - hoje.getTime()) / 86400000)
+          const epiNome = Array.isArray(r.epi_catalogo) ? r.epi_catalogo[0]?.nome : (r.epi_catalogo as { nome: string } | null)?.nome
           return {
             colaborador: (Array.isArray(r.colaboradores) ? r.colaboradores[0]?.nome : (r.colaboradores as { nome: string; chapa: string } | null)?.nome) ?? '—',
             chapa: (Array.isArray(r.colaboradores) ? r.colaboradores[0]?.chapa : (r.colaboradores as { nome: string; chapa: string } | null)?.chapa) ?? '—',
-            epi: r.epi_nome ?? '—',
+            epi: epiNome ?? '—',
             data_validade: r.data_validade ?? '',
             dias_restantes: dias,
           }
@@ -266,26 +269,27 @@ export default function Relatorios() {
         const hoje = new Date()
         const limite = new Date()
         limite.setDate(hoje.getDate() + 30)
+        // Relatório: documentos avulsos recentes (últimos 30 dias)
         const { data, error } = await supabase
-          .from('documentos')
-          .select('data_vencimento, tipo_documento, colaboradores(nome, chapa)')
-          .not('data_vencimento', 'is', null)
-          .lte('data_vencimento', limite.toISOString().slice(0, 10))
-          .gte('data_vencimento', hoje.toISOString().slice(0, 10))
-          .order('data_vencimento')
+          .from('documentos_avulsos')
+          .select('data, tipo, descricao, documento_nome, colaboradores(nome, chapa)')
+          .not('data', 'is', null)
+          .gte('data', new Date(Date.now() - 90*86400000).toISOString().slice(0, 10))
+          .order('data', { ascending: false })
         if (error) throw error
         type DocRow = {
-          data_vencimento: string | null; tipo_documento: string | null
+          data: string | null; tipo: string | null; descricao: string | null
+          documento_nome: string | null
           colaboradores: { nome: string; chapa: string }[] | { nome: string; chapa: string } | null
         }
         setDocsData((data as unknown as DocRow[]).map((r) => {
-          const venc = new Date(r.data_vencimento + 'T00:00:00')
-          const dias = Math.ceil((venc.getTime() - hoje.getTime()) / 86400000)
+          const docDate = new Date(r.data + 'T00:00:00')
+          const dias = Math.ceil((hoje.getTime() - docDate.getTime()) / 86400000)
           return {
-            colaborador: (Array.isArray(r.colaboradores) ? r.colaboradores[0]?.nome : (r.colaboradores as { nome: string; chapa: string } | null)?.nome) ?? '—',
+            colaborador: (Array.isArray(r.colaboradores) ? r.colaboradores[0]?.nome : (r.colaboradores as { nome: string; chapa: string } | null)?.nome) ?? 'Geral',
             chapa: (Array.isArray(r.colaboradores) ? r.colaboradores[0]?.chapa : (r.colaboradores as { nome: string; chapa: string } | null)?.chapa) ?? '—',
-            tipo_documento: r.tipo_documento ?? '—',
-            data_vencimento: r.data_vencimento ?? '',
+            tipo_documento: r.tipo ?? '—',
+            data_vencimento: r.data ?? '',
             dias_restantes: dias,
           }
         }))
@@ -294,16 +298,16 @@ export default function Relatorios() {
       else if (rel.id === 'atestados') {
         let query = supabase
           .from('atestados')
-          .select('data_inicio, dias_afastamento, colaborador_id')
-          .order('data_inicio', { ascending: false })
-        if (filtroDataInicio) query = query.gte('data_inicio', filtroDataInicio)
-        if (filtroDataFim) query = query.lte('data_inicio', filtroDataFim)
+          .select('data, dias_afastamento, colaborador_id')
+          .order('data', { ascending: false })
+        if (filtroDataInicio) query = query.gte('data', filtroDataInicio)
+        if (filtroDataFim) query = query.lte('data', filtroDataFim)
         const { data, error } = await query
         if (error) throw error
-        type AtRow = { data_inicio: string; dias_afastamento: number; colaborador_id: string }
+        type AtRow = { data: string; dias_afastamento: number; colaborador_id: string }
         const agg = new Map<string, { total: number; dias: number; cols: Set<string> }>()
         ;(data as AtRow[]).forEach((a) => {
-          const mes = a.data_inicio.slice(0, 7)
+          const mes = a.data.slice(0, 7)
           if (!agg.has(mes)) agg.set(mes, { total: 0, dias: 0, cols: new Set() })
           const entry = agg.get(mes)!
           entry.total++

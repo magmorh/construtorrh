@@ -21,6 +21,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Plus, Pencil, Trash2, Stethoscope, AlertTriangle, FileWarning, Upload, FileText, X, ExternalLink, Link2 } from 'lucide-react'
+import { useProfile } from '@/hooks/useProfile'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type Colaborador = { id: string; nome: string; chapa: string }
@@ -215,6 +216,7 @@ type Aba = 'acidentes' | 'atestados' | 'advertencias'
 
 export default function Ocorrencias() {
   const [aba, setAba] = useState<Aba>('acidentes')
+  const { permissions } = useProfile()
 
   const [colaboradores,    setColaboradores]    = useState<Colaborador[]>([])
   const [obras,            setObras]            = useState<Obra[]>([])
@@ -474,14 +476,16 @@ export default function Ocorrencias() {
         title="Ocorrências"
         subtitle="Acidentes de Trabalho, Atestados e Advertências"
         action={
-          <Button onClick={() => {
-            if (aba === 'acidentes')    openAcidCreate()
-            if (aba === 'atestados')    openAtestCreate()
-            if (aba === 'advertencias') openAdvCreate()
-          }}>
-            <Plus size={14} style={{ marginRight: 6 }} />
-            {aba === 'acidentes' ? 'Novo Acidente' : aba === 'atestados' ? 'Novo Atestado' : 'Nova Advertência'}
-          </Button>
+          permissions.canCreate ? (
+            <Button onClick={() => {
+              if (aba === 'acidentes')    openAcidCreate()
+              if (aba === 'atestados')    openAtestCreate()
+              if (aba === 'advertencias') openAdvCreate()
+            }}>
+              <Plus size={14} style={{ marginRight: 6 }} />
+              {aba === 'acidentes' ? 'Novo Acidente' : aba === 'atestados' ? 'Novo Atestado' : 'Nova Advertência'}
+            </Button>
+          ) : undefined
         }
       />
 
@@ -544,8 +548,8 @@ export default function Ocorrencias() {
                     </TableCell>
                     <TableCell style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        <Button variant="outline" size="sm" onClick={() => openAcidEdit(a)}><Pencil size={14} /></Button>
-                        <Button variant="outline" size="sm" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => setAcidDeleteId(a.id)}><Trash2 size={14} /></Button>
+                        {permissions.canEdit   && <Button variant="outline" size="sm" onClick={() => openAcidEdit(a)}><Pencil size={14} /></Button>}
+                        {permissions.canDelete && <Button variant="outline" size="sm" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => setAcidDeleteId(a.id)}><Trash2 size={14} /></Button>}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -609,8 +613,8 @@ export default function Ocorrencias() {
                       <TableCell><DocBadge url={a.documento_url} nome={a.documento_nome} /></TableCell>
                       <TableCell style={{ textAlign: 'right' }}>
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          <Button variant="outline" size="sm" onClick={() => openAtestEdit(a)}><Pencil size={14} /></Button>
-                          <Button variant="outline" size="sm" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => setAtestDeleteId(a.id)}><Trash2 size={14} /></Button>
+                          {permissions.canEdit   && <Button variant="outline" size="sm" onClick={() => openAtestEdit(a)}><Pencil size={14} /></Button>}
+                          {permissions.canDelete && <Button variant="outline" size="sm" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => setAtestDeleteId(a.id)}><Trash2 size={14} /></Button>}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -675,8 +679,8 @@ export default function Ocorrencias() {
                     <TableCell><DocBadge url={a.documento_url} nome={a.documento_nome} /></TableCell>
                     <TableCell style={{ textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        <Button variant="outline" size="sm" onClick={() => openAdvEdit(a)}><Pencil size={14} /></Button>
-                        <Button variant="outline" size="sm" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => setAdvDeleteId(a.id)}><Trash2 size={14} /></Button>
+                        {permissions.canEdit   && <Button variant="outline" size="sm" onClick={() => openAdvEdit(a)}><Pencil size={14} /></Button>}
+                        {permissions.canDelete && <Button variant="outline" size="sm" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => setAdvDeleteId(a.id)}><Trash2 size={14} /></Button>}
                       </div>
                     </TableCell>
                   </TableRow>

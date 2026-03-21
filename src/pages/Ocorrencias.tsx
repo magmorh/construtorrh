@@ -310,7 +310,7 @@ export default function Ocorrencias() {
       .select('*, colaboradores(id, nome, chapa)')
       .order('data_inicio', { ascending: false })
     if (error) {
-      toast.error('Erro ao carregar atestados')
+      toast.error('Erro ao carregar atestados: ' + (error?.message ?? error))
     } else {
       setAtestados(data as Atestado[])
     }
@@ -325,7 +325,7 @@ export default function Ocorrencias() {
       .select('*, colaboradores(id, nome, chapa), obras(id, nome)')
       .order('data_ocorrencia', { ascending: false })
     if (error) {
-      toast.error('Erro ao carregar acidentes')
+      toast.error('Erro ao carregar acidentes: ' + (error?.message ?? error))
     } else {
       setAcidentes(data as Acidente[])
     }
@@ -432,7 +432,7 @@ export default function Ocorrencias() {
 
     setSavingAtestado(false)
     if (error) {
-      toast.error('Erro ao salvar atestado')
+      toast.error('Erro ao salvar atestado: ' + ((error as any)?.message ?? String(error)))
     } else {
       toast.success(atestadoEditId ? 'Atestado atualizado!' : 'Atestado cadastrado!')
       setAtestadoModalOpen(false)
@@ -514,7 +514,7 @@ export default function Ocorrencias() {
 
     setSavingAciden(false)
     if (error) {
-      toast.error('Erro ao salvar acidente')
+      toast.error('Erro ao salvar acidente: ' + ((error as any)?.message ?? String(error)))
     } else {
       toast.success(acidenEditId ? 'Acidente atualizado!' : 'Acidente cadastrado!')
       setAcidenModalOpen(false)

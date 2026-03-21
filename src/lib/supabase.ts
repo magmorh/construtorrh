@@ -50,6 +50,48 @@ export interface Funcao {
   ativo: boolean
 }
 
+export interface EpiCatalogo {
+  id: string; created_at: string
+  nome: string; categoria: string | null; numero_ca: string | null
+  unidade: string | null; requer_tamanho: boolean; requer_numero: boolean
+  vida_util_meses: number | null; ativo: boolean
+}
+
+export interface FuncaoEpi {
+  id: string; created_at: string
+  funcao_id: string; epi_id: string
+  obrigatorio: boolean; quantidade: number
+}
+
+export interface ColaboradorEpi {
+  id: string; created_at: string
+  colaborador_id: string; epi_id: string; funcao_id: string | null
+  tamanho: string | null; numero: string | null
+  data_entrega: string | null; quantidade_entregue: number
+  status: 'pendente' | 'entregue' | 'devolvido' | 'substituido'
+  observacoes: string | null
+}
+
+export interface Acidente {
+  id: string; created_at: string; updated_at: string
+  colaborador_id: string | null; obra_id: string | null
+  data_ocorrencia: string; hora_ocorrencia: string | null
+  tipo_acidente: string | null; descricao: string
+  comunicado_cat: boolean; observacoes: string | null
+}
+
+export interface Atestado {
+  id: string; created_at: string; updated_at: string
+  colaborador_id: string | null; acidente_id: string | null
+  data_inicio: string; data_fim: string | null
+  dias_afastamento: number | null
+  tipo_afastamento: 'doenca' | 'acidente_trabalho' | 'acidente_trajeto' | 'cirurgia' | 'maternidade' | 'outros'
+  cid: string | null; medico: string | null; crm: string | null
+  data_retorno: string | null; observacoes: string | null
+  status: string
+}
+
+
 export interface Obra {
   id: string; created_at: string; updated_at: string
   nome: string; codigo: string | null; endereco: string | null
@@ -69,7 +111,7 @@ export interface Colaborador {
   cidade: string | null; estado: string | null; cep: string | null
   funcao_id: string | null; obra_id: string | null
   salario: number | null
-  tipo_contrato: 'clt' | 'pj' | 'temporario' | 'aprendiz' | 'estagiario'
+  tipo_contrato: 'clt' | 'autonomo' | 'pj' | 'temporario' | 'aprendiz' | 'estagiario'
   data_admissao: string | null
   ctps_numero: string | null; ctps_serie: string | null
   banco: string | null; agencia: string | null; conta: string | null

@@ -1,15 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { EpiCatalogo, EpiRegistro, Colaborador } from '@/lib/supabase'
-import { formatDate, cn } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { PageHeader, EmptyState, LoadingSkeleton } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table'
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
@@ -18,656 +16,1069 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ShieldCheck, Plus, Search, Pencil, Trash2, X, ClipboardList } from 'lucide-react'
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
+import {
+  Shield, Plus, Search, Pencil, Trash2, Link, Unlink,
+  Package, Tag, CheckCircle2, AlertCircle, X,
+} from 'lucide-react'
+import { toast } from 'sonner'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
-type EpiRegistroRow = EpiRegistro & {
-  colaboradores?: Pick<Colaborador, 'id' | 'nome' | 'chapa'>
-  epi_catalogo?: Pick<EpiCatalogo, 'id' | 'nome' | 'numero_ca'>
+
+type EpiCatalogo = {
+  id: string
+  nome: string
+  categoria: string
+  numero_ca: string | null
+  unidade: string
+  requer_tamanho: boolean
+  requer_numero: boolean
+  vida_util_meses: number | null
+  ativo: boolean
+  created_at?: string
 }
 
-// ── forms ──────────────────────────────────────────────────────────────────────
-type CatalogoForm = {
-  nome: string; descricao: string; numero_ca: string
-  fabricante: string; validade_meses: string; requer_tamanho: boolean; ativo: boolean
-}
-const EMPTY_CAT: CatalogoForm = {
-  nome: '', descricao: '', numero_ca: '', fabricante: '',
-  validade_meses: '', requer_tamanho: false, ativo: true,
+type Funcao = {
+  id: string
+  nome: string
+  sigla: string | null
 }
 
-type RegistroForm = {
-  colaborador_id: string; epi_id: string; tamanho: string; quantidade: string
-  data_entrega: string; data_validade: string; devolvido: boolean; observacoes: string
-}
-const EMPTY_REG: RegistroForm = {
-  colaborador_id: '', epi_id: '', tamanho: '', quantidade: '1',
-  data_entrega: new Date().toISOString().split('T')[0], data_validade: '',
-  devolvido: false, observacoes: '',
+type FuncaoEpi = {
+  id: string
+  funcao_id: string
+  epi_id: string
+  obrigatorio: boolean
+  quantidade: number
+  epi_catalogo: {
+    id: string
+    nome: string
+    categoria: string
+    requer_tamanho: boolean
+    requer_numero: boolean
+  } | null
 }
 
-// ─── toast ────────────────────────────────────────────────────────────────────
-function useToast() {
-  const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
-  const show = useCallback((text: string, type: 'success' | 'error' = 'success') => {
-    setMsg({ text, type })
-    setTimeout(() => setMsg(null), 3500)
-  }, [])
-  return { msg, show }
+type EpiFormData = {
+  nome: string
+  categoria: string
+  numero_ca: string
+  unidade: string
+  requer_tamanho: boolean
+  requer_numero: boolean
+  vida_util_meses: string
+  ativo: boolean
+}
+
+type VinculoFormData = {
+  epi_id: string
+  obrigatorio: boolean
+  quantidade: string
+}
+
+const EMPTY_EPI_FORM: EpiFormData = {
+  nome: '',
+  categoria: '',
+  numero_ca: '',
+  unidade: 'unidade',
+  requer_tamanho: false,
+  requer_numero: false,
+  vida_util_meses: '',
+  ativo: true,
+}
+
+const EMPTY_VINCULO_FORM: VinculoFormData = {
+  epi_id: '',
+  obrigatorio: true,
+  quantidade: '1',
+}
+
+const CATEGORIAS = [
+  'Cabeça', 'Mãos', 'Pés', 'Corpo', 'Olhos', 'Respiratório', 'Auditivo', 'Outros',
+]
+
+const UNIDADES = ['unidade', 'par', 'jogo', 'conjunto']
+
+// ─── toggle inline ────────────────────────────────────────────────────────────
+
+function Toggle({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  label?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: 0,
+      }}
+    >
+      <span
+        style={{
+          display: 'inline-flex',
+          width: 40,
+          height: 22,
+          borderRadius: 999,
+          backgroundColor: checked ? '#16a34a' : '#d1d5db',
+          transition: 'background 0.2s',
+          position: 'relative',
+          flexShrink: 0,
+        }}
+      >
+        <span
+          style={{
+            position: 'absolute',
+            top: 3,
+            left: checked ? 21 : 3,
+            width: 16,
+            height: 16,
+            borderRadius: '50%',
+            backgroundColor: '#fff',
+            transition: 'left 0.2s',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          }}
+        />
+      </span>
+      {label && (
+        <span style={{ fontSize: 13, color: '#374151' }}>{label}</span>
+      )}
+    </button>
+  )
 }
 
 // ─── componente principal ─────────────────────────────────────────────────────
+
 export default function Epis() {
-  const { msg, show } = useToast()
+  const [aba, setAba] = useState<'catalogo' | 'funcao'>('catalogo')
 
-  // ── catálogo state ─────────────────────────────────────────────────────────
-  const [catalogo, setCatalogo] = useState<EpiCatalogo[]>([])
-  const [catLoading, setCatLoading] = useState(true)
-  const [catSearch, setCatSearch] = useState('')
+  // ── Aba 1: catálogo ─────────────────────────────────────────────────────────
+  const [epis, setEpis] = useState<EpiCatalogo[]>([])
+  const [loadingEpis, setLoadingEpis] = useState(true)
+  const [search, setSearch] = useState('')
 
-  const [catModalOpen, setCatModalOpen] = useState(false)
-  const [catEditId, setCatEditId] = useState<string | null>(null)
-  const [catForm, setCatForm] = useState<CatalogoForm>(EMPTY_CAT)
-  const [catSaving, setCatSaving] = useState(false)
-  const [catDeleteId, setCatDeleteId] = useState<string | null>(null)
-  const [catDeleting, setCatDeleting] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [form, setForm] = useState<EpiFormData>(EMPTY_EPI_FORM)
+  const [saving, setSaving] = useState(false)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
-  // ── registros state ────────────────────────────────────────────────────────
-  const [registros, setRegistros] = useState<EpiRegistroRow[]>([])
-  const [regLoading, setRegLoading] = useState(true)
-  const [regSearch, setRegSearch] = useState('')
+  // ── Aba 2: função-EPI ───────────────────────────────────────────────────────
+  const [funcoes, setFuncoes] = useState<Funcao[]>([])
+  const [loadingFuncoes, setLoadingFuncoes] = useState(true)
+  const [funcaoSelecionada, setFuncaoSelecionada] = useState<string>('')
+  const [vinculos, setVinculos] = useState<FuncaoEpi[]>([])
+  const [loadingVinculos, setLoadingVinculos] = useState(false)
 
-  const [regModalOpen, setRegModalOpen] = useState(false)
-  const [regEditId, setRegEditId] = useState<string | null>(null)
-  const [regForm, setRegForm] = useState<RegistroForm>(EMPTY_REG)
-  const [regSaving, setRegSaving] = useState(false)
-  const [regDeleteId, setRegDeleteId] = useState<string | null>(null)
-  const [regDeleting, setRegDeleting] = useState(false)
+  const [vinculoModalOpen, setVinculoModalOpen] = useState(false)
+  const [vinculoForm, setVinculoForm] = useState<VinculoFormData>(EMPTY_VINCULO_FORM)
+  const [savingVinculo, setSavingVinculo] = useState(false)
+  const [deleteVinculoId, setDeleteVinculoId] = useState<string | null>(null)
+  const [deletingVinculo, setDeletingVinculo] = useState(false)
 
-  // ── colaboradores para select ──────────────────────────────────────────────
-  const [colaboradores, setColaboradores] = useState<Pick<Colaborador, 'id' | 'nome' | 'chapa'>[]>([])
-
-  // ── fetch catálogo ─────────────────────────────────────────────────────────
-  const fetchCatalogo = useCallback(async () => {
-    setCatLoading(true)
-    const { data } = await supabase.from('epi_catalogo').select('*').order('nome')
-    if (data) setCatalogo(data as EpiCatalogo[])
-    setCatLoading(false)
-  }, [])
-
-  // ── fetch registros ────────────────────────────────────────────────────────
-  const fetchRegistros = useCallback(async () => {
-    setRegLoading(true)
-    const { data } = await supabase
-      .from('epi_registros')
-      .select('*, colaboradores(id, nome, chapa), epi_catalogo(id, nome, numero_ca)')
-      .order('data_entrega', { ascending: false })
-    if (data) setRegistros(data as EpiRegistroRow[])
-    setRegLoading(false)
-  }, [])
-
-  // ── fetch colaboradores ────────────────────────────────────────────────────
-  const fetchColaboradores = useCallback(async () => {
-    const { data } = await supabase
-      .from('colaboradores')
-      .select('id, nome, chapa')
-      .eq('status', 'ativo')
+  // ── fetch catálogo ──────────────────────────────────────────────────────────
+  const fetchEpis = useCallback(async () => {
+    setLoadingEpis(true)
+    const { data, error } = await supabase
+      .from('epi_catalogo')
+      .select('*')
       .order('nome')
-    if (data) setColaboradores(data as Pick<Colaborador, 'id' | 'nome' | 'chapa'>[])
+    setLoadingEpis(false)
+    if (error) { toast.error(error.message); return }
+    setEpis(data ?? [])
   }, [])
 
+  // ── fetch funções ───────────────────────────────────────────────────────────
+  const fetchFuncoes = useCallback(async () => {
+    setLoadingFuncoes(true)
+    const { data, error } = await supabase
+      .from('funcoes')
+      .select('id, nome, sigla')
+      .eq('ativo', true)
+      .order('nome')
+    setLoadingFuncoes(false)
+    if (error) { toast.error(error.message); return }
+    setFuncoes(data ?? [])
+  }, [])
+
+  // ── fetch vínculos da função ────────────────────────────────────────────────
+  const fetchVinculos = useCallback(async (funcaoId: string) => {
+    if (!funcaoId) { setVinculos([]); return }
+    setLoadingVinculos(true)
+    const { data, error } = await supabase
+      .from('funcao_epi')
+      .select('*, epi_catalogo(id, nome, categoria, requer_tamanho, requer_numero)')
+      .eq('funcao_id', funcaoId)
+    setLoadingVinculos(false)
+    if (error) { toast.error(error.message); return }
+    setVinculos((data as FuncaoEpi[]) ?? [])
+  }, [])
+
+  useEffect(() => { fetchEpis() }, [fetchEpis])
+  useEffect(() => { fetchFuncoes() }, [fetchFuncoes])
   useEffect(() => {
-    fetchCatalogo()
-    fetchRegistros()
-    fetchColaboradores()
-  }, [fetchCatalogo, fetchRegistros, fetchColaboradores])
+    if (funcaoSelecionada) fetchVinculos(funcaoSelecionada)
+    else setVinculos([])
+  }, [funcaoSelecionada, fetchVinculos])
 
-  // ── filtros ───────────────────────────────────────────────────────────────
-  const filteredCat = catalogo.filter(c => {
-    const q = catSearch.toLowerCase()
-    return !q || c.nome.toLowerCase().includes(q) || (c.numero_ca ?? '').toLowerCase().includes(q)
-  })
+  // ── filtro busca ────────────────────────────────────────────────────────────
+  const filtered = epis.filter(e =>
+    e.nome.toLowerCase().includes(search.toLowerCase()) ||
+    (e.categoria ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (e.numero_ca ?? '').toLowerCase().includes(search.toLowerCase()),
+  )
 
-  const filteredReg = registros.filter(r => {
-    const q = regSearch.toLowerCase()
-    return (
-      !q ||
-      (r.colaboradores?.nome ?? '').toLowerCase().includes(q) ||
-      (r.colaboradores?.chapa ?? '').toLowerCase().includes(q)
-    )
-  })
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  //  CATÁLOGO HANDLERS
-  // ═══════════════════════════════════════════════════════════════════════════
-  const openCatNew = () => { setCatEditId(null); setCatForm(EMPTY_CAT); setCatModalOpen(true) }
-  const openCatEdit = (c: EpiCatalogo) => {
-    setCatEditId(c.id)
-    setCatForm({
-      nome: c.nome, descricao: c.descricao ?? '', numero_ca: c.numero_ca ?? '',
-      fabricante: c.fabricante ?? '',
-      validade_meses: c.validade_meses != null ? String(c.validade_meses) : '',
-      requer_tamanho: c.requer_tamanho, ativo: c.ativo,
-    })
-    setCatModalOpen(true)
+  // ── abrir modal catálogo ────────────────────────────────────────────────────
+  const openNew = () => {
+    setEditId(null)
+    setForm(EMPTY_EPI_FORM)
+    setModalOpen(true)
   }
 
-  const setCat = (k: keyof CatalogoForm, v: string | boolean) =>
-    setCatForm(p => ({ ...p, [k]: v }))
+  const openEdit = (epi: EpiCatalogo) => {
+    setEditId(epi.id)
+    setForm({
+      nome: epi.nome,
+      categoria: epi.categoria ?? '',
+      numero_ca: epi.numero_ca ?? '',
+      unidade: epi.unidade ?? 'unidade',
+      requer_tamanho: epi.requer_tamanho,
+      requer_numero: epi.requer_numero,
+      vida_util_meses: epi.vida_util_meses != null ? String(epi.vida_util_meses) : '',
+      ativo: epi.ativo,
+    })
+    setModalOpen(true)
+  }
 
-  const handleCatSave = async () => {
-    if (!catForm.nome.trim()) { show('Nome é obrigatório', 'error'); return }
-    setCatSaving(true)
+  // ── salvar EPI ──────────────────────────────────────────────────────────────
+  const handleSave = async () => {
+    if (!form.nome.trim()) { toast.error('Nome é obrigatório'); return }
+    setSaving(true)
 
-    const payload: Partial<EpiCatalogo> = {
-      nome: catForm.nome.trim(),
-      descricao: catForm.descricao || null,
-      numero_ca: catForm.numero_ca || null,
-      fabricante: catForm.fabricante || null,
-      validade_meses: catForm.validade_meses ? parseInt(catForm.validade_meses) : null,
-      requer_tamanho: catForm.requer_tamanho,
-      ativo: catForm.ativo,
+    const payload = {
+      nome: form.nome.trim(),
+      categoria: form.categoria || null,
+      numero_ca: form.numero_ca.trim() || null,
+      unidade: form.unidade || 'unidade',
+      requer_tamanho: form.requer_tamanho,
+      requer_numero: form.requer_numero,
+      vida_util_meses: form.vida_util_meses ? parseInt(form.vida_util_meses, 10) : null,
+      ativo: form.ativo,
     }
 
-    const { error } = catEditId
-      ? await supabase.from('epi_catalogo').update(payload).eq('id', catEditId)
+    const { error } = editId
+      ? await supabase.from('epi_catalogo').update(payload).eq('id', editId)
       : await supabase.from('epi_catalogo').insert(payload)
 
-    setCatSaving(false)
-    if (error) { show(error.message, 'error'); return }
-    show(catEditId ? 'EPI atualizado!' : 'EPI cadastrado!')
-    setCatModalOpen(false)
-    fetchCatalogo()
+    setSaving(false)
+    if (error) { toast.error(error.message); return }
+    toast.success(editId ? 'EPI atualizado!' : 'EPI cadastrado!')
+    setModalOpen(false)
+    fetchEpis()
   }
 
-  const handleCatDelete = async () => {
-    if (!catDeleteId) return
-    setCatDeleting(true)
-    const { error } = await supabase.from('epi_catalogo').delete().eq('id', catDeleteId)
-    setCatDeleting(false)
-    setCatDeleteId(null)
-    if (error) { show(error.message, 'error'); return }
-    show('EPI excluído do catálogo!')
-    fetchCatalogo()
+  // ── excluir EPI ─────────────────────────────────────────────────────────────
+  const handleDelete = async () => {
+    if (!deleteId) return
+    setDeleting(true)
+    const { error } = await supabase.from('epi_catalogo').delete().eq('id', deleteId)
+    setDeleting(false)
+    setDeleteId(null)
+    if (error) { toast.error(error.message); return }
+    toast.success('EPI excluído!')
+    fetchEpis()
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  //  REGISTROS HANDLERS
-  // ═══════════════════════════════════════════════════════════════════════════
-  const openRegNew = () => { setRegEditId(null); setRegForm(EMPTY_REG); setRegModalOpen(true) }
-  const openRegEdit = (r: EpiRegistroRow) => {
-    setRegEditId(r.id)
-    setRegForm({
-      colaborador_id: r.colaborador_id,
-      epi_id: r.epi_id ?? '',
-      tamanho: r.tamanho ?? '',
-      quantidade: String(r.quantidade),
-      data_entrega: r.data_entrega,
-      data_validade: r.data_validade ?? '',
-      devolvido: r.devolvido,
-      observacoes: r.observacoes ?? '',
+  // ── vincular EPI à função ───────────────────────────────────────────────────
+  const handleSaveVinculo = async () => {
+    if (!funcaoSelecionada) { toast.error('Selecione uma função'); return }
+    if (!vinculoForm.epi_id) { toast.error('Selecione um EPI'); return }
+    setSavingVinculo(true)
+
+    const { error } = await supabase.from('funcao_epi').insert({
+      funcao_id: funcaoSelecionada,
+      epi_id: vinculoForm.epi_id,
+      obrigatorio: vinculoForm.obrigatorio,
+      quantidade: parseInt(vinculoForm.quantidade, 10) || 1,
     })
-    setRegModalOpen(true)
+
+    setSavingVinculo(false)
+    if (error) { toast.error(error.message); return }
+    toast.success('EPI vinculado à função!')
+    setVinculoModalOpen(false)
+    setVinculoForm(EMPTY_VINCULO_FORM)
+    fetchVinculos(funcaoSelecionada)
   }
 
-  const setReg = (k: keyof RegistroForm, v: string | boolean) =>
-    setRegForm(p => ({ ...p, [k]: v }))
-
-  const handleRegSave = async () => {
-    if (!regForm.colaborador_id) { show('Colaborador é obrigatório', 'error'); return }
-    if (!regForm.data_entrega) { show('Data de entrega é obrigatória', 'error'); return }
-    setRegSaving(true)
-
-    const selectedEpi = catalogo.find(c => c.id === regForm.epi_id)
-
-    const payload: Partial<EpiRegistro> = {
-      colaborador_id: regForm.colaborador_id,
-      epi_id: regForm.epi_id || null,
-      epi_nome: selectedEpi?.nome ?? null,
-      numero_ca: selectedEpi?.numero_ca ?? null,
-      tamanho: regForm.tamanho || null,
-      quantidade: parseInt(regForm.quantidade) || 1,
-      data_entrega: regForm.data_entrega,
-      data_validade: regForm.data_validade || null,
-      devolvido: regForm.devolvido,
-      observacoes: regForm.observacoes || null,
-    }
-
-    const { error } = regEditId
-      ? await supabase.from('epi_registros').update(payload).eq('id', regEditId)
-      : await supabase.from('epi_registros').insert(payload)
-
-    setRegSaving(false)
-    if (error) { show(error.message, 'error'); return }
-    show(regEditId ? 'Registro atualizado!' : 'Registro criado!')
-    setRegModalOpen(false)
-    fetchRegistros()
+  // ── desvincular EPI ─────────────────────────────────────────────────────────
+  const handleDeleteVinculo = async () => {
+    if (!deleteVinculoId) return
+    setDeletingVinculo(true)
+    const { error } = await supabase.from('funcao_epi').delete().eq('id', deleteVinculoId)
+    setDeletingVinculo(false)
+    setDeleteVinculoId(null)
+    if (error) { toast.error(error.message); return }
+    toast.success('Vínculo removido!')
+    if (funcaoSelecionada) fetchVinculos(funcaoSelecionada)
   }
 
-  const handleRegDelete = async () => {
-    if (!regDeleteId) return
-    setRegDeleting(true)
-    const { error } = await supabase.from('epi_registros').delete().eq('id', regDeleteId)
-    setRegDeleting(false)
-    setRegDeleteId(null)
-    if (error) { show(error.message, 'error'); return }
-    show('Registro excluído!')
-    fetchRegistros()
-  }
+  // ── EPIs disponíveis para vincular (excluindo já vinculados) ─────────────────
+  const episDisponiveis = epis.filter(
+    e => e.ativo && !vinculos.some(v => v.epi_id === e.id),
+  )
 
-  // ─── selected EPI p/ mostrar info requer_tamanho ──────────────────────────
-  const selectedEpiObj = catalogo.find(c => c.id === regForm.epi_id)
+  // ─── estilos das abas ──────────────────────────────────────────────────────
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    padding: '10px 20px',
+    border: 'none',
+    background: 'none',
+    cursor: 'pointer',
+    fontSize: 14,
+    fontWeight: active ? 600 : 400,
+    color: active ? 'var(--color-primary, #2563eb)' : '#6b7280',
+    borderBottom: active ? '2px solid var(--color-primary, #2563eb)' : '2px solid transparent',
+    transition: 'all 0.15s',
+    whiteSpace: 'nowrap',
+  })
 
   // ─── render ────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6">
-      {msg && (
-        <div className={cn(
-          'fixed top-4 right-4 z-[100] px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-2',
-          msg.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white',
-        )}>
-          {msg.text}
-          <button onClick={() => {}} className="ml-2 opacity-70 hover:opacity-100"><X size={14} /></button>
-        </div>
-      )}
-
-      <PageHeader title="EPIs" subtitle="Catálogo e registros de entrega de equipamentos de proteção individual" />
-
-      <Tabs defaultValue="catalogo">
-        <TabsList className="mb-5">
-          <TabsTrigger value="catalogo" className="gap-2">
-            <ShieldCheck size={15} /> Catálogo de EPIs
-          </TabsTrigger>
-          <TabsTrigger value="registros" className="gap-2">
-            <ClipboardList size={15} /> Registros de Entrega
-          </TabsTrigger>
-        </TabsList>
-
-        {/* ══════════════════════════════════════════════════════════════════ */}
-        {/*  TAB CATÁLOGO                                                      */}
-        {/* ══════════════════════════════════════════════════════════════════ */}
-        <TabsContent value="catalogo">
-          <div className="flex items-center justify-between mb-4 gap-3">
-            <div className="relative flex-1 max-w-sm">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="pl-9"
-                placeholder="Buscar por nome ou Nº CA…"
-                value={catSearch}
-                onChange={e => setCatSearch(e.target.value)}
-              />
-            </div>
-            <Button onClick={openCatNew} className="gap-2 shrink-0">
+    <div>
+      <PageHeader
+        title="EPIs"
+        subtitle="Equipamentos de Proteção Individual — catálogo e vínculos por função"
+        action={
+          aba === 'catalogo' ? (
+            <Button onClick={openNew} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <Plus size={16} /> Novo EPI
             </Button>
-          </div>
-
-          {catLoading ? (
-            <LoadingSkeleton rows={5} />
-          ) : filteredCat.length === 0 ? (
-            <EmptyState icon={<ShieldCheck size={32} />} title="Nenhum EPI cadastrado" description="Adicione EPIs ao catálogo para controlar as entregas." />
-          ) : (
-            <div className="rounded-lg border border-border bg-card overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/50">
-                    <TableHead>Nome</TableHead>
-                    <TableHead>Nº CA</TableHead>
-                    <TableHead>Fabricante</TableHead>
-                    <TableHead>Validade (meses)</TableHead>
-                    <TableHead>Tam.</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredCat.map(c => (
-                    <TableRow key={c.id} className="hover:bg-muted/30 transition-colors">
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{c.nome}</p>
-                          {c.descricao && (
-                            <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{c.descricao}</p>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">{c.numero_ca ?? '—'}</TableCell>
-                      <TableCell className="text-sm">{c.fabricante ?? '—'}</TableCell>
-                      <TableCell className="text-sm">{c.validade_meses ?? '—'}</TableCell>
-                      <TableCell>
-                        <span className={cn(
-                          'text-xs px-2 py-0.5 rounded-full font-medium',
-                          c.requer_tamanho ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600',
-                        )}>
-                          {c.requer_tamanho ? 'Sim' : 'Não'}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <span className={cn(
-                          'text-xs px-2 py-0.5 rounded-full font-medium',
-                          c.ativo ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800',
-                        )}>
-                          {c.ativo ? 'Ativo' : 'Inativo'}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openCatEdit(c)}>
-                            <Pencil size={14} />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setCatDeleteId(c.id)}>
-                            <Trash2 size={14} />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </TabsContent>
-
-        {/* ══════════════════════════════════════════════════════════════════ */}
-        {/*  TAB REGISTROS                                                     */}
-        {/* ══════════════════════════════════════════════════════════════════ */}
-        <TabsContent value="registros">
-          <div className="flex items-center justify-between mb-4 gap-3">
-            <div className="relative flex-1 max-w-sm">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="pl-9"
-                placeholder="Filtrar por colaborador ou chapa…"
-                value={regSearch}
-                onChange={e => setRegSearch(e.target.value)}
-              />
-            </div>
-            <Button onClick={openRegNew} className="gap-2 shrink-0">
-              <Plus size={16} /> Novo Registro
+          ) : funcaoSelecionada ? (
+            <Button
+              onClick={() => { setVinculoForm(EMPTY_VINCULO_FORM); setVinculoModalOpen(true) }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <Link size={16} /> Vincular EPI
             </Button>
-          </div>
+          ) : null
+        }
+      />
 
-          {regLoading ? (
-            <LoadingSkeleton rows={5} />
-          ) : filteredReg.length === 0 ? (
-            <EmptyState icon={<ClipboardList size={32} />} title="Nenhum registro encontrado" description="Registre a entrega de EPIs aos colaboradores." />
-          ) : (
-            <div className="rounded-lg border border-border bg-card overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/50">
-                    <TableHead>Colaborador</TableHead>
-                    <TableHead>EPI</TableHead>
-                    <TableHead>Tamanho</TableHead>
-                    <TableHead>Qtd</TableHead>
-                    <TableHead>Data Entrega</TableHead>
-                    <TableHead>Validade</TableHead>
-                    <TableHead>Devolvido</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredReg.map(r => (
-                    <TableRow key={r.id} className="hover:bg-muted/30 transition-colors">
-                      <TableCell>
-                        <div>
-                          <p className="font-medium text-sm">{r.colaboradores?.nome ?? '—'}</p>
-                          {r.colaboradores?.chapa && (
-                            <p className="text-xs text-muted-foreground font-mono">#{r.colaboradores.chapa}</p>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="text-sm">{r.epi_catalogo?.nome ?? r.epi_nome ?? '—'}</p>
-                          {(r.epi_catalogo?.numero_ca ?? r.numero_ca) && (
-                            <p className="text-xs text-muted-foreground font-mono">
-                              CA {r.epi_catalogo?.numero_ca ?? r.numero_ca}
-                            </p>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm">{r.tamanho ?? '—'}</TableCell>
-                      <TableCell className="text-sm text-center">{r.quantidade}</TableCell>
-                      <TableCell className="text-sm">{formatDate(r.data_entrega)}</TableCell>
-                      <TableCell className="text-sm">
-                        {r.data_validade ? (
-                          <span className={cn(
-                            new Date(r.data_validade) < new Date()
-                              ? 'text-red-600 font-medium'
-                              : 'text-foreground',
-                          )}>
-                            {formatDate(r.data_validade)}
-                          </span>
-                        ) : '—'}
-                      </TableCell>
-                      <TableCell>
-                        <span className={cn(
-                          'text-xs px-2 py-0.5 rounded-full font-medium',
-                          r.devolvido
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-yellow-100 text-yellow-800',
-                        )}>
-                          {r.devolvido ? 'Sim' : 'Não'}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openRegEdit(r)}>
-                            <Pencil size={14} />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setRegDeleteId(r.id)}>
-                            <Trash2 size={14} />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+      {/* ── abas ── */}
+      <div
+        style={{
+          display: 'flex',
+          borderBottom: '1px solid #e5e7eb',
+          marginBottom: 24,
+          gap: 4,
+        }}
+      >
+        <button style={tabStyle(aba === 'catalogo')} onClick={() => setAba('catalogo')}>
+          📦 Catálogo de EPIs
+        </button>
+        <button style={tabStyle(aba === 'funcao')} onClick={() => setAba('funcao')}>
+          🔗 EPIs por Função
+        </button>
+      </div>
 
-      {/* ════════════════════════════════════════════════════════════════════ */}
-      {/*  MODAL CATÁLOGO                                                      */}
-      {/* ════════════════════════════════════════════════════════════════════ */}
-      <Dialog open={catModalOpen} onOpenChange={setCatModalOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{catEditId ? 'Editar EPI' : 'Novo EPI'}</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-3 py-2">
-            <FG label="Nome *">
-              <Input value={catForm.nome} onChange={e => setCat('nome', e.target.value)} placeholder="Ex.: Capacete de proteção" />
-            </FG>
-            <FG label="Descrição">
-              <Textarea value={catForm.descricao} onChange={e => setCat('descricao', e.target.value)} rows={2} placeholder="Descrição do EPI…" />
-            </FG>
-            <div className="grid grid-cols-2 gap-3">
-              <FG label="Número CA">
-                <Input value={catForm.numero_ca} onChange={e => setCat('numero_ca', e.target.value)} placeholder="12345" />
-              </FG>
-              <FG label="Validade (meses)">
-                <Input type="number" min="0" value={catForm.validade_meses} onChange={e => setCat('validade_meses', e.target.value)} placeholder="12" />
-              </FG>
-              <FG label="Fabricante" span={2}>
-                <Input value={catForm.fabricante} onChange={e => setCat('fabricante', e.target.value)} placeholder="Nome do fabricante" />
-              </FG>
-            </div>
-            <div className="flex items-center gap-6 pt-1">
-              <SwitchRow
-                label="Requer tamanho"
-                value={catForm.requer_tamanho}
-                onChange={v => setCat('requer_tamanho', v)}
-              />
-              <SwitchRow
-                label="Ativo"
-                value={catForm.ativo}
-                onChange={v => setCat('ativo', v)}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCatModalOpen(false)} disabled={catSaving}>Cancelar</Button>
-            <Button onClick={handleCatSave} disabled={catSaving}>
-              {catSaving ? 'Salvando…' : catEditId ? 'Salvar alterações' : 'Cadastrar EPI'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ════════════════════════════════════════════════════════════════════ */}
-      {/*  MODAL REGISTRO                                                      */}
-      {/* ════════════════════════════════════════════════════════════════════ */}
-      <Dialog open={regModalOpen} onOpenChange={setRegModalOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{regEditId ? 'Editar Registro' : 'Novo Registro de Entrega'}</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-3 py-2">
-            <FG label="Colaborador *">
-              <Select value={regForm.colaborador_id} onValueChange={v => setReg('colaborador_id', v)}>
-                <SelectTrigger><SelectValue placeholder="Selecione o colaborador" /></SelectTrigger>
-                <SelectContent>
-                  {colaboradores.map(c => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nome}{c.chapa ? ` (${c.chapa})` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FG>
-            <FG label="EPI">
-              <Select value={regForm.epi_id} onValueChange={v => setReg('epi_id', v)}>
-                <SelectTrigger><SelectValue placeholder="Selecione o EPI" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">— Sem vínculo —</SelectItem>
-                  {catalogo.filter(c => c.ativo).map(c => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nome}{c.numero_ca ? ` — CA ${c.numero_ca}` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FG>
-            <div className="grid grid-cols-2 gap-3">
-              {selectedEpiObj?.requer_tamanho && (
-                <FG label="Tamanho">
-                  <Select value={regForm.tamanho} onValueChange={v => setReg('tamanho', v)}>
-                    <SelectTrigger><SelectValue placeholder="Tam." /></SelectTrigger>
-                    <SelectContent>
-                      {['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG'].map(t => (
-                        <SelectItem key={t} value={t}>{t}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FG>
-              )}
-              <FG label="Quantidade">
-                <Input type="number" min="1" value={regForm.quantidade} onChange={e => setReg('quantidade', e.target.value)} />
-              </FG>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <FG label="Data de entrega *">
-                <Input type="date" value={regForm.data_entrega} onChange={e => setReg('data_entrega', e.target.value)} />
-              </FG>
-              <FG label="Data de validade">
-                <Input type="date" value={regForm.data_validade} onChange={e => setReg('data_validade', e.target.value)} />
-              </FG>
-            </div>
-            <FG label="Observações">
-              <Textarea value={regForm.observacoes} onChange={e => setReg('observacoes', e.target.value)} rows={2} placeholder="Observações…" />
-            </FG>
-            <SwitchRow
-              label="Devolvido"
-              value={regForm.devolvido}
-              onChange={v => setReg('devolvido', v)}
+      {/* ════════════════════════════════════════════════════════════════════════
+          ABA 1 — CATÁLOGO
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {aba === 'catalogo' && (
+        <div>
+          {/* Busca */}
+          <div style={{ position: 'relative', maxWidth: 360, marginBottom: 20 }}>
+            <Search
+              size={15}
+              style={{
+                position: 'absolute',
+                left: 12,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#9ca3af',
+              }}
+            />
+            <Input
+              style={{ paddingLeft: 36 }}
+              placeholder="Buscar por nome, categoria ou CA…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
             />
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRegModalOpen(false)} disabled={regSaving}>Cancelar</Button>
-            <Button onClick={handleRegSave} disabled={regSaving}>
-              {regSaving ? 'Salvando…' : regEditId ? 'Salvar alterações' : 'Registrar entrega'}
+          {/* Tabela */}
+          {loadingEpis ? (
+            <LoadingSkeleton rows={5} />
+          ) : filtered.length === 0 ? (
+            <EmptyState
+              icon={<Package size={32} />}
+              title="Nenhum EPI encontrado"
+              description="Cadastre o primeiro EPI ou ajuste a busca."
+              action={
+                <Button onClick={openNew} size="sm" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Plus size={14} /> Novo EPI
+                </Button>
+              }
+            />
+          ) : (
+            <div style={{ borderRadius: 8, border: '1px solid #e5e7eb', overflow: 'hidden', background: '#fff' }}>
+              <Table>
+                <TableHeader>
+                  <TableRow style={{ background: '#f9fafb' }}>
+                    <TableHead>Nome</TableHead>
+                    <TableHead style={{ width: 120 }}>Categoria</TableHead>
+                    <TableHead style={{ width: 110 }}>Nº CA</TableHead>
+                    <TableHead style={{ width: 90, textAlign: 'center' }}>Requer Tam.</TableHead>
+                    <TableHead style={{ width: 90, textAlign: 'center' }}>Requer Nº</TableHead>
+                    <TableHead style={{ width: 100, textAlign: 'center' }}>Vida Útil</TableHead>
+                    <TableHead style={{ width: 80, textAlign: 'center' }}>Status</TableHead>
+                    <TableHead style={{ width: 80, textAlign: 'right' }}>Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map(epi => (
+                    <TableRow key={epi.id} style={{ transition: 'background 0.15s' }}>
+                      {/* Nome */}
+                      <TableCell>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <Shield size={15} style={{ color: '#2563eb', flexShrink: 0 }} />
+                          <span style={{ fontWeight: 500 }}>{epi.nome}</span>
+                        </div>
+                      </TableCell>
+
+                      {/* Categoria */}
+                      <TableCell>
+                        {epi.categoria ? (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '2px 8px',
+                              borderRadius: 999,
+                              background: '#eff6ff',
+                              color: '#1d4ed8',
+                              fontSize: 12,
+                              fontWeight: 500,
+                            }}
+                          >
+                            <Tag size={10} />
+                            {epi.categoria}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>
+                        )}
+                      </TableCell>
+
+                      {/* Nº CA */}
+                      <TableCell>
+                        {epi.numero_ca ? (
+                          <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#374151' }}>
+                            {epi.numero_ca}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>
+                        )}
+                      </TableCell>
+
+                      {/* Requer Tamanho */}
+                      <TableCell style={{ textAlign: 'center' }}>
+                        {epi.requer_tamanho ? (
+                          <CheckCircle2 size={16} style={{ color: '#16a34a', margin: '0 auto' }} />
+                        ) : (
+                          <X size={16} style={{ color: '#d1d5db', margin: '0 auto' }} />
+                        )}
+                      </TableCell>
+
+                      {/* Requer Número */}
+                      <TableCell style={{ textAlign: 'center' }}>
+                        {epi.requer_numero ? (
+                          <CheckCircle2 size={16} style={{ color: '#16a34a', margin: '0 auto' }} />
+                        ) : (
+                          <X size={16} style={{ color: '#d1d5db', margin: '0 auto' }} />
+                        )}
+                      </TableCell>
+
+                      {/* Vida Útil */}
+                      <TableCell style={{ textAlign: 'center' }}>
+                        {epi.vida_util_meses != null ? (
+                          <span style={{ fontSize: 13, color: '#374151' }}>
+                            {epi.vida_util_meses}{' '}
+                            <span style={{ fontSize: 11, color: '#6b7280' }}>
+                              {epi.vida_util_meses === 1 ? 'mês' : 'meses'}
+                            </span>
+                          </span>
+                        ) : (
+                          <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>
+                        )}
+                      </TableCell>
+
+                      {/* Status */}
+                      <TableCell style={{ textAlign: 'center' }}>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '2px 8px',
+                            borderRadius: 999,
+                            fontSize: 11,
+                            fontWeight: 500,
+                            background: epi.ativo ? '#dcfce7' : '#fee2e2',
+                            color: epi.ativo ? '#166534' : '#991b1b',
+                          }}
+                        >
+                          {epi.ativo ? 'Ativo' : 'Inativo'}
+                        </span>
+                      </TableCell>
+
+                      {/* Ações */}
+                      <TableCell style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            style={{ width: 32, height: 32 }}
+                            onClick={() => openEdit(epi)}
+                          >
+                            <Pencil size={14} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            style={{ width: 32, height: 32, color: '#dc2626' }}
+                            onClick={() => setDeleteId(epi.id)}
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          ABA 2 — EPIs POR FUNÇÃO
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {aba === 'funcao' && (
+        <div>
+          {/* Seletor de função */}
+          <div style={{ maxWidth: 400, marginBottom: 24 }}>
+            <Label style={{ display: 'block', marginBottom: 6, fontSize: 13, fontWeight: 500 }}>
+              Selecionar Função
+            </Label>
+            {loadingFuncoes ? (
+              <div style={{ height: 38, background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+            ) : (
+              <Select
+                value={funcaoSelecionada || undefined}
+                onValueChange={v => setFuncaoSelecionada(v)}
+              >
+                <SelectTrigger style={{ width: '100%' }}>
+                  <SelectValue placeholder="Selecione uma função…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {funcoes.map(f => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.nome}{f.sigla ? ` (${f.sigla})` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          {/* Conteúdo da aba 2 */}
+          {!funcaoSelecionada ? (
+            <EmptyState
+              icon={<Link size={32} />}
+              title="Nenhuma função selecionada"
+              description="Selecione uma função acima para ver os EPIs vinculados."
+            />
+          ) : loadingVinculos ? (
+            <LoadingSkeleton rows={4} />
+          ) : vinculos.length === 0 ? (
+            <EmptyState
+              icon={<Unlink size={32} />}
+              title="Nenhum EPI vinculado"
+              description="Esta função ainda não possui EPIs vinculados."
+              action={
+                <Button
+                  size="sm"
+                  style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                  onClick={() => { setVinculoForm(EMPTY_VINCULO_FORM); setVinculoModalOpen(true) }}
+                >
+                  <Link size={14} /> Vincular EPI
+                </Button>
+              }
+            />
+          ) : (
+            <div style={{ borderRadius: 8, border: '1px solid #e5e7eb', overflow: 'hidden', background: '#fff' }}>
+              <Table>
+                <TableHeader>
+                  <TableRow style={{ background: '#f9fafb' }}>
+                    <TableHead>EPI</TableHead>
+                    <TableHead style={{ width: 120 }}>Categoria</TableHead>
+                    <TableHead style={{ width: 100, textAlign: 'center' }}>Obrigatório</TableHead>
+                    <TableHead style={{ width: 100, textAlign: 'center' }}>Quantidade</TableHead>
+                    <TableHead style={{ width: 80, textAlign: 'center' }}>Desvincular</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {vinculos.map(v => (
+                    <TableRow key={v.id} style={{ transition: 'background 0.15s' }}>
+                      {/* EPI */}
+                      <TableCell>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <Shield size={14} style={{ color: '#2563eb', flexShrink: 0 }} />
+                          <span style={{ fontWeight: 500 }}>
+                            {v.epi_catalogo?.nome ?? '—'}
+                          </span>
+                        </div>
+                      </TableCell>
+
+                      {/* Categoria */}
+                      <TableCell>
+                        {v.epi_catalogo?.categoria ? (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '2px 8px',
+                              borderRadius: 999,
+                              background: '#eff6ff',
+                              color: '#1d4ed8',
+                              fontSize: 12,
+                              fontWeight: 500,
+                            }}
+                          >
+                            <Tag size={10} />
+                            {v.epi_catalogo.categoria}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>
+                        )}
+                      </TableCell>
+
+                      {/* Obrigatório */}
+                      <TableCell style={{ textAlign: 'center' }}>
+                        {v.obrigatorio ? (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '2px 8px',
+                              borderRadius: 999,
+                              background: '#fef2f2',
+                              color: '#991b1b',
+                              fontSize: 11,
+                              fontWeight: 600,
+                            }}
+                          >
+                            <AlertCircle size={11} />
+                            Sim
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '2px 8px',
+                              borderRadius: 999,
+                              background: '#f3f4f6',
+                              color: '#6b7280',
+                              fontSize: 11,
+                              fontWeight: 500,
+                            }}
+                          >
+                            Não
+                          </span>
+                        )}
+                      </TableCell>
+
+                      {/* Quantidade */}
+                      <TableCell style={{ textAlign: 'center', fontWeight: 500, fontSize: 14 }}>
+                        {v.quantidade}
+                      </TableCell>
+
+                      {/* Desvincular */}
+                      <TableCell style={{ textAlign: 'center' }}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          style={{ width: 32, height: 32, color: '#dc2626' }}
+                          onClick={() => setDeleteVinculoId(v.id)}
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          MODAL — CADASTRO / EDIÇÃO DE EPI
+      ══════════════════════════════════════════════════════════════════════════ */}
+      <Dialog open={modalOpen} onOpenChange={open => { if (!open) setModalOpen(false) }}>
+        <DialogContent style={{ maxWidth: 540 }}>
+          <DialogHeader>
+            <DialogTitle style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Shield size={18} style={{ color: '#2563eb' }} />
+              {editId ? 'Editar EPI' : 'Novo EPI'}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '4px 0' }}>
+
+            {/* Nome */}
+            <div>
+              <Label style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>
+                Nome <span style={{ color: '#dc2626' }}>*</span>
+              </Label>
+              <Input
+                placeholder="Ex.: Capacete de segurança"
+                value={form.nome}
+                onChange={e => setForm(p => ({ ...p, nome: e.target.value }))}
+              />
+            </div>
+
+            {/* Categoria + Unidade */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <Label style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>Categoria</Label>
+                <Select
+                  value={form.categoria || undefined}
+                  onValueChange={v => setForm(p => ({ ...p, categoria: v }))}
+                >
+                  <SelectTrigger style={{ width: '100%' }}>
+                    <SelectValue placeholder="Selecione…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIAS.map(c => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>Unidade</Label>
+                <Select
+                  value={form.unidade || undefined}
+                  onValueChange={v => setForm(p => ({ ...p, unidade: v }))}
+                >
+                  <SelectTrigger style={{ width: '100%' }}>
+                    <SelectValue placeholder="Selecione…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {UNIDADES.map(u => (
+                      <SelectItem key={u} value={u}>
+                        {u.charAt(0).toUpperCase() + u.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Nº CA + Vida Útil */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <Label style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>
+                  Certificado de Aprovação (CA)
+                </Label>
+                <Input
+                  placeholder="Ex.: 12345"
+                  value={form.numero_ca}
+                  onChange={e => setForm(p => ({ ...p, numero_ca: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <Label style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>
+                  Vida Útil (meses)
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="Ex.: 12"
+                  value={form.vida_util_meses}
+                  onChange={e => setForm(p => ({ ...p, vida_util_meses: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            {/* Toggles */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                padding: '12px 16px',
+                background: '#f9fafb',
+                borderRadius: 8,
+                border: '1px solid #e5e7eb',
+              }}
+            >
+              <p style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Configurações adicionais
+              </p>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 500, margin: 0, color: '#374151' }}>
+                    Requer Tamanho
+                  </p>
+                  <p style={{ fontSize: 11, color: '#9ca3af', margin: '2px 0 0' }}>
+                    Vestimentas (P, M, G, GG…)
+                  </p>
+                </div>
+                <Toggle
+                  checked={form.requer_tamanho}
+                  onChange={v => setForm(p => ({ ...p, requer_tamanho: v }))}
+                />
+              </div>
+
+              <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 500, margin: 0, color: '#374151' }}>
+                    Requer Número
+                  </p>
+                  <p style={{ fontSize: 11, color: '#9ca3af', margin: '2px 0 0' }}>
+                    Calçados (número do pé)
+                  </p>
+                </div>
+                <Toggle
+                  checked={form.requer_numero}
+                  onChange={v => setForm(p => ({ ...p, requer_numero: v }))}
+                />
+              </div>
+
+              <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 500, margin: 0, color: '#374151' }}>
+                    EPI Ativo
+                  </p>
+                  <p style={{ fontSize: 11, color: '#9ca3af', margin: '2px 0 0' }}>
+                    Disponível para uso e vinculação
+                  </p>
+                </div>
+                <Toggle
+                  checked={form.ativo}
+                  onChange={v => setForm(p => ({ ...p, ativo: v }))}
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter style={{ gap: 8 }}>
+            <Button variant="outline" onClick={() => setModalOpen(false)} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? 'Salvando…' : editId ? 'Salvar alterações' : 'Cadastrar EPI'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* AlertDialog catálogo */}
-      <AlertDialog open={!!catDeleteId} onOpenChange={open => !open && setCatDeleteId(null)}>
+      {/* ════════════════════════════════════════════════════════════════════════
+          MODAL — VINCULAR EPI À FUNÇÃO
+      ══════════════════════════════════════════════════════════════════════════ */}
+      <Dialog open={vinculoModalOpen} onOpenChange={open => { if (!open) setVinculoModalOpen(false) }}>
+        <DialogContent style={{ maxWidth: 460 }}>
+          <DialogHeader>
+            <DialogTitle style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Link size={18} style={{ color: '#2563eb' }} />
+              Vincular EPI à Função
+            </DialogTitle>
+          </DialogHeader>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '4px 0' }}>
+
+            {/* EPI */}
+            <div>
+              <Label style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>
+                EPI <span style={{ color: '#dc2626' }}>*</span>
+              </Label>
+              {episDisponiveis.length === 0 ? (
+                <div
+                  style={{
+                    padding: '10px 14px',
+                    background: '#fef9c3',
+                    borderRadius: 6,
+                    fontSize: 13,
+                    color: '#92400e',
+                    border: '1px solid #fde68a',
+                  }}
+                >
+                  Todos os EPIs ativos já estão vinculados a esta função.
+                </div>
+              ) : (
+                <Select
+                  value={vinculoForm.epi_id || undefined}
+                  onValueChange={v => setVinculoForm(p => ({ ...p, epi_id: v }))}
+                >
+                  <SelectTrigger style={{ width: '100%' }}>
+                    <SelectValue placeholder="Selecione um EPI…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {episDisponiveis.map(e => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.nome}
+                        {e.categoria ? ` — ${e.categoria}` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            {/* Obrigatório + Quantidade */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <Label style={{ display: 'block', marginBottom: 8, fontSize: 13 }}>Obrigatório</Label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setVinculoForm(p => ({ ...p, obrigatorio: true }))}
+                    style={{
+                      flex: 1,
+                      padding: '7px 0',
+                      borderRadius: 6,
+                      border: '1px solid',
+                      borderColor: vinculoForm.obrigatorio ? '#dc2626' : '#e5e7eb',
+                      background: vinculoForm.obrigatorio ? '#fef2f2' : '#fff',
+                      color: vinculoForm.obrigatorio ? '#dc2626' : '#374151',
+                      fontSize: 13,
+                      fontWeight: vinculoForm.obrigatorio ? 600 : 400,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    Sim
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVinculoForm(p => ({ ...p, obrigatorio: false }))}
+                    style={{
+                      flex: 1,
+                      padding: '7px 0',
+                      borderRadius: 6,
+                      border: '1px solid',
+                      borderColor: !vinculoForm.obrigatorio ? '#2563eb' : '#e5e7eb',
+                      background: !vinculoForm.obrigatorio ? '#eff6ff' : '#fff',
+                      color: !vinculoForm.obrigatorio ? '#2563eb' : '#374151',
+                      fontSize: 13,
+                      fontWeight: !vinculoForm.obrigatorio ? 600 : 400,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    Não
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <Label style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>Quantidade</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={vinculoForm.quantidade}
+                  onChange={e => setVinculoForm(p => ({ ...p, quantidade: e.target.value }))}
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter style={{ gap: 8 }}>
+            <Button variant="outline" onClick={() => setVinculoModalOpen(false)} disabled={savingVinculo}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSaveVinculo}
+              disabled={savingVinculo || episDisponiveis.length === 0}
+            >
+              {savingVinculo ? 'Vinculando…' : 'Vincular EPI'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          ALERT — EXCLUIR EPI
+      ══════════════════════════════════════════════════════════════════════════ */}
+      <AlertDialog open={!!deleteId} onOpenChange={open => { if (!open) setDeleteId(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir EPI do catálogo?</AlertDialogTitle>
+            <AlertDialogTitle>Excluir EPI?</AlertDialogTitle>
             <AlertDialogDescription>
-              O EPI será removido do catálogo. Registros de entrega existentes não serão afetados.
+              Esta ação é irreversível. O EPI será removido do catálogo e todos os vínculos
+              associados poderão ser afetados.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={catDeleting}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleCatDelete} disabled={catDeleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {catDeleting ? 'Excluindo…' : 'Excluir'}
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              style={{ background: '#dc2626', color: '#fff' }}
+            >
+              {deleting ? 'Excluindo…' : 'Excluir'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* AlertDialog registros */}
-      <AlertDialog open={!!regDeleteId} onOpenChange={open => !open && setRegDeleteId(null)}>
+      {/* ════════════════════════════════════════════════════════════════════════
+          ALERT — DESVINCULAR EPI
+      ══════════════════════════════════════════════════════════════════════════ */}
+      <AlertDialog open={!!deleteVinculoId} onOpenChange={open => { if (!open) setDeleteVinculoId(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir registro?</AlertDialogTitle>
+            <AlertDialogTitle>Desvincular EPI?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta ação não pode ser desfeita. O registro de entrega do EPI será removido permanentemente.
+              O EPI será removido dos requisitos desta função. Esta ação pode ser desfeita
+              vinculando o EPI novamente.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={regDeleting}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleRegDelete} disabled={regDeleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {regDeleting ? 'Excluindo…' : 'Excluir'}
+            <AlertDialogCancel disabled={deletingVinculo}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteVinculo}
+              disabled={deletingVinculo}
+              style={{ background: '#dc2626', color: '#fff' }}
+            >
+              {deletingVinculo ? 'Removendo…' : 'Desvincular'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
-  )
-}
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
-function FG({ label, children, span }: { label: string; children: React.ReactNode; span?: number }) {
-  return (
-    <div className={cn('flex flex-col gap-1', span === 2 && 'col-span-2')}>
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      {children}
-    </div>
-  )
-}
-
-function SwitchRow({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={() => onChange(!value)}
-        className={cn(
-          'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-          value ? 'bg-primary' : 'bg-muted-foreground/30',
-        )}
-      >
-        <span className={cn(
-          'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-          value ? 'translate-x-6' : 'translate-x-1',
-        )} />
-      </button>
-      <Label className="text-sm cursor-pointer" onClick={() => onChange(!value)}>{label}</Label>
     </div>
   )
 }

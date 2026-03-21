@@ -13,8 +13,7 @@ const Colaboradores  = React.lazy(() => import('@/pages/Colaboradores'))
 const Obras          = React.lazy(() => import('@/pages/Obras'))
 const Funcoes        = React.lazy(() => import('@/pages/Funcoes'))
 const Epis           = React.lazy(() => import('@/pages/Epis'))
-const Acidentes      = React.lazy(() => import('@/pages/Acidentes'))
-const Atestados      = React.lazy(() => import('@/pages/Atestados'))
+const Ocorrencias    = React.lazy(() => import('@/pages/Ocorrencias'))
 const Documentos     = React.lazy(() => import('@/pages/Documentos'))
 const Ponto          = React.lazy(() => import('@/pages/Ponto'))
 const Pagamentos     = React.lazy(() => import('@/pages/Pagamentos'))
@@ -122,25 +121,17 @@ export default function App() {
                 }
               />
               <Route
-                path="/acidentes"
+                path="/ocorrencias"
                 element={
                   <PrivateRoute>
                     <Layout>
-                      <Acidentes />
+                      <Ocorrencias />
                     </Layout>
                   </PrivateRoute>
                 }
               />
-              <Route
-                path="/atestados"
-                element={
-                  <PrivateRoute>
-                    <Layout>
-                      <Atestados />
-                    </Layout>
-                  </PrivateRoute>
-                }
-              />
+              <Route path="/acidentes" element={<Navigate to="/ocorrencias" replace />} />
+              <Route path="/atestados" element={<Navigate to="/ocorrencias" replace />} />
               <Route
                 path="/documentos"
                 element={

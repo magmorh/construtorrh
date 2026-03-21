@@ -85,13 +85,29 @@ async function gerarChapa(sigla: string): Promise<string> {
 }
 
 // ─── FUNCOES INLINE ───────────────────────────────────────────────────────────
+const TIPOS_CONTRATO = [
+  { value: 'clt',        label: 'CLT',           cor: '#2563eb' },
+  { value: 'autonomo',   label: 'Autônomo / PJ',  cor: '#ea580c' },
+  { value: 'temporario', label: 'Temporário',     cor: '#7c3aed' },
+  { value: 'aprendiz',   label: 'Aprendiz',       cor: '#0891b2' },
+  { value: 'estagiario', label: 'Estagiário',     cor: '#059669' },
+]
+
+type ContratosValores = Record<string, { ativo: boolean; valor_hora: string }>
+
+function emptyContratos(): ContratosValores {
+  return Object.fromEntries(
+    TIPOS_CONTRATO.map(t => [t.value, { ativo: t.value === 'clt', valor_hora: '' }])
+  )
+}
+
 type FuncaoForm = {
   nome: string; sigla: string; descricao: string; cbo: string
-  valor_hora_clt: string; valor_hora_autonomo: string; ativo: boolean
+  contratos: ContratosValores; ativo: boolean
 }
 const EMPTY_FN: FuncaoForm = {
   nome: '', sigla: '', descricao: '', cbo: '',
-  valor_hora_clt: '', valor_hora_autonomo: '', ativo: true,
+  contratos: emptyContratos(), ativo: true,
 }
 
 function autoSigla(nome: string) {
@@ -127,12 +143,18 @@ function FuncoesTab() {
   const openNew = () => { setEditId(null); setForm(EMPTY_FN); setModal(true) }
   const openEdit = (f: Funcao) => {
     setEditId(f.id)
-    setForm({
-      nome: f.nome, sigla: f.sigla ?? '', descricao: f.descricao ?? '', cbo: f.cbo ?? '',
-      valor_hora_clt: f.valor_hora_clt != null ? String(f.valor_hora_clt) : '',
-      valor_hora_autonomo: f.valor_hora_autonomo != null ? String(f.valor_hora_autonomo) : '',
-      ativo: f.ativo,
-    })
+    // Merge contratos_valores do banco com os tipos padrão
+    const saved = (f as any).contratos_valores as ContratosValores | null ?? {}
+    // fallback para colunas legadas valor_hora_clt / valor_hora_autonomo
+    const contratos = emptyContratos()
+    for (const t of TIPOS_CONTRATO) {
+      if (saved[t.value]) {
+        contratos[t.value] = { ativo: saved[t.value].ativo ?? false, valor_hora: String(saved[t.value].valor_hora ?? '') }
+      }
+    }
+    if (!saved['clt'] && f.valor_hora_clt != null) contratos['clt'] = { ativo: true, valor_hora: String(f.valor_hora_clt) }
+    if (!saved['autonomo'] && f.valor_hora_autonomo != null) contratos['autonomo'] = { ativo: true, valor_hora: String(f.valor_hora_autonomo) }
+    setForm({ nome: f.nome, sigla: f.sigla ?? '', descricao: f.descricao ?? '', cbo: f.cbo ?? '', contratos, ativo: f.ativo })
     setModal(true)
   }
 
@@ -147,13 +169,20 @@ function FuncoesTab() {
     if (!form.nome.trim()) { toast.error('Nome obrigatório'); return }
     if (!form.sigla.trim()) { toast.error('Sigla obrigatória'); return }
     setSaving(true)
+    // Converte para JSONB e mantém compatibilidade com colunas legadas
+    const cv: Record<string, { ativo: boolean; valor_hora: number | null }> = {}
+    for (const t of TIPOS_CONTRATO) {
+      const c = form.contratos[t.value]
+      cv[t.value] = { ativo: c.ativo, valor_hora: c.valor_hora ? parseFloat(c.valor_hora) : null }
+    }
     const payload = {
       nome: form.nome.trim(),
       sigla: form.sigla.toUpperCase(),
       descricao: form.descricao || null,
       cbo: form.cbo || null,
-      valor_hora_clt: form.valor_hora_clt ? parseFloat(form.valor_hora_clt) : null,
-      valor_hora_autonomo: form.valor_hora_autonomo ? parseFloat(form.valor_hora_autonomo) : null,
+      valor_hora_clt: cv['clt']?.valor_hora ?? null,
+      valor_hora_autonomo: cv['autonomo']?.valor_hora ?? null,
+      contratos_valores: cv,
       ativo: form.ativo,
     }
     const { error } = editId
@@ -195,8 +224,7 @@ function FuncoesTab() {
                 <TableHead>Função</TableHead>
                 <TableHead style={{ width: 80 }}>Sigla</TableHead>
                 <TableHead style={{ width: 100 }}>CBO</TableHead>
-                <TableHead>Valor/h CLT</TableHead>
-                <TableHead>Valor/h Autônomo</TableHead>
+                <TableHead>Contratos ativos</TableHead>
                 <TableHead style={{ width: 80 }}>Status</TableHead>
                 <TableHead style={{ width: 80, textAlign: 'right' }}>Ações</TableHead>
               </TableRow>
@@ -217,14 +245,23 @@ function FuncoesTab() {
                   </TableCell>
                   <TableCell style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted-foreground)' }}>{f.cbo ?? '—'}</TableCell>
                   <TableCell>
-                    {f.valor_hora_clt != null
-                      ? <span style={{ color: '#2563eb', fontWeight: 600, fontSize: 13 }}>{formatCurrency(f.valor_hora_clt)}<span style={{ fontSize: 10, fontWeight: 400, color: 'var(--muted-foreground)' }}>/h</span></span>
-                      : <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>—</span>}
-                  </TableCell>
-                  <TableCell>
-                    {f.valor_hora_autonomo != null
-                      ? <span style={{ color: '#ea580c', fontWeight: 600, fontSize: 13 }}>{formatCurrency(f.valor_hora_autonomo)}<span style={{ fontSize: 10, fontWeight: 400, color: 'var(--muted-foreground)' }}>/h</span></span>
-                      : <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>—</span>}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {(() => {
+                        const cv = (f as any).contratos_valores as Record<string,{ativo:boolean;valor_hora:number|null}> | null
+                        if (!cv) {
+                          // legado
+                          return [
+                            f.valor_hora_clt != null && <span key="clt" style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(37,99,235,0.1)', color: '#2563eb', fontWeight: 600 }}>CLT {formatCurrency(f.valor_hora_clt)}/h</span>,
+                            f.valor_hora_autonomo != null && <span key="aut" style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(234,88,12,0.1)', color: '#ea580c', fontWeight: 600 }}>Aut. {formatCurrency(f.valor_hora_autonomo)}/h</span>,
+                          ]
+                        }
+                        return TIPOS_CONTRATO.filter(t => cv[t.value]?.ativo && cv[t.value]?.valor_hora != null).map(t => (
+                          <span key={t.value} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: t.cor + '18', color: t.cor, fontWeight: 600 }}>
+                            {t.label.split('/')[0].trim()} {formatCurrency(cv[t.value].valor_hora!)}/h
+                          </span>
+                        ))
+                      })()}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <span style={{
@@ -275,17 +312,42 @@ function FuncoesTab() {
 
             <div style={{ borderRadius: 8, border: '1px solid var(--border)', background: 'var(--muted)', padding: '12px 14px' }}>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted-foreground)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Clock size={11} /> Valor por Hora
+                <Clock size={11} /> Valor por Hora — por tipo de contrato
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <Field label={<><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#3b82f6', marginRight: 4 }} />CLT / Temporário (R$/h)</>}>
-                  <Input type="number" step="0.01" min="0" value={form.valor_hora_clt} onChange={e => setF('valor_hora_clt', e.target.value)} placeholder="0,00" />
-                  {form.valor_hora_clt && <div style={{ fontSize: 10, color: 'var(--muted-foreground)', marginTop: 3 }}>≈ {formatCurrency(parseFloat(form.valor_hora_clt) * 220)}/mês (220h)</div>}
-                </Field>
-                <Field label={<><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#f97316', marginRight: 4 }} />Autônomo / PJ (R$/h)</>}>
-                  <Input type="number" step="0.01" min="0" value={form.valor_hora_autonomo} onChange={e => setF('valor_hora_autonomo', e.target.value)} placeholder="0,00" />
-                  {form.valor_hora_autonomo && <div style={{ fontSize: 10, color: 'var(--muted-foreground)', marginTop: 3 }}>≈ {formatCurrency(parseFloat(form.valor_hora_autonomo) * 220)}/mês (220h)</div>}
-                </Field>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {TIPOS_CONTRATO.map(t => {
+                  const c = form.contratos[t.value]
+                  return (
+                    <div key={t.value} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6, background: c.ativo ? 'rgba(255,255,255,0.05)' : 'transparent', border: `1px solid ${c.ativo ? t.cor + '33' : 'transparent'}` }}>
+                      {/* toggle ativo */}
+                      <button type="button"
+                        onClick={() => setForm(p => ({ ...p, contratos: { ...p.contratos, [t.value]: { ...p.contratos[t.value], ativo: !c.ativo } } }))}
+                        style={{ flexShrink: 0, position: 'relative', display: 'inline-flex', width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', background: c.ativo ? t.cor : 'rgba(0,0,0,0.15)', transition: 'background 150ms' }}>
+                        <span style={{ position: 'absolute', top: 2, left: c.ativo ? 17 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 150ms' }} />
+                      </button>
+                      {/* label */}
+                      <span style={{ width: 130, fontSize: 12, fontWeight: 500, color: c.ativo ? 'var(--foreground)' : 'var(--muted-foreground)' }}>{t.label}</span>
+                      {/* input valor */}
+                      <div style={{ flex: 1, position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--muted-foreground)', pointerEvents: 'none' }}>R$</span>
+                        <Input
+                          type="number" step="0.01" min="0"
+                          disabled={!c.ativo}
+                          value={c.valor_hora}
+                          onChange={e => setForm(p => ({ ...p, contratos: { ...p.contratos, [t.value]: { ...p.contratos[t.value], valor_hora: e.target.value } } }))}
+                          placeholder={c.ativo ? '0,00' : '—'}
+                          style={{ paddingLeft: 28, opacity: c.ativo ? 1 : 0.4 }}
+                        />
+                      </div>
+                      {/* hint mensal */}
+                      {c.ativo && c.valor_hora && (
+                        <span style={{ fontSize: 10, color: 'var(--muted-foreground)', whiteSpace: 'nowrap' }}>
+                          ≈ {formatCurrency(parseFloat(c.valor_hora) * 220)}/mês
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
 

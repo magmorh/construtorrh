@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, Building2, Briefcase, Shield,
   AlertTriangle, FileText, Clock, DollarSign, Award,
   Calculator, Bus, BarChart3, Settings, LogOut, Menu,
-  HardHat, ChevronLeft, ChevronRight, FileWarning, X,
+  HardHat, ChevronLeft, ChevronRight, X,
 } from 'lucide-react'
 
 // ── grupos de navegação ───────────────────────────────────────────────────────
@@ -29,8 +29,7 @@ const NAV_GROUPS = [
     label: 'Saúde & Seg.',
     items: [
       { to: '/epis',           label: 'EPIs',           icon: Shield },
-      { to: '/acidentes',      label: 'Acidentes',      icon: AlertTriangle },
-      { to: '/atestados',      label: 'Atestados',      icon: FileWarning },
+      { to: '/ocorrencias',    label: 'Ocorrências',    icon: AlertTriangle },
       { to: '/documentos',     label: 'Documentos',     icon: FileText },
     ],
   },

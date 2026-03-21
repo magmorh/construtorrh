@@ -1493,16 +1493,7 @@ export default function Epis() {
                     {resumoEpi.length} EPI{resumoEpi.length !== 1 ? 's' : ''} (tipo/tamanho) · {itensEpi.length} vínculo{itensEpi.length !== 1 ? 's' : ''} total
                   </p>
                 </div>
-                {resumoEpi.length > 0 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={gerarPDF}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                  >
-                    <Download size={14} /> Gerar PDF
-                  </Button>
-                )}
+
               </div>
 
               {resumoEpi.length === 0 ? (

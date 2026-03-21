@@ -26,6 +26,7 @@ import { toast } from 'sonner'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import JSZip from 'jszip'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
 
@@ -104,6 +105,13 @@ type ColaboradorEpiItem = {
   documento_nome: string | null
   status: string | null
   epi_catalogo: { id: string; nome: string; categoria: string | null } | null
+}
+type ColaboradorComEpis = {
+  id: string
+  nome: string
+  chapa: string | null
+  epis: ColaboradorEpiItem[]
+  expanded: boolean
 }
 
 interface EpiFormData {
@@ -277,12 +285,18 @@ export default function Epis() {
   const [gerou, setGerou] = useState(false)
 
   // ── Aba 4: comprovantes ──────────────────────────────────────────────────────
-  const [comprovColabId, setComprovColabId] = useState('')
-  const [comprovEpiId, setComprovEpiId]     = useState('')
-  const [comprovFile, setComprovFile]       = useState<File | null>(null)
-  const [comprovEpis, setComprovEpis]       = useState<ColaboradorEpiItem[]>([])
-  const [loadingComprov, setLoadingComprov] = useState(false)
+  const [comprovColabId, setComprovColabId]     = useState('')
+  const [comprovEpiId, setComprovEpiId]         = useState('')
+  const [comprovFile, setComprovFile]           = useState<File | null>(null)
+  const [comprovEpis, setComprovEpis]           = useState<ColaboradorEpiItem[]>([])
+  const [loadingComprov, setLoadingComprov]     = useState(false)
   const [uploadingComprov, setUploadingComprov] = useState(false)
+  const [uploadModalOpen, setUploadModalOpen]   = useState(false)
+  // lista completa (todos os colaboradores com EPIs)
+  const [colabsComEpis, setColabsComEpis]       = useState<ColaboradorComEpis[]>([])
+  const [loadingTodos, setLoadingTodos]         = useState(false)
+  const [buscaColab, setBuscaColab]             = useState('')
+  const [baixandoZip, setBaixandoZip]           = useState(false)
 
   // ── fetch catálogo ──────────────────────────────────────────────────────────
   const fetchEpis = useCallback(async () => {
@@ -363,6 +377,9 @@ export default function Epis() {
   useEffect(() => { fetchEpis() }, [fetchEpis])
   useEffect(() => { fetchFuncoes(); fetchEpisPorFuncao() }, [fetchFuncoes, fetchEpisPorFuncao])
   useEffect(() => {
+    if (aba === 'comprovantes') {
+      fetchTodosColabsEpis()
+    }
     if (aba === 'solicitacoes') {
       fetchColaboradores()
       fetchObras()
@@ -462,6 +479,28 @@ export default function Epis() {
     setVinculoForm(EMPTY_VINCULO_FORM)
     fetchVinculos(funcaoSelecionada.id)
     fetchEpisPorFuncao()
+    // ── Auto-sync: inserir EPI para colaboradores que já têm esta função ────────
+    try {
+      const { data: colabs } = await supabase
+        .from('colaboradores')
+        .select('id')
+        .eq('funcao_id', funcaoSelecionada.id)
+        .eq('ativo', true)
+      if (colabs && colabs.length > 0) {
+        const rows = colabs.map((col: any) => ({
+          colaborador_id: col.id,
+          epi_id: vinculoForm.epi_id,
+          status: 'pendente',
+          obrigatorio: vinculoForm.obrigatorio,
+          quantidade: parseInt(vinculoForm.quantidade, 10) || 1,
+        }))
+        // upsert: ignora se já existe (evita duplicatas)
+        await supabase.from('colaborador_epi').upsert(rows, { onConflict: 'colaborador_id,epi_id', ignoreDuplicates: true })
+        if (colabs.length > 0) {
+          toast.info(`🔄 EPI adicionado a ${colabs.length} colaborador(es) com esta função`)
+        }
+      }
+    } catch { /* não bloqueia */ }
   }
 
   // ── desvincular EPI ─────────────────────────────────────────────────────────
@@ -569,6 +608,71 @@ export default function Epis() {
     setComprovEpis((data as unknown as ColaboradorEpiItem[]) ?? [])
     setLoadingComprov(false)
   }
+
+  // Carrega TODOS colaboradores com seus EPIs
+  const fetchTodosColabsEpis = async () => {
+    setLoadingTodos(true)
+    const { data } = await supabase
+      .from('colaborador_epi')
+      .select('id, epi_id, documento_url, documento_nome, status, colaborador_id, epi_catalogo(id, nome, categoria), colaboradores(id, nome, chapa)')
+      .order('colaborador_id')
+    if (!data) { setLoadingTodos(false); return }
+    // Agrupar por colaborador
+    const map = new Map<string, ColaboradorComEpis>()
+    for (const row of data as any[]) {
+      const colId = row.colaborador_id
+      const colNome = row.colaboradores?.nome ?? '—'
+      const colChapa = row.colaboradores?.chapa ?? null
+      if (!map.has(colId)) {
+        map.set(colId, { id: colId, nome: colNome, chapa: colChapa, epis: [], expanded: false })
+      }
+      map.get(colId)!.epis.push({
+        id: row.id,
+        epi_id: row.epi_id,
+        documento_url: row.documento_url,
+        documento_nome: row.documento_nome,
+        status: row.status,
+        epi_catalogo: row.epi_catalogo,
+      })
+    }
+    setColabsComEpis(Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome)))
+    setLoadingTodos(false)
+  }
+
+  // Baixar todos os comprovantes como ZIP
+  const baixarTodosZip = async () => {
+    const todosComDoc = colabsComEpis
+      .flatMap(c => c.epis.filter(e => e.documento_url).map(e => ({ colab: c.nome, epi: e })))
+    if (todosComDoc.length === 0) { toast.warning('Nenhum comprovante disponível para download'); return }
+    setBaixandoZip(true)
+    try {
+      const zip = new JSZip()
+      await Promise.all(
+        todosComDoc.map(async ({ colab, epi }) => {
+          try {
+            const resp = await fetch(epi.documento_url!)
+            const blob = await resp.blob()
+            const ext  = epi.documento_nome?.split('.').pop() ?? 'pdf'
+            const nome = `${colab.replace(/[^a-zA-Z0-9]/g, '_')}_${(epi.epi_catalogo?.nome ?? epi.epi_id).replace(/[^a-zA-Z0-9]/g, '_')}.${ext}`
+            zip.file(nome, blob)
+          } catch { /* ignorar arquivo indisponível */ }
+        })
+      )
+      const blob = await zip.generateAsync({ type: 'blob' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url; a.download = `comprovantes_epi_${new Date().toISOString().slice(0,10)}.zip`
+      a.click(); URL.revokeObjectURL(url)
+      toast.success(`✅ ${todosComDoc.length} comprovante(s) baixado(s)!`)
+    } catch (e: any) {
+      toast.error('Erro ao gerar ZIP: ' + e.message)
+    }
+    setBaixandoZip(false)
+  }
+
+  // Toggle expand de um colaborador na listagem
+  const toggleExpand = (colabId: string) =>
+    setColabsComEpis(prev => prev.map(c => c.id === colabId ? { ...c, expanded: !c.expanded } : c))
 
   // ── gerarPDF (aba Solicitações) ──────────────────────────────────────────────
   const gerarPDF = () => {
@@ -1545,199 +1649,264 @@ export default function Epis() {
           ABA 4 — COMPROVANTES
       ══════════════════════════════════════════════════════════════════════════ */}
       {aba === 'comprovantes' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          {/* Seletor de colaborador + EPI */}
-          <div style={{ borderRadius: 8, border: '1px solid var(--border)', padding: '20px 24px', background: 'var(--background)' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted-foreground)', marginBottom: 14 }}>
-              📎 Upload de Comprovante de Entrega de EPI
+          {/* ── Cabeçalho com busca e download ZIP ── */}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 220, position: 'relative' }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted-foreground)' }} />
+              <input
+                value={buscaColab}
+                onChange={e => setBuscaColab(e.target.value)}
+                placeholder="Buscar colaborador…"
+                style={{ width: '100%', paddingLeft: 32, paddingRight: 12, height: 36, borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, background: 'var(--background)', outline: 'none', boxSizing: 'border-box' }}
+              />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-              <div>
-                <Label style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>Colaborador *</Label>
-                <Select
-                  value={comprovColabId || undefined}
-                  onValueChange={v => {
-                    setComprovColabId(v)
-                    setComprovEpiId('')
-                    setComprovFile(null)
-                    fetchComprovEpis(v)
-                  }}
-                >
-                  <SelectTrigger><SelectValue placeholder="Selecione o colaborador…" /></SelectTrigger>
-                  <SelectContent>
-                    {colaboradores.map(col => (
-                      <SelectItem key={col.id} value={col.id}>
-                        {col.nome}{col.chapa ? ` — ${col.chapa}` : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>EPI *</Label>
-                {loadingComprov ? (
-                  <div style={{ height: 38, borderRadius: 6, background: 'var(--muted)' }} />
-                ) : (
-                  <Select
-                    value={comprovEpiId || undefined}
-                    onValueChange={v => { setComprovEpiId(v); setComprovFile(null) }}
-                    disabled={!comprovColabId || comprovEpis.length === 0}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={
-                        !comprovColabId ? 'Selecione um colaborador…' :
-                        comprovEpis.length === 0 ? 'Nenhum EPI registrado' : 'Selecione o EPI…'
-                      } />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {comprovEpis.map(e => (
-                        <SelectItem key={e.id} value={e.id}>
-                          {e.epi_catalogo?.nome ?? e.epi_id}
-                          {e.documento_url ? ' ✅' : ' ⏳'}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-            </div>
-
-            {/* Upload */}
-            {comprovEpiId && (() => {
-              const epiSel = comprovEpis.find(e => e.id === comprovEpiId)
-              return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {/* Documento atual */}
-                  {epiSel?.documento_url && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderRadius: 6, border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.04)' }}>
-                      <span style={{ fontSize: 18 }}>✅</span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#059669' }}>Comprovante já anexado</div>
-                        <a href={epiSel.documento_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: 'var(--primary)' }}>
-                          📄 {epiSel.documento_nome ?? 'Ver documento'}
-                        </a>
-                      </div>
-                      <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>Faça novo upload para substituir</span>
-                    </div>
-                  )}
-
-                  <label style={{ cursor: 'pointer', display: 'block' }}>
-                    <input
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      style={{ display: 'none' }}
-                      onChange={e => setComprovFile(e.target.files?.[0] ?? null)}
-                    />
-                    <div style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-                      padding: '20px', borderRadius: 8, border: '2px dashed var(--border)',
-                      background: comprovFile ? 'rgba(59,130,246,0.04)' : 'var(--muted)',
-                    }}>
-                      {comprovFile ? (
-                        <>
-                          <span style={{ fontSize: 20 }}>📄</span>
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: 13 }}>{comprovFile.name}</div>
-                            <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
-                              {(comprovFile.size / 1024).toFixed(0)} KB · clique para trocar
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <span style={{ fontSize: 24 }}>📎</span>
-                          <div style={{ textAlign: 'center' }}>
-                            <div style={{ fontWeight: 600, fontSize: 13 }}>Clique para selecionar arquivo</div>
-                            <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>PDF, JPG ou PNG</div>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </label>
-
-                  <Button
-                    onClick={async () => {
-                      if (!comprovFile || !comprovEpiId) return
-                      setUploadingComprov(true)
-                      const ext = comprovFile.name.split('.').pop()
-                      const path = `${comprovColabId}/${epiSel?.epi_id ?? comprovEpiId}_${Date.now()}.${ext}`
-                      const { error: upErr } = await supabase.storage
-                        .from('epi-documentos')
-                        .upload(path, comprovFile, { upsert: true })
-                      if (upErr) {
-                        toast.error('Falha no upload: ' + upErr.message)
-                        setUploadingComprov(false)
-                        return
-                      }
-                      const { data: urlData } = supabase.storage.from('epi-documentos').getPublicUrl(path)
-                      const { error: dbErr } = await supabase
-                        .from('colaborador_epi')
-                        .update({ documento_url: urlData?.publicUrl, documento_nome: comprovFile.name, status: 'entregue' })
-                        .eq('id', comprovEpiId)
-                      if (dbErr) {
-                        toast.error('Erro ao salvar: ' + dbErr.message)
-                      } else {
-                        toast.success('✅ Comprovante enviado com sucesso!')
-                        setComprovFile(null)
-                        fetchComprovEpis(comprovColabId)
-                      }
-                      setUploadingComprov(false)
-                    }}
-                    disabled={!comprovFile || uploadingComprov}
-                    style={{ alignSelf: 'flex-start' }}
-                  >
-                    {uploadingComprov ? '⏳ Enviando…' : '📤 Enviar comprovante'}
-                  </Button>
-                </div>
-              )
-            })()}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={baixarTodosZip}
+              disabled={baixandoZip || colabsComEpis.every(c => c.epis.every(e => !e.documento_url))}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
+            >
+              {baixandoZip ? '⏳ Gerando ZIP…' : <><Download size={14} /> Baixar Todos</>}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchTodosColabsEpis}
+              disabled={loadingTodos}
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              🔄 Atualizar
+            </Button>
           </div>
 
-          {/* Lista de EPIs do colaborador */}
-          {comprovColabId && comprovEpis.length > 0 && (
-            <div style={{ borderRadius: 8, border: '1px solid var(--border)', overflow: 'hidden' }}>
-              <div style={{ padding: '12px 16px', background: 'var(--muted)', borderBottom: '1px solid var(--border)', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                EPIs registrados — {colaboradores.find(x => x.id === comprovColabId)?.nome ?? ''}
+          {/* ── Resumo geral ── */}
+          {!loadingTodos && colabsComEpis.length > 0 && (() => {
+            const total     = colabsComEpis.reduce((a, c) => a + c.epis.length, 0)
+            const comDoc    = colabsComEpis.reduce((a, c) => a + c.epis.filter(e => e.documento_url).length, 0)
+            const pendentes = total - comDoc
+            return (
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {[
+                  { label: 'Colaboradores', val: colabsComEpis.length, cor: '#6366f1', bg: 'rgba(99,102,241,0.08)' },
+                  { label: 'EPIs registrados', val: total, cor: '#2563eb', bg: 'rgba(37,99,235,0.08)' },
+                  { label: 'Com comprovante', val: comDoc, cor: '#059669', bg: 'rgba(5,150,105,0.08)' },
+                  { label: 'Pendentes', val: pendentes, cor: pendentes > 0 ? '#d97706' : '#9ca3af', bg: pendentes > 0 ? 'rgba(217,119,6,0.08)' : 'var(--muted)' },
+                ].map(r => (
+                  <div key={r.label} style={{ flex: 1, minWidth: 120, padding: '12px 16px', borderRadius: 8, border: `1px solid ${r.bg}`, background: r.bg, textAlign: 'center' }}>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: r.cor }}>{r.val}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>{r.label}</div>
+                  </div>
+                ))}
               </div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead>
-                  <tr style={{ background: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
-                    <th style={{ padding: '8px 14px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>EPI</th>
-                    <th style={{ padding: '8px 14px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>Categoria</th>
-                    <th style={{ padding: '8px 14px', textAlign: 'center', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>Comprovante</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {comprovEpis.map(e => (
-                    <tr key={e.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '10px 14px', fontWeight: 500 }}>{e.epi_catalogo?.nome ?? '—'}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 11, color: 'var(--muted-foreground)' }}>{e.epi_catalogo?.categoria ?? '—'}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'center' }}>
-                        {e.documento_url ? (
-                          <a href={e.documento_url} target="_blank" rel="noopener noreferrer"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#059669', fontWeight: 600, textDecoration: 'none' }}>
-                            ✅ {e.documento_nome ?? 'Ver'}
-                          </a>
-                        ) : (
-                          <span style={{ fontSize: 12, color: 'var(--muted-foreground)', fontStyle: 'italic' }}>⏳ Pendente</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            )
+          })()}
+
+          {/* ── Lista de colaboradores ── */}
+          {loadingTodos ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--muted-foreground)', fontSize: 13 }}>
+              ⏳ Carregando comprovantes…
+            </div>
+          ) : colabsComEpis.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--muted-foreground)' }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>🦺</div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>Nenhum EPI registrado ainda</div>
+              <div style={{ fontSize: 12, marginTop: 6 }}>Vincule EPIs aos colaboradores primeiro.</div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {colabsComEpis
+                .filter(col => !buscaColab || col.nome.toLowerCase().includes(buscaColab.toLowerCase()) || (col.chapa ?? '').toLowerCase().includes(buscaColab.toLowerCase()))
+                .map(col => {
+                  const comDoc    = col.epis.filter(e => e.documento_url).length
+                  const pendentes = col.epis.length - comDoc
+                  const pct       = col.epis.length > 0 ? Math.round((comDoc / col.epis.length) * 100) : 0
+                  return (
+                    <div key={col.id} style={{ borderRadius: 8, border: '1px solid var(--border)', overflow: 'hidden', background: 'var(--background)' }}>
+                      {/* Linha do colaborador */}
+                      <div
+                        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer', background: col.expanded ? 'rgba(99,102,241,0.04)' : 'transparent' }}
+                        onClick={() => toggleExpand(col.id)}
+                      >
+                        {/* Avatar */}
+                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(99,102,241,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>
+                          👤
+                        </div>
+                        {/* Nome + chapa */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.nome}</div>
+                          {col.chapa && (
+                            <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--muted-foreground)' }}>{col.chapa}</div>
+                          )}
+                        </div>
+                        {/* Barra de progresso */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                          <div style={{ width: 80, height: 6, borderRadius: 3, background: 'var(--muted)', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${pct}%`, borderRadius: 3, background: pct === 100 ? '#059669' : pct > 50 ? '#3b82f6' : '#f59e0b', transition: 'width 300ms' }} />
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: pct === 100 ? '#059669' : 'var(--muted-foreground)', minWidth: 38 }}>
+                            {comDoc}/{col.epis.length}
+                          </span>
+                        </div>
+                        {/* Badges */}
+                        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                          {comDoc > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(5,150,105,0.1)', color: '#059669', fontWeight: 700 }}>✅ {comDoc}</span>}
+                          {pendentes > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(245,158,11,0.1)', color: '#d97706', fontWeight: 700 }}>⏳ {pendentes}</span>}
+                        </div>
+                        {/* Seta */}
+                        <span style={{ fontSize: 14, color: 'var(--muted-foreground)', transform: col.expanded ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 150ms', flexShrink: 0 }}>▶</span>
+                      </div>
+
+                      {/* EPIs expandidos */}
+                      {col.expanded && (
+                        <div style={{ borderTop: '1px solid var(--border)', background: 'var(--muted)/30' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                            <thead>
+                              <tr style={{ background: 'var(--muted)' }}>
+                                <th style={{ padding: '8px 16px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>EPI</th>
+                                <th style={{ padding: '8px 16px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Categoria</th>
+                                <th style={{ padding: '8px 16px', textAlign: 'center', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Comprovante</th>
+                                <th style={{ padding: '8px 16px', textAlign: 'center', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', width: 120 }}>Ação</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {col.epis.map((epi, idx) => (
+                                <tr key={epi.id} style={{ borderTop: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '10px 16px', fontWeight: 500 }}>{epi.epi_catalogo?.nome ?? '—'}</td>
+                                  <td style={{ padding: '10px 16px', fontSize: 11, color: 'var(--muted-foreground)' }}>{epi.epi_catalogo?.categoria ?? '—'}</td>
+                                  <td style={{ padding: '10px 16px', textAlign: 'center' }}>
+                                    {epi.documento_url ? (
+                                      <a href={epi.documento_url} target="_blank" rel="noopener noreferrer"
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#059669', fontWeight: 600, textDecoration: 'none' }}>
+                                        ✅ {epi.documento_nome ?? 'Ver documento'}
+                                      </a>
+                                    ) : (
+                                      <span style={{ fontSize: 12, color: 'var(--muted-foreground)', fontStyle: 'italic' }}>⏳ Pendente</span>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '8px 16px', textAlign: 'center' }}>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      style={{ fontSize: 11, height: 28, padding: '0 10px' }}
+                                      onClick={() => {
+                                        setComprovColabId(col.id)
+                                        setComprovEpiId(epi.id)
+                                        setComprovEpis(col.epis)
+                                        setComprovFile(null)
+                                        setUploadModalOpen(true)
+                                      }}
+                                    >
+                                      📎 {epi.documento_url ? 'Substituir' : 'Anexar'}
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
             </div>
           )}
 
-          {comprovColabId && !loadingComprov && comprovEpis.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--muted-foreground)' }}>
-              <div style={{ fontSize: 32, marginBottom: 10 }}>🦺</div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>Nenhum EPI registrado para este colaborador</div>
-              <div style={{ fontSize: 12, marginTop: 6 }}>Vincule EPIs ao cadastro do colaborador primeiro.</div>
-            </div>
-          )}
+          {/* ── Modal de Upload ── */}
+          <Dialog open={uploadModalOpen} onOpenChange={open => { if (!open) setUploadModalOpen(false) }}>
+            <DialogContent style={{ maxWidth: 480 }}>
+              <DialogHeader>
+                <DialogTitle style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  📎 Upload de Comprovante
+                </DialogTitle>
+              </DialogHeader>
+              {(() => {
+                const colSel  = colabsComEpis.find(x => x.id === comprovColabId)
+                const epiSel  = comprovEpis.find(e => e.id === comprovEpiId)
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {/* Info */}
+                    <div style={{ padding: '10px 14px', borderRadius: 7, background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)' }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{colSel?.nome ?? '—'}</div>
+                      {colSel?.chapa && <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--muted-foreground)' }}>{colSel.chapa}</div>}
+                      <div style={{ fontSize: 13, color: 'var(--muted-foreground)', marginTop: 4 }}>
+                        EPI: <strong>{epiSel?.epi_catalogo?.nome ?? '—'}</strong>
+                      </div>
+                    </div>
+
+                    {/* Documento atual */}
+                    {epiSel?.documento_url && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 6, border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.04)' }}>
+                        <span>✅</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#059669' }}>Comprovante atual</div>
+                          <a href={epiSel.documento_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: 'var(--primary)' }}>
+                            📄 {epiSel.documento_nome ?? 'Ver documento'}
+                          </a>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Input arquivo */}
+                    <label style={{ cursor: 'pointer' }}>
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }}
+                        onChange={e => setComprovFile(e.target.files?.[0] ?? null)} />
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '20px', borderRadius: 8, border: '2px dashed var(--border)', background: comprovFile ? 'rgba(59,130,246,0.04)' : 'var(--muted)' }}>
+                        {comprovFile ? (
+                          <>
+                            <span style={{ fontSize: 20 }}>📄</span>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: 13 }}>{comprovFile.name}</div>
+                              <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>{(comprovFile.size / 1024).toFixed(0)} KB · clique para trocar</div>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 24 }}>📎</span>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontWeight: 600, fontSize: 13 }}>Clique para selecionar</div>
+                              <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>PDF, JPG ou PNG</div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </label>
+
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <Button variant="outline" onClick={() => setUploadModalOpen(false)}>Cancelar</Button>
+                      <Button
+                        disabled={!comprovFile || uploadingComprov}
+                        onClick={async () => {
+                          if (!comprovFile || !comprovEpiId) return
+                          setUploadingComprov(true)
+                          const ext  = comprovFile.name.split('.').pop()
+                          const path = `${comprovColabId}/${epiSel?.epi_id ?? comprovEpiId}_${Date.now()}.${ext}`
+                          const { error: upErr } = await supabase.storage.from('epi-documentos').upload(path, comprovFile, { upsert: true })
+                          if (upErr) { toast.error('Falha no upload: ' + upErr.message); setUploadingComprov(false); return }
+                          const { data: urlData } = supabase.storage.from('epi-documentos').getPublicUrl(path)
+                          const { error: dbErr } = await supabase.from('colaborador_epi')
+                            .update({ documento_url: urlData?.publicUrl, documento_nome: comprovFile.name, status: 'entregue' })
+                            .eq('id', comprovEpiId)
+                          if (dbErr) { toast.error('Erro ao salvar: ' + dbErr.message) }
+                          else {
+                            toast.success('✅ Comprovante enviado!')
+                            setUploadModalOpen(false)
+                            setComprovFile(null)
+                            fetchTodosColabsEpis()
+                          }
+                          setUploadingComprov(false)
+                        }}
+                      >
+                        {uploadingComprov ? '⏳ Enviando…' : '📤 Enviar'}
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })()}
+            </DialogContent>
+          </Dialog>
 
         </div>
       )}

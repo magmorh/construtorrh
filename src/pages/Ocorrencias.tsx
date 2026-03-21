@@ -1,1271 +1,985 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { formatDate, cn } from '@/lib/utils'
-import { PageHeader, EmptyState, LoadingSkeleton, BadgeStatus } from '@/components/Shared'
+import { formatDate } from '@/lib/utils'
+import { PageHeader, EmptyState, LoadingSkeleton } from '@/components/Shared'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import {
-  Plus,
-  Pencil,
-  Trash2,
-  Stethoscope,
-  AlertTriangle,
-  Calendar,
-  User,
-  Link2,
-  ShieldAlert,
-} from 'lucide-react'
+import { Plus, Pencil, Trash2, Stethoscope, AlertTriangle, FileWarning } from 'lucide-react'
+
+// ─── SCHEMA DO BANCO (original, sem migrações) ─────────────────────────────
+// acidentes: data_acidente, hora_acidente, tipo (tipico|trajeto|doenca_ocupacional),
+//            cat_emitida, gravidade, local_acidente, com_afastamento, dias_afastamento,
+//            status (em_investigacao|concluido|arquivado), descricao, observacoes
+// atestados: data (DATE), tipo (medico|comparecimento|declaracao), dias_afastamento,
+//            com_afastamento, cid, medico, descricao, observacoes
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
+type Colaborador = { id: string; nome: string; chapa: string }
+type Obra        = { id: string; nome: string }
 
-type Colaborador = {
-  id: string
-  nome: string
-  chapa: string
-}
-
-type Obra = {
-  id: string
-  nome: string
-}
-
-type AcidenteRef = {
-  id: string
-  data_ocorrencia: string
-  tipo_acidente: string
-  descricao: string
-}
-
+// ── ATESTADOS ────────────────────────────────────────────────────────────────
 type Atestado = {
   id: string
   colaborador_id: string
-  data_inicio: string
-  data_fim: string | null
+  data: string                    // nome real no banco
+  tipo: string | null
   dias_afastamento: number | null
-  tipo_afastamento: string | null
+  com_afastamento: boolean | null
   cid: string | null
   medico: string | null
-  crm: string | null
-  acidente_id: string | null
-  data_retorno: string | null
+  descricao: string | null
   observacoes: string | null
-  status: string | null
   colaboradores: { id: string; nome: string; chapa: string } | null
-  acidentes?: { id: string; data_ocorrencia: string; tipo_acidente: string | null } | null
-  // campos legados do banco original
-  data?: string
+}
+type AtestadoForm = {
+  colaborador_id: string
+  data: string
+  tipo: string
+  dias_afastamento: string
+  com_afastamento: boolean
+  cid: string
+  medico: string
+  descricao: string
+  observacoes: string
+}
+const ATESTADO_EMPTY: AtestadoForm = {
+  colaborador_id: '', data: '', tipo: 'medico', dias_afastamento: '',
+  com_afastamento: false, cid: '', medico: '', descricao: '', observacoes: '',
 }
 
+// ── ACIDENTES ────────────────────────────────────────────────────────────────
 type Acidente = {
   id: string
   colaborador_id: string
   obra_id: string | null
-  data_ocorrencia: string
-  hora_ocorrencia: string | null
-  tipo_acidente: string
+  data_acidente: string           // nome real no banco
+  hora_acidente: string | null
+  tipo: string | null             // nome real: tipo
+  gravidade: string | null
   descricao: string
-  comunicado_cat: boolean
+  local_acidente: string | null
+  com_afastamento: boolean | null
+  dias_afastamento: number | null
+  cat_emitida: boolean | null     // nome real: cat_emitida
+  status: string | null
   observacoes: string | null
   colaboradores: { id: string; nome: string; chapa: string } | null
   obras: { id: string; nome: string } | null
 }
-
-type AtestadoForm = {
-  colaborador_id: string
-  data_inicio: string
-  data_fim: string
-  dias_afastamento: string
-  tipo_afastamento: string
-  cid: string
-  medico: string
-  crm: string
-  acidente_id: string
-  data_retorno: string
-  observacoes: string
-  status: string
-}
-
 type AcidenteForm = {
   colaborador_id: string
   obra_id: string
-  data_ocorrencia: string
-  hora_ocorrencia: string
-  tipo_acidente: string
+  data_acidente: string
+  hora_acidente: string
+  tipo: string
+  gravidade: string
   descricao: string
-  comunicado_cat: boolean
+  local_acidente: string
+  com_afastamento: boolean
+  dias_afastamento: string
+  cat_emitida: boolean
   observacoes: string
 }
-
-// ─── CONSTANTS ────────────────────────────────────────────────────────────────
-
-const TIPOS_AFASTAMENTO: { value: string; label: string }[] = [
-  { value: 'doenca', label: 'Doença' },
-  { value: 'acidente_trabalho', label: 'Acidente de Trabalho' },
-  { value: 'acidente_trajeto', label: 'Acidente de Trajeto' },
-  { value: 'cirurgia', label: 'Cirurgia' },
-  { value: 'maternidade', label: 'Maternidade / Paternidade' },
-  { value: 'outros', label: 'Outros' },
-]
-
-const TIPOS_ACIDENTE: { value: string; label: string }[] = [
-  { value: 'queda', label: 'Queda' },
-  { value: 'corte', label: 'Corte' },
-  { value: 'choque_eletrico', label: 'Choque Elétrico' },
-  { value: 'queimadura', label: 'Queimadura' },
-  { value: 'atropelamento', label: 'Atropelamento' },
-  { value: 'esmagamento', label: 'Esmagamento' },
-  { value: 'outros', label: 'Outros' },
-]
-
-const ATESTADO_FORM_EMPTY: AtestadoForm = {
-  colaborador_id: '',
-  data_inicio: '',
-  data_fim: '',
-  dias_afastamento: '',
-  tipo_afastamento: '',
-  cid: '',
-  medico: '',
-  crm: '',
-  acidente_id: '',
-  data_retorno: '',
-  observacoes: '',
-  status: 'ativo',
+const ACIDENTE_EMPTY: AcidenteForm = {
+  colaborador_id: '', obra_id: '', data_acidente: '', hora_acidente: '',
+  tipo: '', gravidade: '', descricao: '', local_acidente: '',
+  com_afastamento: false, dias_afastamento: '', cat_emitida: false, observacoes: '',
 }
 
-const ACIDENTE_FORM_EMPTY: AcidenteForm = {
-  colaborador_id: '',
-  obra_id: '',
-  data_ocorrencia: '',
-  hora_ocorrencia: '',
-  tipo_acidente: '',
-  descricao: '',
-  comunicado_cat: false,
-  observacoes: '',
+// ── ADVERTÊNCIAS ─────────────────────────────────────────────────────────────
+type Advertencia = {
+  id: string
+  colaborador_id: string
+  data_advertencia: string
+  tipo: string
+  motivo: string
+  descricao: string | null
+  assinada: boolean | null
+  observacoes: string | null
+  colaboradores: { id: string; nome: string; chapa: string } | null
 }
+type AdvertenciaForm = {
+  colaborador_id: string
+  data_advertencia: string
+  tipo: string
+  motivo: string
+  descricao: string
+  assinada: boolean
+  observacoes: string
+}
+const ADVERTENCIA_EMPTY: AdvertenciaForm = {
+  colaborador_id: '', data_advertencia: '', tipo: 'escrita', motivo: '',
+  descricao: '', assinada: false, observacoes: '',
+}
+
+// ─── CONSTANTES ──────────────────────────────────────────────────────────────
+const TIPOS_ATESTADO = [
+  { value: 'medico',          label: 'Médico' },
+  { value: 'comparecimento',  label: 'Comparecimento' },
+  { value: 'declaracao',      label: 'Declaração' },
+]
+const TIPOS_ACIDENTE = [
+  { value: 'tipico',              label: 'Típico (no trabalho)' },
+  { value: 'trajeto',             label: 'De Trajeto' },
+  { value: 'doenca_ocupacional',  label: 'Doença Ocupacional' },
+]
+const GRAVIDADES = [
+  { value: 'leve',      label: 'Leve' },
+  { value: 'moderado',  label: 'Moderado' },
+  { value: 'grave',     label: 'Grave' },
+  { value: 'fatal',     label: 'Fatal' },
+]
+const STATUS_ACIDENTE = [
+  { value: 'em_investigacao', label: 'Em Investigação' },
+  { value: 'concluido',       label: 'Concluído' },
+  { value: 'arquivado',       label: 'Arquivado' },
+]
+const TIPOS_ADVERTENCIA = [
+  { value: 'verbal',      label: 'Verbal' },
+  { value: 'escrita',     label: 'Escrita' },
+  { value: 'suspensao',   label: 'Suspensão' },
+  { value: 'demissional', label: 'Demissional (Justa Causa)' },
+]
+const MOTIVOS_ADVERTENCIA = [
+  'Atraso injustificado', 'Falta injustificada', 'Descumprimento de normas',
+  'Desrespeito a superior', 'Uso inadequado de EPI', 'Dano ao patrimônio',
+  'Comportamento inadequado', 'Reincidência de infração', 'Outro',
+]
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-
-function labelTipoAfastamento(value: string) {
-  return TIPOS_AFASTAMENTO.find((t) => t.value === value)?.label ?? value
+function calcDias(ini: string, fim: string): number | null {
+  if (!ini || !fim) return null
+  const d = (new Date(fim).getTime() - new Date(ini).getTime()) / 86400000
+  return d >= 0 ? Math.round(d) + 1 : null
 }
 
-function labelTipoAcidente(value: string) {
-  return TIPOS_ACIDENTE.find((t) => t.value === value)?.label ?? value
+function labelTipo(tipo: string | null, lista: { value: string; label: string }[]) {
+  return lista.find(x => x.value === tipo)?.label ?? tipo ?? '—'
 }
 
-function calcDias(inicio: string, fim: string): number | null {
-  if (!inicio || !fim) return null
-  const a = new Date(inicio)
-  const b = new Date(fim)
-  const diff = Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24))
-  return diff >= 0 ? diff : null
-}
-
-function BadgeAtestadoStatus({ status }: { status: string }) {
-  const isAtivo = status === 'ativo'
+function GravBadge({ g }: { g: string | null }) {
+  const map: Record<string, { bg: string; color: string }> = {
+    leve:     { bg: '#f0fdf4', color: '#16a34a' },
+    moderado: { bg: '#fffbeb', color: '#d97706' },
+    grave:    { bg: '#fff1f2', color: '#dc2626' },
+    fatal:    { bg: '#1e1e2e', color: '#f8fafc' },
+  }
+  const s = map[g ?? ''] ?? { bg: '#f3f4f6', color: '#6b7280' }
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        padding: '2px 10px',
-        borderRadius: 9999,
-        fontSize: 12,
-        fontWeight: 600,
-        background: isAtivo ? '#fee2e2' : '#dcfce7',
-        color: isAtivo ? '#b91c1c' : '#15803d',
-        border: `1px solid ${isAtivo ? '#fca5a5' : '#86efac'}`,
-      }}
-    >
-      {isAtivo ? 'Afastado' : 'Retornou'}
+    <span style={{ padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: s.bg, color: s.color }}>
+      {labelTipo(g, GRAVIDADES)}
     </span>
   )
 }
 
-function BadgeCAT({ comunicado }: { comunicado: boolean }) {
+function AdvTipoBadge({ tipo }: { tipo: string }) {
+  const map: Record<string, { bg: string; color: string; label: string }> = {
+    verbal:      { bg: '#eff6ff', color: '#1d4ed8', label: 'Verbal' },
+    escrita:     { bg: '#fffbeb', color: '#d97706', label: 'Escrita' },
+    suspensao:   { bg: '#fff1f2', color: '#dc2626', label: 'Suspensão' },
+    demissional: { bg: '#1e1e2e', color: '#f8fafc', label: 'Justa Causa' },
+  }
+  const s = map[tipo] ?? { bg: '#f3f4f6', color: '#6b7280', label: tipo }
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        padding: '2px 10px',
-        borderRadius: 9999,
-        fontSize: 12,
-        fontWeight: 600,
-        background: comunicado ? '#fff7ed' : '#f3f4f6',
-        color: comunicado ? '#c2410c' : '#6b7280',
-        border: `1px solid ${comunicado ? '#fdba74' : '#d1d5db'}`,
-      }}
-    >
-      {comunicado ? 'CAT Comunicada' : 'Sem CAT'}
+    <span style={{ padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: s.bg, color: s.color }}>
+      {s.label}
     </span>
   )
 }
 
-function BadgeTemAtestado({ tem }: { tem: boolean }) {
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        padding: '2px 10px',
-        borderRadius: 9999,
-        fontSize: 12,
-        fontWeight: 600,
-        background: tem ? '#eff6ff' : '#f3f4f6',
-        color: tem ? '#1d4ed8' : '#6b7280',
-        border: `1px solid ${tem ? '#93c5fd' : '#d1d5db'}`,
-      }}
-    >
-      {tem ? 'Com atestado' : 'Sem atestado'}
-    </span>
-  )
-}
-
-// ─── COMPONENT ────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// COMPONENTE PRINCIPAL
+// ═══════════════════════════════════════════════════════════════════════════════
+type Aba = 'atestados' | 'acidentes' | 'advertencias'
 
 export default function Ocorrencias() {
-  const [activeTab, setActiveTab] = useState<'atestados' | 'acidentes'>('atestados')
+  const [aba, setAba] = useState<Aba>('atestados')
 
-  // ── Shared data ─────────────────────────────────────────────────────────────
+  // ── dados compartilhados ──────────────────────────────────────────────────
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([])
-  const [obras, setObras] = useState<Obra[]>([])
+  const [obras,         setObras]         = useState<Obra[]>([])
   const [loadingShared, setLoadingShared] = useState(true)
 
-  // ── Atestados ───────────────────────────────────────────────────────────────
-  const [atestados, setAtestados] = useState<Atestado[]>([])
-  const [loadingAtestados, setLoadingAtestados] = useState(true)
-  const [atestadoModalOpen, setAtestadoModalOpen] = useState(false)
-  const [atestadoEditId, setAtestadoEditId] = useState<string | null>(null)
-  const [atestadoForm, setAtestadoForm] = useState<AtestadoForm>(ATESTADO_FORM_EMPTY)
-  const [atestadoDeleteId, setAtestadoDeleteId] = useState<string | null>(null)
-  const [savingAtestado, setSavingAtestado] = useState(false)
-  const [deletingAtestado, setDeletingAtestado] = useState(false)
-  const [acidentesDoColaborador, setAcidentesDoColaborador] = useState<AcidenteRef[]>([])
-  const [loadingAcidentesColaborador, setLoadingAcidentesColaborador] = useState(false)
+  // ── atestados ─────────────────────────────────────────────────────────────
+  const [atestados,       setAtestados]       = useState<Atestado[]>([])
+  const [loadingAtest,    setLoadingAtest]    = useState(false)
+  const [atestModalOpen,  setAtestModalOpen]  = useState(false)
+  const [atestEditId,     setAtestEditId]     = useState<string | null>(null)
+  const [atestForm,       setAtestForm]       = useState<AtestadoForm>(ATESTADO_EMPTY)
+  const [savingAtest,     setSavingAtest]     = useState(false)
+  const [atestDeleteId,   setAtestDeleteId]   = useState<string | null>(null)
+  const [deletingAtest,   setDeletingAtest]   = useState(false)
 
-  // ── Acidentes ───────────────────────────────────────────────────────────────
-  const [acidentes, setAcidentes] = useState<Acidente[]>([])
-  const [loadingAcidentes, setLoadingAcidentes] = useState(true)
-  const [acidenModalOpen, setAcidenModalOpen] = useState(false)
-  const [acidenEditId, setAcidenEditId] = useState<string | null>(null)
-  const [acidenForm, setAcidenForm] = useState<AcidenteForm>(ACIDENTE_FORM_EMPTY)
-  const [acidenDeleteId, setAcidenDeleteId] = useState<string | null>(null)
-  const [savingAciden, setSavingAciden] = useState(false)
-  const [deletingAciden, setDeletingAciden] = useState(false)
+  // ── acidentes ─────────────────────────────────────────────────────────────
+  const [acidentes,       setAcidentes]       = useState<Acidente[]>([])
+  const [loadingAcid,     setLoadingAcid]     = useState(false)
+  const [acidModalOpen,   setAcidModalOpen]   = useState(false)
+  const [acidEditId,      setAcidEditId]      = useState<string | null>(null)
+  const [acidForm,        setAcidForm]        = useState<AcidenteForm>(ACIDENTE_EMPTY)
+  const [savingAcid,      setSavingAcid]      = useState(false)
+  const [acidDeleteId,    setAcidDeleteId]    = useState<string | null>(null)
+  const [deletingAcid,    setDeletingAcid]    = useState(false)
 
-  // ── Load shared ──────────────────────────────────────────────────────────────
+  // ── advertências ──────────────────────────────────────────────────────────
+  const [advertencias,    setAdvertencias]    = useState<Advertencia[]>([])
+  const [loadingAdv,      setLoadingAdv]      = useState(false)
+  const [advModalOpen,    setAdvModalOpen]    = useState(false)
+  const [advEditId,       setAdvEditId]       = useState<string | null>(null)
+  const [advForm,         setAdvForm]         = useState<AdvertenciaForm>(ADVERTENCIA_EMPTY)
+  const [savingAdv,       setSavingAdv]       = useState(false)
+  const [advDeleteId,     setAdvDeleteId]     = useState<string | null>(null)
+  const [deletingAdv,     setDeletingAdv]     = useState(false)
+
+  // ── load compartilhado ─────────────────────────────────────────────────────
   useEffect(() => {
-    async function fetchShared() {
-      setLoadingShared(true)
-      const [colabRes, obraRes] = await Promise.all([
-        supabase.from('colaboradores').select('id, nome, chapa').eq('status', 'ativo').order('nome'),
-        supabase.from('obras').select('id, nome').order('nome'),
-      ])
-      if (colabRes.data) setColaboradores(colabRes.data)
-      if (obraRes.data) setObras(obraRes.data)
+    Promise.all([
+      supabase.from('colaboradores').select('id, nome, chapa').eq('status', 'ativo').order('nome'),
+      supabase.from('obras').select('id, nome').order('nome'),
+    ]).then(([r1, r2]) => {
+      setColaboradores((r1.data as Colaborador[]) ?? [])
+      setObras((r2.data as Obra[]) ?? [])
       setLoadingShared(false)
-    }
-    fetchShared()
+    })
   }, [])
 
-  // ── Load atestados ───────────────────────────────────────────────────────────
-  async function fetchAtestados() {
-    setLoadingAtestados(true)
+  // ── fetch atestados ────────────────────────────────────────────────────────
+  const fetchAtestados = useCallback(async () => {
+    setLoadingAtest(true)
     const { data, error } = await supabase
       .from('atestados')
-      .select(`
-        id, created_at,
-        colaborador_id,
-        data, dias_afastamento, com_afastamento,
-        cid, medico, descricao, observacoes,
-        data_inicio:data,
-        data_fim,
-        tipo_afastamento,
-        crm,
-        acidente_id,
-        colaboradores(id, nome, chapa)
-      `)
+      .select('id, colaborador_id, data, tipo, dias_afastamento, com_afastamento, cid, medico, descricao, observacoes, colaboradores(id, nome, chapa)')
       .order('data', { ascending: false })
-    if (error) {
-      toast.error('Erro ao carregar atestados: ' + (error?.message ?? error))
-    } else {
-      setAtestados(data as unknown as Atestado[])
-    }
-    setLoadingAtestados(false)
-  }
-
-  // ── Load acidentes ───────────────────────────────────────────────────────────
-  async function fetchAcidentes() {
-    setLoadingAcidentes(true)
-    const { data, error } = await supabase
-      .from('acidentes')
-      .select(`
-        id, created_at,
-        colaborador_id, obra_id,
-        data_acidente, hora_acidente,
-        tipo, cat_emitida,
-        gravidade, descricao,
-        local_acidente, com_afastamento, dias_afastamento,
-        status, observacoes,
-        data_ocorrencia:data_acidente,
-        hora_ocorrencia:hora_acidente,
-        tipo_acidente:tipo,
-        comunicado_cat:cat_emitida,
-        colaboradores(id, nome, chapa),
-        obras(id, nome)
-      `)
-      .order('data_acidente', { ascending: false })
-    if (error) {
-      toast.error('Erro ao carregar acidentes: ' + (error?.message ?? error))
-    } else {
-      setAcidentes(data as unknown as Acidente[])
-    }
-    setLoadingAcidentes(false)
-  }
-
-  useEffect(() => {
-    fetchAtestados()
-    fetchAcidentes()
+    if (error) toast.error('Erro atestados: ' + error.message)
+    else setAtestados((data as unknown as Atestado[]) ?? [])
+    setLoadingAtest(false)
   }, [])
 
-  // ── Acidentes do colaborador (para vincular ao atestado) ─────────────────────
-  async function fetchAcidentesColaborador(colaboradorId: string) {
-    if (!colaboradorId) {
-      setAcidentesDoColaborador([])
-      return
-    }
-    setLoadingAcidentesColaborador(true)
-    const { data } = await supabase
+  // ── fetch acidentes ────────────────────────────────────────────────────────
+  const fetchAcidentes = useCallback(async () => {
+    setLoadingAcid(true)
+    const { data, error } = await supabase
       .from('acidentes')
-      .select('id, data_ocorrencia:data_acidente, tipo_acidente:tipo, descricao')
-      .eq('colaborador_id', colaboradorId)
+      .select('id, colaborador_id, obra_id, data_acidente, hora_acidente, tipo, gravidade, descricao, local_acidente, com_afastamento, dias_afastamento, cat_emitida, status, observacoes, colaboradores(id, nome, chapa), obras(id, nome)')
       .order('data_acidente', { ascending: false })
-    setAcidentesDoColaborador((data as AcidenteRef[]) ?? [])
-    setLoadingAcidentesColaborador(false)
+    if (error) toast.error('Erro acidentes: ' + error.message)
+    else setAcidentes((data as unknown as Acidente[]) ?? [])
+    setLoadingAcid(false)
+  }, [])
+
+  // ── fetch advertências ─────────────────────────────────────────────────────
+  const fetchAdvertencias = useCallback(async () => {
+    setLoadingAdv(true)
+    const { data, error } = await supabase
+      .from('advertencias')
+      .select('id, colaborador_id, data_advertencia, tipo, motivo, descricao, assinada, observacoes, colaboradores(id, nome, chapa)')
+      .order('data_advertencia', { ascending: false })
+    if (error) toast.error('Erro advertências: ' + error.message)
+    else setAdvertencias((data as unknown as Advertencia[]) ?? [])
+    setLoadingAdv(false)
+  }, [])
+
+  useEffect(() => { fetchAtestados(); fetchAcidentes(); fetchAdvertencias() }, [fetchAtestados, fetchAcidentes, fetchAdvertencias])
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ATESTADOS — handlers
+  // ══════════════════════════════════════════════════════════════════════════
+  function openAtestCreate() {
+    setAtestEditId(null)
+    setAtestForm(ATESTADO_EMPTY)
+    setAtestModalOpen(true)
   }
-
-  // ─── ATESTADO handlers ────────────────────────────────────────────────────────
-
-  function openAtestadoCreate() {
-    setAtestadoEditId(null)
-    setAtestadoForm(ATESTADO_FORM_EMPTY)
-    setAcidentesDoColaborador([])
-    setAtestadoModalOpen(true)
-  }
-
-  function openAtestadoEdit(a: Atestado) {
-    setAtestadoEditId(a.id)
-    setAtestadoForm({
+  function openAtestEdit(a: Atestado) {
+    setAtestEditId(a.id)
+    setAtestForm({
       colaborador_id: a.colaborador_id ?? '',
-      data_inicio: a.data_inicio ?? '',
-      data_fim: a.data_fim ?? '',
+      data:           a.data ?? '',
+      tipo:           a.tipo ?? 'medico',
       dias_afastamento: a.dias_afastamento != null ? String(a.dias_afastamento) : '',
-      tipo_afastamento: a.tipo_afastamento ?? '',
-      cid: a.cid ?? '',
-      medico: a.medico ?? '',
-      crm: a.crm ?? '',
-      acidente_id: a.acidente_id ?? '',
-      data_retorno: a.data_retorno ?? '',
-      observacoes: a.observacoes ?? '',
-      status: a.status ?? 'ativo',
+      com_afastamento: a.com_afastamento ?? false,
+      cid:            a.cid ?? '',
+      medico:         a.medico ?? '',
+      descricao:      a.descricao ?? '',
+      observacoes:    a.observacoes ?? '',
     })
-    fetchAcidentesColaborador(a.colaborador_id)
-    setAtestadoModalOpen(true)
+    setAtestModalOpen(true)
   }
-
-  function handleAtestadoColaboradorChange(val: string) {
-    setAtestadoForm((prev) => ({ ...prev, colaborador_id: val, acidente_id: '' }))
-    fetchAcidentesColaborador(val)
-  }
-
-  function handleAtestadoDateChange(field: 'data_inicio' | 'data_fim', value: string) {
-    setAtestadoForm((prev) => {
-      const updated = { ...prev, [field]: value }
-      const inicio = field === 'data_inicio' ? value : prev.data_inicio
-      const fim = field === 'data_fim' ? value : prev.data_fim
-      const dias = calcDias(inicio, fim)
-      return { ...updated, dias_afastamento: dias != null ? String(dias) : prev.dias_afastamento }
-    })
-  }
-
   async function saveAtestado() {
-    if (!atestadoForm.colaborador_id) {
-      toast.error('Selecione um colaborador')
-      return
+    if (!atestForm.colaborador_id) { toast.error('Selecione um colaborador'); return }
+    if (!atestForm.data)           { toast.error('Data é obrigatória'); return }
+    setSavingAtest(true)
+    const payload = {
+      colaborador_id:   atestForm.colaborador_id,
+      data:             atestForm.data,
+      tipo:             atestForm.tipo || null,
+      dias_afastamento: atestForm.dias_afastamento ? Number(atestForm.dias_afastamento) : null,
+      com_afastamento:  atestForm.com_afastamento,
+      cid:              atestForm.cid || null,
+      medico:           atestForm.medico || null,
+      descricao:        atestForm.descricao || null,
+      observacoes:      atestForm.observacoes || null,
     }
-    if (!atestadoForm.data_inicio) {
-      toast.error('Data de início é obrigatória')
-      return
-    }
-    setSavingAtestado(true)
-
-    // Mapear nomes do form → nomes reais das colunas do banco
-    const payload: Record<string, unknown> = {
-      colaborador_id:   atestadoForm.colaborador_id,
-      data:             atestadoForm.data_inicio,    // banco usa 'data'
-      dias_afastamento: atestadoForm.dias_afastamento ? Number(atestadoForm.dias_afastamento) : null,
-      cid:              atestadoForm.cid || null,
-      medico:           atestadoForm.medico || null,
-      descricao:        atestadoForm.observacoes || null,
-      observacoes:      atestadoForm.observacoes || null,
-    }
-
-    let error: unknown
-    if (atestadoEditId) {
-      const res = await supabase.from('atestados').update(payload).eq('id', atestadoEditId)
-      error = res.error
-    } else {
-      const res = await supabase.from('atestados').insert(payload)
-      error = res.error
-    }
-
-    setSavingAtestado(false)
-    if (error) {
-      toast.error('Erro ao salvar atestado: ' + ((error as any)?.message ?? String(error)))
-    } else {
-      toast.success(atestadoEditId ? 'Atestado atualizado!' : 'Atestado cadastrado!')
-      setAtestadoModalOpen(false)
-      fetchAtestados()
-    }
+    const res = atestEditId
+      ? await supabase.from('atestados').update(payload).eq('id', atestEditId)
+      : await supabase.from('atestados').insert(payload)
+    setSavingAtest(false)
+    if (res.error) { toast.error('Erro ao salvar: ' + res.error.message); return }
+    toast.success(atestEditId ? 'Atestado atualizado!' : 'Atestado cadastrado!')
+    setAtestModalOpen(false)
+    fetchAtestados()
   }
-
   async function deleteAtestado() {
-    if (!atestadoDeleteId) return
-    setDeletingAtestado(true)
-    const { error } = await supabase.from('atestados').delete().eq('id', atestadoDeleteId)
-    setDeletingAtestado(false)
-    setAtestadoDeleteId(null)
-    if (error) {
-      toast.error('Erro ao excluir atestado')
-    } else {
-      toast.success('Atestado excluído')
-      fetchAtestados()
-    }
+    if (!atestDeleteId) return
+    setDeletingAtest(true)
+    const { error } = await supabase.from('atestados').delete().eq('id', atestDeleteId)
+    setDeletingAtest(false)
+    setAtestDeleteId(null)
+    if (error) { toast.error(error.message); return }
+    toast.success('Atestado excluído')
+    fetchAtestados()
   }
 
-  // ─── ACIDENTE handlers ────────────────────────────────────────────────────────
-
-  function openAcidenCreate() {
-    setAcidenEditId(null)
-    setAcidenForm(ACIDENTE_FORM_EMPTY)
-    setAcidenModalOpen(true)
+  // ══════════════════════════════════════════════════════════════════════════
+  // ACIDENTES — handlers
+  // ══════════════════════════════════════════════════════════════════════════
+  function openAcidCreate() {
+    setAcidEditId(null)
+    setAcidForm(ACIDENTE_EMPTY)
+    setAcidModalOpen(true)
   }
-
-  function openAcidenEdit(a: Acidente) {
-    setAcidenEditId(a.id)
-    setAcidenForm({
-      colaborador_id: a.colaborador_id ?? '',
-      obra_id: a.obra_id ?? '',
-      data_ocorrencia: a.data_ocorrencia ?? '',
-      hora_ocorrencia: a.hora_ocorrencia ?? '',
-      tipo_acidente: a.tipo_acidente ?? '',
-      descricao: a.descricao ?? '',
-      comunicado_cat: a.comunicado_cat ?? false,
-      observacoes: a.observacoes ?? '',
+  function openAcidEdit(a: Acidente) {
+    setAcidEditId(a.id)
+    setAcidForm({
+      colaborador_id:  a.colaborador_id ?? '',
+      obra_id:         a.obra_id ?? '',
+      data_acidente:   a.data_acidente ?? '',
+      hora_acidente:   a.hora_acidente ?? '',
+      tipo:            a.tipo ?? '',
+      gravidade:       a.gravidade ?? '',
+      descricao:       a.descricao ?? '',
+      local_acidente:  a.local_acidente ?? '',
+      com_afastamento: a.com_afastamento ?? false,
+      dias_afastamento: a.dias_afastamento != null ? String(a.dias_afastamento) : '',
+      cat_emitida:     a.cat_emitida ?? false,
+      observacoes:     a.observacoes ?? '',
     })
-    setAcidenModalOpen(true)
+    setAcidModalOpen(true)
   }
-
   async function saveAcidente() {
-    if (!acidenForm.colaborador_id) {
-      toast.error('Selecione um colaborador')
-      return
+    if (!acidForm.colaborador_id) { toast.error('Selecione um colaborador'); return }
+    if (!acidForm.data_acidente)  { toast.error('Data é obrigatória'); return }
+    if (!acidForm.descricao.trim()) { toast.error('Descrição é obrigatória'); return }
+    setSavingAcid(true)
+    const payload = {
+      colaborador_id:  acidForm.colaborador_id,
+      obra_id:         acidForm.obra_id || null,
+      data_acidente:   acidForm.data_acidente,
+      hora_acidente:   acidForm.hora_acidente || null,
+      tipo:            acidForm.tipo || null,
+      gravidade:       acidForm.gravidade || null,
+      descricao:       acidForm.descricao,
+      local_acidente:  acidForm.local_acidente || null,
+      com_afastamento: acidForm.com_afastamento,
+      dias_afastamento: acidForm.com_afastamento && acidForm.dias_afastamento ? Number(acidForm.dias_afastamento) : null,
+      cat_emitida:     acidForm.cat_emitida,
+      observacoes:     acidForm.observacoes || null,
     }
-    if (!acidenForm.data_ocorrencia) {
-      toast.error('Data da ocorrência é obrigatória')
-      return
-    }
-    if (!acidenForm.descricao.trim()) {
-      toast.error('Descrição é obrigatória')
-      return
-    }
-    setSavingAciden(true)
-
-    // Mapear nomes do form → nomes reais das colunas do banco
-    const payload: Record<string, unknown> = {
-      colaborador_id:  acidenForm.colaborador_id,
-      obra_id:         acidenForm.obra_id || null,
-      data_acidente:   acidenForm.data_ocorrencia,  // banco usa data_acidente
-      hora_acidente:   acidenForm.hora_ocorrencia || null,
-      tipo:            acidenForm.tipo_acidente || null,
-      descricao:       acidenForm.descricao,
-      cat_emitida:     acidenForm.comunicado_cat,   // banco usa cat_emitida
-      observacoes:     acidenForm.observacoes || null,
-    }
-
-    let error: unknown
-    if (acidenEditId) {
-      const res = await supabase.from('acidentes').update(payload).eq('id', acidenEditId)
-      error = res.error
-    } else {
-      const res = await supabase.from('acidentes').insert(payload)
-      error = res.error
-    }
-
-    setSavingAciden(false)
-    if (error) {
-      toast.error('Erro ao salvar acidente: ' + ((error as any)?.message ?? String(error)))
-    } else {
-      toast.success(acidenEditId ? 'Acidente atualizado!' : 'Acidente cadastrado!')
-      setAcidenModalOpen(false)
-      fetchAcidentes()
-    }
+    const res = acidEditId
+      ? await supabase.from('acidentes').update(payload).eq('id', acidEditId)
+      : await supabase.from('acidentes').insert(payload)
+    setSavingAcid(false)
+    if (res.error) { toast.error('Erro ao salvar: ' + res.error.message); return }
+    toast.success(acidEditId ? 'Acidente atualizado!' : 'Acidente cadastrado!')
+    setAcidModalOpen(false)
+    fetchAcidentes()
   }
-
   async function deleteAcidente() {
-    if (!acidenDeleteId) return
-    setDeletingAciden(true)
-    const { error } = await supabase.from('acidentes').delete().eq('id', acidenDeleteId)
-    setDeletingAciden(false)
-    setAcidenDeleteId(null)
-    if (error) {
-      toast.error('Erro ao excluir acidente')
-    } else {
-      toast.success('Acidente excluído')
-      fetchAcidentes()
+    if (!acidDeleteId) return
+    setDeletingAcid(true)
+    const { error } = await supabase.from('acidentes').delete().eq('id', acidDeleteId)
+    setDeletingAcid(false)
+    setAcidDeleteId(null)
+    if (error) { toast.error(error.message); return }
+    toast.success('Acidente excluído')
+    fetchAcidentes()
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ADVERTÊNCIAS — handlers
+  // ══════════════════════════════════════════════════════════════════════════
+  function openAdvCreate() {
+    setAdvEditId(null)
+    setAdvForm(ADVERTENCIA_EMPTY)
+    setAdvModalOpen(true)
+  }
+  function openAdvEdit(a: Advertencia) {
+    setAdvEditId(a.id)
+    setAdvForm({
+      colaborador_id:   a.colaborador_id ?? '',
+      data_advertencia: a.data_advertencia ?? '',
+      tipo:             a.tipo ?? 'escrita',
+      motivo:           a.motivo ?? '',
+      descricao:        a.descricao ?? '',
+      assinada:         a.assinada ?? false,
+      observacoes:      a.observacoes ?? '',
+    })
+    setAdvModalOpen(true)
+  }
+  async function saveAdvertencia() {
+    if (!advForm.colaborador_id)   { toast.error('Selecione um colaborador'); return }
+    if (!advForm.data_advertencia) { toast.error('Data é obrigatória'); return }
+    if (!advForm.motivo.trim())    { toast.error('Motivo é obrigatório'); return }
+    setSavingAdv(true)
+    const payload = {
+      colaborador_id:   advForm.colaborador_id,
+      data_advertencia: advForm.data_advertencia,
+      tipo:             advForm.tipo,
+      motivo:           advForm.motivo,
+      descricao:        advForm.descricao || null,
+      assinada:         advForm.assinada,
+      observacoes:      advForm.observacoes || null,
     }
+    const res = advEditId
+      ? await supabase.from('advertencias').update(payload).eq('id', advEditId)
+      : await supabase.from('advertencias').insert(payload)
+    setSavingAdv(false)
+    if (res.error) { toast.error('Erro ao salvar: ' + res.error.message); return }
+    toast.success(advEditId ? 'Advertência atualizada!' : 'Advertência cadastrada!')
+    setAdvModalOpen(false)
+    fetchAdvertencias()
+  }
+  async function deleteAdvertencia() {
+    if (!advDeleteId) return
+    setDeletingAdv(true)
+    const { error } = await supabase.from('advertencias').delete().eq('id', advDeleteId)
+    setDeletingAdv(false)
+    setAdvDeleteId(null)
+    if (error) { toast.error(error.message); return }
+    toast.success('Advertência excluída')
+    fetchAdvertencias()
   }
 
-  // ─── Derived: acidentes com atestado vinculado ────────────────────────────────
-  const acidenteIdsComAtestado = new Set(
-    atestados.filter((a) => a.acidente_id).map((a) => a.acidente_id as string)
-  )
+  // ─── tab style ──────────────────────────────────────────────────────────────
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    padding: '9px 20px',
+    borderRadius: 8,
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: 13,
+    fontWeight: active ? 700 : 400,
+    background: active ? 'var(--primary)' : 'transparent',
+    color: active ? '#fff' : 'var(--muted-foreground)',
+    transition: 'all 0.15s',
+  })
 
-  // ─── TAB STYLES ───────────────────────────────────────────────────────────────
+  const fieldRow: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4 }
+  const grid2: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }
 
-  function tabStyle(tab: 'atestados' | 'acidentes') {
-    const isActive = activeTab === tab
-    return {
-      padding: '10px 24px',
-      cursor: 'pointer',
-      fontSize: 15,
-      fontWeight: isActive ? 700 : 500,
-      color: isActive ? '#1d4ed8' : '#64748b',
-      background: 'none',
-      border: 'none',
-      borderBottom: isActive ? '2px solid #1d4ed8' : '2px solid transparent',
-      outline: 'none',
-      transition: 'all 0.15s',
-    } as React.CSSProperties
-  }
-
-  // ─── RENDER ───────────────────────────────────────────────────────────────────
-
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════════════════
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 1200, margin: '0 auto' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 24 }}>
       <PageHeader
-        title="Ocorrências e Atestados"
-        subtitle="Gerencie atestados médicos, afastamentos e acidentes de trabalho"
+        title="Ocorrências"
+        subtitle="Atestados, Acidentes de Trabalho e Advertências"
         action={
-          <Button
-            onClick={activeTab === 'atestados' ? openAtestadoCreate : openAcidenCreate}
-            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <Plus size={16} />
-            {activeTab === 'atestados' ? 'Novo Atestado' : 'Nova Ocorrência'}
+          <Button onClick={() => {
+            if (aba === 'atestados')    openAtestCreate()
+            if (aba === 'acidentes')    openAcidCreate()
+            if (aba === 'advertencias') openAdvCreate()
+          }}>
+            <Plus size={14} style={{ marginRight: 6 }} />
+            {aba === 'atestados' ? 'Novo Atestado' : aba === 'acidentes' ? 'Novo Acidente' : 'Nova Advertência'}
           </Button>
         }
       />
 
-      {/* ── TABS ────────────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          display: 'flex',
-          borderBottom: '1px solid #e2e8f0',
-          marginBottom: 24,
-          marginTop: 8,
-        }}
-      >
-        <button style={tabStyle('atestados')} onClick={() => setActiveTab('atestados')}>
-          🩺 Atestados / Afastamentos
+      {/* Abas */}
+      <div style={{ display: 'flex', gap: 6, background: 'var(--muted)', padding: 4, borderRadius: 10, width: 'fit-content' }}>
+        <button style={tabStyle(aba === 'atestados')}    onClick={() => setAba('atestados')}>
+          <Stethoscope size={13} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+          Atestados
         </button>
-        <button style={tabStyle('acidentes')} onClick={() => setActiveTab('acidentes')}>
-          ⚠️ Acidentes / Ocorrências
+        <button style={tabStyle(aba === 'acidentes')}    onClick={() => setAba('acidentes')}>
+          <AlertTriangle size={13} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+          Acidentes
+        </button>
+        <button style={tabStyle(aba === 'advertencias')} onClick={() => setAba('advertencias')}>
+          <FileWarning size={13} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+          Advertências
         </button>
       </div>
 
-      {/* ════════════════════════════════════════════════════════════════════════
-          ABA 1 — ATESTADOS
-         ════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'atestados' && (
-        <>
-          {loadingAtestados || loadingShared ? (
-            <LoadingSkeleton />
-          ) : atestados.length === 0 ? (
-            <EmptyState
-              icon={<Stethoscope size={40} color="#94a3b8" />}
-              title="Nenhum atestado cadastrado"
-              description="Registre afastamentos e atestados médicos dos colaboradores"
-              action={
-                <Button onClick={openAtestadoCreate}>
-                  <Plus size={14} style={{ marginRight: 6 }} />
-                  Cadastrar Atestado
-                </Button>
-              }
-            />
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Colaborador</TableHead>
-                    <TableHead>Período</TableHead>
-                    <TableHead>Dias</TableHead>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead>CID</TableHead>
-                    <TableHead>Acidente vinculado</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead style={{ textAlign: 'right' }}>Ações</TableHead>
+      {/* ══════════════════════════════════════════════════════════════════════
+          ABA — ATESTADOS
+      ════════════════════════════════════════════════════════════════════════ */}
+      {aba === 'atestados' && (
+        loadingAtest || loadingShared ? <LoadingSkeleton /> :
+        atestados.length === 0 ? (
+          <EmptyState
+            icon={<Stethoscope size={40} color="#94a3b8" />}
+            title="Nenhum atestado cadastrado"
+            description="Registre atestados médicos e afastamentos"
+            action={<Button onClick={openAtestCreate}><Plus size={14} style={{ marginRight: 6 }} />Novo Atestado</Button>}
+          />
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Colaborador</TableHead>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead style={{ textAlign: 'center' }}>Dias</TableHead>
+                  <TableHead>CID</TableHead>
+                  <TableHead>Médico</TableHead>
+                  <TableHead>Afastamento</TableHead>
+                  <TableHead style={{ textAlign: 'right' }}>Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {atestados.map(a => (
+                  <TableRow key={a.id}>
+                    <TableCell>
+                      <div style={{ fontWeight: 600 }}>{a.colaboradores?.nome ?? '—'}</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8' }}>{a.colaboradores?.chapa ?? ''}</div>
+                    </TableCell>
+                    <TableCell style={{ fontSize: 13 }}>{formatDate(a.data)}</TableCell>
+                    <TableCell style={{ fontSize: 13 }}>{labelTipo(a.tipo, TIPOS_ATESTADO)}</TableCell>
+                    <TableCell style={{ textAlign: 'center', fontWeight: 700 }}>
+                      {a.dias_afastamento != null ? `${a.dias_afastamento}d` : '—'}
+                    </TableCell>
+                    <TableCell>
+                      {a.cid
+                        ? <span style={{ fontFamily: 'monospace', background: '#f1f5f9', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>{a.cid}</span>
+                        : <span style={{ color: '#94a3b8' }}>—</span>}
+                    </TableCell>
+                    <TableCell style={{ fontSize: 13 }}>{a.medico ?? '—'}</TableCell>
+                    <TableCell>
+                      {a.com_afastamento
+                        ? <span style={{ background: '#fff1f2', color: '#dc2626', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>Sim</span>
+                        : <span style={{ background: '#f0fdf4', color: '#16a34a', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>Não</span>}
+                    </TableCell>
+                    <TableCell style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <Button variant="outline" size="sm" onClick={() => openAtestEdit(a)}><Pencil size={14} /></Button>
+                        <Button variant="outline" size="sm" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => setAtestDeleteId(a.id)}><Trash2 size={14} /></Button>
+                      </div>
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {atestados.map((a) => (
-                    <TableRow key={a.id}>
-                      <TableCell>
-                        <div style={{ fontWeight: 600 }}>{a.colaboradores?.nome ?? '—'}</div>
-                        <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                          {a.colaboradores?.chapa ?? ''}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div style={{ fontSize: 13 }}>
-                          {formatDate(a.data_inicio)}
-                          {a.data_fim ? ` → ${formatDate(a.data_fim)}` : ' → em aberto'}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span style={{ fontWeight: 600 }}>
-                          {a.dias_afastamento != null ? `${a.dias_afastamento}d` : '—'}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <span style={{ fontSize: 13 }}>
-                          {labelTipoAfastamento(a.tipo_afastamento)}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          style={{
-                            fontFamily: 'monospace',
-                            background: '#f1f5f9',
-                            padding: '2px 6px',
-                            borderRadius: 4,
-                            fontSize: 12,
-                          }}
-                        >
-                          {a.cid ?? '—'}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        {a.acidentes ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Link2 size={13} color="#6366f1" />
-                            <span style={{ fontSize: 12 }}>
-                              {formatDate(a.acidentes.data_ocorrencia)} ·{' '}
-                              {labelTipoAcidente(a.acidentes.tipo_acidente)}
-                            </span>
-                          </div>
-                        ) : (
-                          <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <BadgeAtestadoStatus status={a.status} />
-                      </TableCell>
-                      <TableCell style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openAtestadoEdit(a)}
-                          >
-                            <Pencil size={14} />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
-                            onClick={() => setAtestadoDeleteId(a.id)}
-                          >
-                            <Trash2 size={14} />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )
       )}
 
-      {/* ════════════════════════════════════════════════════════════════════════
-          ABA 2 — ACIDENTES
-         ════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'acidentes' && (
-        <>
-          {loadingAcidentes || loadingShared ? (
-            <LoadingSkeleton />
-          ) : acidentes.length === 0 ? (
-            <EmptyState
-              icon={<AlertTriangle size={40} color="#94a3b8" />}
-              title="Nenhum acidente registrado"
-              description="Registre ocorrências e acidentes de trabalho nas obras"
-              action={
-                <Button onClick={openAcidenCreate}>
-                  <Plus size={14} style={{ marginRight: 6 }} />
-                  Registrar Acidente
-                </Button>
-              }
-            />
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Colaborador</TableHead>
-                    <TableHead>Obra</TableHead>
-                    <TableHead>Data / Hora</TableHead>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead>CAT</TableHead>
-                    <TableHead>Atestado</TableHead>
-                    <TableHead style={{ textAlign: 'right' }}>Ações</TableHead>
+      {/* ══════════════════════════════════════════════════════════════════════
+          ABA — ACIDENTES
+      ════════════════════════════════════════════════════════════════════════ */}
+      {aba === 'acidentes' && (
+        loadingAcid || loadingShared ? <LoadingSkeleton /> :
+        acidentes.length === 0 ? (
+          <EmptyState
+            icon={<AlertTriangle size={40} color="#94a3b8" />}
+            title="Nenhum acidente registrado"
+            description="Registre acidentes de trabalho e ocorrências"
+            action={<Button onClick={openAcidCreate}><Plus size={14} style={{ marginRight: 6 }} />Novo Acidente</Button>}
+          />
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Colaborador</TableHead>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Gravidade</TableHead>
+                  <TableHead>Descrição</TableHead>
+                  <TableHead>CAT</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead style={{ textAlign: 'right' }}>Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {acidentes.map(a => (
+                  <TableRow key={a.id}>
+                    <TableCell>
+                      <div style={{ fontWeight: 600 }}>{a.colaboradores?.nome ?? '—'}</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8' }}>{a.colaboradores?.chapa ?? ''}</div>
+                      {a.obras && <div style={{ fontSize: 11, color: '#6366f1' }}>{a.obras.nome}</div>}
+                    </TableCell>
+                    <TableCell style={{ fontSize: 13 }}>
+                      {formatDate(a.data_acidente)}
+                      {a.hora_acidente && <div style={{ fontSize: 11, color: '#94a3b8' }}>{a.hora_acidente}</div>}
+                    </TableCell>
+                    <TableCell style={{ fontSize: 13 }}>{labelTipo(a.tipo, TIPOS_ACIDENTE)}</TableCell>
+                    <TableCell><GravBadge g={a.gravidade} /></TableCell>
+                    <TableCell style={{ fontSize: 12, maxWidth: 200 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.descricao}</div>
+                    </TableCell>
+                    <TableCell>
+                      {a.cat_emitida
+                        ? <span style={{ background: '#fef9c3', color: '#854d0e', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>Emitida</span>
+                        : <span style={{ background: '#f3f4f6', color: '#6b7280', padding: '2px 8px', borderRadius: 6, fontSize: 11 }}>Não</span>}
+                    </TableCell>
+                    <TableCell style={{ fontSize: 12 }}>{labelTipo(a.status, STATUS_ACIDENTE)}</TableCell>
+                    <TableCell style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <Button variant="outline" size="sm" onClick={() => openAcidEdit(a)}><Pencil size={14} /></Button>
+                        <Button variant="outline" size="sm" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => setAcidDeleteId(a.id)}><Trash2 size={14} /></Button>
+                      </div>
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {acidentes.map((a) => (
-                    <TableRow key={a.id}>
-                      <TableCell>
-                        <div style={{ fontWeight: 600 }}>{a.colaboradores?.nome ?? '—'}</div>
-                        <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                          {a.colaboradores?.chapa ?? ''}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span style={{ fontSize: 13 }}>{a.obras?.nome ?? '—'}</span>
-                      </TableCell>
-                      <TableCell>
-                        <div style={{ fontSize: 13 }}>{formatDate(a.data_ocorrencia)}</div>
-                        {a.hora_ocorrencia && (
-                          <div style={{ fontSize: 12, color: '#64748b' }}>{a.hora_ocorrencia}</div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <span style={{ fontSize: 13 }}>{labelTipoAcidente(a.tipo_acidente)}</span>
-                      </TableCell>
-                      <TableCell>
-                        <BadgeCAT comunicado={a.comunicado_cat} />
-                      </TableCell>
-                      <TableCell>
-                        <BadgeTemAtestado tem={acidenteIdsComAtestado.has(a.id)} />
-                      </TableCell>
-                      <TableCell style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openAcidenEdit(a)}
-                          >
-                            <Pencil size={14} />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
-                            onClick={() => setAcidenDeleteId(a.id)}
-                          >
-                            <Trash2 size={14} />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )
       )}
 
-      {/* ════════════════════════════════════════════════════════════════════════
+      {/* ══════════════════════════════════════════════════════════════════════
+          ABA — ADVERTÊNCIAS
+      ════════════════════════════════════════════════════════════════════════ */}
+      {aba === 'advertencias' && (
+        loadingAdv || loadingShared ? <LoadingSkeleton /> :
+        advertencias.length === 0 ? (
+          <EmptyState
+            icon={<FileWarning size={40} color="#94a3b8" />}
+            title="Nenhuma advertência registrada"
+            description="Registre advertências, suspensões e ocorrências disciplinares"
+            action={<Button onClick={openAdvCreate}><Plus size={14} style={{ marginRight: 6 }} />Nova Advertência</Button>}
+          />
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Colaborador</TableHead>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Motivo</TableHead>
+                  <TableHead>Assinada</TableHead>
+                  <TableHead>Observações</TableHead>
+                  <TableHead style={{ textAlign: 'right' }}>Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {advertencias.map(a => (
+                  <TableRow key={a.id}>
+                    <TableCell>
+                      <div style={{ fontWeight: 600 }}>{a.colaboradores?.nome ?? '—'}</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8' }}>{a.colaboradores?.chapa ?? ''}</div>
+                    </TableCell>
+                    <TableCell style={{ fontSize: 13 }}>{formatDate(a.data_advertencia)}</TableCell>
+                    <TableCell><AdvTipoBadge tipo={a.tipo} /></TableCell>
+                    <TableCell style={{ fontSize: 13, maxWidth: 200 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.motivo}</div>
+                    </TableCell>
+                    <TableCell>
+                      {a.assinada
+                        ? <span style={{ background: '#f0fdf4', color: '#16a34a', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>✅ Sim</span>
+                        : <span style={{ background: '#fffbeb', color: '#d97706', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>⏳ Pendente</span>}
+                    </TableCell>
+                    <TableCell style={{ fontSize: 12, color: '#6b7280', maxWidth: 160 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.observacoes ?? '—'}</div>
+                    </TableCell>
+                    <TableCell style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <Button variant="outline" size="sm" onClick={() => openAdvEdit(a)}><Pencil size={14} /></Button>
+                        <Button variant="outline" size="sm" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => setAdvDeleteId(a.id)}><Trash2 size={14} /></Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
           MODAL — ATESTADO
-         ════════════════════════════════════════════════════════════════════════ */}
-      <Dialog open={atestadoModalOpen} onOpenChange={setAtestadoModalOpen}>
-        <DialogContent style={{ maxWidth: 620, maxHeight: '90vh', overflowY: 'auto' }}>
+      ════════════════════════════════════════════════════════════════════════ */}
+      <Dialog open={atestModalOpen} onOpenChange={setAtestModalOpen}>
+        <DialogContent
+          style={{ maxWidth: 560, maxHeight: '90vh', overflowY: 'auto' }}
+          onPointerDownOutside={e => e.preventDefault()}
+          onEscapeKeyDown={e => e.preventDefault()}
+        >
           <DialogHeader>
-            <DialogTitle>
-              {atestadoEditId ? 'Editar Atestado' : 'Cadastrar Atestado / Afastamento'}
-            </DialogTitle>
+            <DialogTitle>{atestEditId ? 'Editar Atestado' : 'Novo Atestado'}</DialogTitle>
           </DialogHeader>
-
-          <div style={{ display: 'grid', gap: 14, padding: '4px 0' }}>
-            {/* Colaborador */}
-            <div style={{ display: 'grid', gap: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
+            <div style={fieldRow}>
               <Label>Colaborador *</Label>
-              <Select
-                value={atestadoForm.colaborador_id || undefined}
-                onValueChange={handleAtestadoColaboradorChange}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o colaborador" />
-                </SelectTrigger>
-                <SelectContent>
-                  {colaboradores.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nome} {c.chapa ? `(${c.chapa})` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
+              <Select value={atestForm.colaborador_id || undefined} onValueChange={v => setAtestForm(p => ({ ...p, colaborador_id: v }))}>
+                <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                <SelectContent>{colaboradores.map(c => <SelectItem key={c.id} value={c.id}>{c.nome}{c.chapa ? ` — ${c.chapa}` : ''}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-
-            {/* Data início / fim */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div style={{ display: 'grid', gap: 4 }}>
-                <Label>Data de Início *</Label>
-                <Input
-                  type="date"
-                  value={atestadoForm.data_inicio}
-                  onChange={(e) => handleAtestadoDateChange('data_inicio', e.target.value)}
-                />
+            <div style={grid2}>
+              <div style={fieldRow}>
+                <Label>Data *</Label>
+                <Input type="date" value={atestForm.data} onChange={e => setAtestForm(p => ({ ...p, data: e.target.value }))} />
               </div>
-              <div style={{ display: 'grid', gap: 4 }}>
-                <Label>Data de Fim</Label>
-                <Input
-                  type="date"
-                  value={atestadoForm.data_fim}
-                  onChange={(e) => handleAtestadoDateChange('data_fim', e.target.value)}
-                />
-              </div>
-            </div>
-
-            {/* Dias + Tipo afastamento */}
-            <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 12 }}>
-              <div style={{ display: 'grid', gap: 4 }}>
-                <Label>Dias</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={atestadoForm.dias_afastamento}
-                  onChange={(e) =>
-                    setAtestadoForm((prev) => ({ ...prev, dias_afastamento: e.target.value }))
-                  }
-                  placeholder="Auto"
-                />
-              </div>
-              <div style={{ display: 'grid', gap: 4 }}>
-                <Label>Tipo de Afastamento</Label>
-                <Select
-                  value={atestadoForm.tipo_afastamento || undefined}
-                  onValueChange={(v) =>
-                    setAtestadoForm((prev) => ({ ...prev, tipo_afastamento: v }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIPOS_AFASTAMENTO.map((t) => (
-                      <SelectItem key={t.value} value={t.value}>
-                        {t.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+              <div style={fieldRow}>
+                <Label>Tipo</Label>
+                <Select value={atestForm.tipo || undefined} onValueChange={v => setAtestForm(p => ({ ...p, tipo: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{TIPOS_ATESTADO.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             </div>
-
-            {/* CID + Médico */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div style={{ display: 'grid', gap: 4 }}>
+            <div style={grid2}>
+              <div style={fieldRow}>
+                <Label>Dias de afastamento</Label>
+                <Input type="number" min="0" value={atestForm.dias_afastamento} onChange={e => setAtestForm(p => ({ ...p, dias_afastamento: e.target.value }))} placeholder="0" />
+              </div>
+              <div style={fieldRow}>
                 <Label>CID</Label>
-                <Input
-                  placeholder="Ex: M54.5"
-                  value={atestadoForm.cid}
-                  onChange={(e) => setAtestadoForm((prev) => ({ ...prev, cid: e.target.value }))}
-                />
-              </div>
-              <div style={{ display: 'grid', gap: 4 }}>
-                <Label>Médico</Label>
-                <Input
-                  placeholder="Nome do médico"
-                  value={atestadoForm.medico}
-                  onChange={(e) => setAtestadoForm((prev) => ({ ...prev, medico: e.target.value }))}
-                />
+                <Input value={atestForm.cid} onChange={e => setAtestForm(p => ({ ...p, cid: e.target.value }))} placeholder="Ex: J45.0" />
               </div>
             </div>
-
-            {/* CRM + Data retorno */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div style={{ display: 'grid', gap: 4 }}>
-                <Label>CRM</Label>
-                <Input
-                  placeholder="CRM do médico"
-                  value={atestadoForm.crm}
-                  onChange={(e) => setAtestadoForm((prev) => ({ ...prev, crm: e.target.value }))}
-                />
-              </div>
-              <div style={{ display: 'grid', gap: 4 }}>
-                <Label>Data de Retorno</Label>
-                <Input
-                  type="date"
-                  value={atestadoForm.data_retorno}
-                  onChange={(e) =>
-                    setAtestadoForm((prev) => ({ ...prev, data_retorno: e.target.value }))
-                  }
-                />
-              </div>
+            <div style={fieldRow}>
+              <Label>Médico</Label>
+              <Input value={atestForm.medico} onChange={e => setAtestForm(p => ({ ...p, medico: e.target.value }))} placeholder="Nome do médico" />
             </div>
-
-            {/* Acidente vinculado */}
-            <div style={{ display: 'grid', gap: 4 }}>
-              <Label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Link2 size={14} color="#6366f1" />
-                Vinculado a Acidente (opcional)
-              </Label>
-              {loadingAcidentesColaborador ? (
-                <p style={{ fontSize: 12, color: '#64748b' }}>Carregando acidentes...</p>
-              ) : acidentesDoColaborador.length === 0 ? (
-                <p style={{ fontSize: 12, color: '#94a3b8' }}>
-                  {atestadoForm.colaborador_id
-                    ? 'Nenhum acidente registrado para este colaborador'
-                    : 'Selecione um colaborador para ver acidentes vinculáveis'}
-                </p>
-              ) : (
-                <Select
-                  value={atestadoForm.acidente_id || undefined}
-                  onValueChange={(v) =>
-                    setAtestadoForm((prev) => ({ ...prev, acidente_id: v }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Nenhum acidente vinculado" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {acidentesDoColaborador.map((ac) => (
-                      <SelectItem key={ac.id} value={ac.id}>
-                        {formatDate(ac.data_ocorrencia)} · {labelTipoAcidente(ac.tipo_acidente)}
-                        {ac.descricao ? ` — ${ac.descricao.substring(0, 40)}...` : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" id="com_afastamento_atest" checked={atestForm.com_afastamento}
+                onChange={e => setAtestForm(p => ({ ...p, com_afastamento: e.target.checked }))} />
+              <label htmlFor="com_afastamento_atest" style={{ fontSize: 13, cursor: 'pointer' }}>Com afastamento</label>
             </div>
-
-            {/* Status */}
-            <div style={{ display: 'grid', gap: 4 }}>
-              <Label>Status</Label>
-              <Select
-                value={atestadoForm.status || undefined}
-                onValueChange={(v) => setAtestadoForm((prev) => ({ ...prev, status: v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ativo">Afastado (ativo)</SelectItem>
-                  <SelectItem value="encerrado">Retornou (encerrado)</SelectItem>
-                </SelectContent>
-              </Select>
+            <div style={fieldRow}>
+              <Label>Descrição / Diagnóstico</Label>
+              <Textarea value={atestForm.descricao} onChange={e => setAtestForm(p => ({ ...p, descricao: e.target.value }))} rows={3} placeholder="Descreva o diagnóstico ou motivo…" />
             </div>
-
-            {/* Observações */}
-            <div style={{ display: 'grid', gap: 4 }}>
+            <div style={fieldRow}>
               <Label>Observações</Label>
-              <Textarea
-                rows={3}
-                placeholder="Anotações adicionais..."
-                value={atestadoForm.observacoes}
-                onChange={(e) =>
-                  setAtestadoForm((prev) => ({ ...prev, observacoes: e.target.value }))
-                }
-              />
+              <Textarea value={atestForm.observacoes} onChange={e => setAtestForm(p => ({ ...p, observacoes: e.target.value }))} rows={2} />
             </div>
           </div>
-
-          <DialogFooter style={{ marginTop: 8 }}>
-            <Button variant="outline" onClick={() => setAtestadoModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={saveAtestado} disabled={savingAtestado}>
-              {savingAtestado ? 'Salvando...' : atestadoEditId ? 'Salvar' : 'Cadastrar'}
-            </Button>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAtestModalOpen(false)}>Cancelar</Button>
+            <Button onClick={saveAtestado} disabled={savingAtest}>{savingAtest ? 'Salvando…' : 'Salvar'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ════════════════════════════════════════════════════════════════════════
+      {/* ══════════════════════════════════════════════════════════════════════
           MODAL — ACIDENTE
-         ════════════════════════════════════════════════════════════════════════ */}
-      <Dialog open={acidenModalOpen} onOpenChange={setAcidenModalOpen}>
-        <DialogContent style={{ maxWidth: 580, maxHeight: '90vh', overflowY: 'auto' }}>
+      ════════════════════════════════════════════════════════════════════════ */}
+      <Dialog open={acidModalOpen} onOpenChange={setAcidModalOpen}>
+        <DialogContent
+          style={{ maxWidth: 600, maxHeight: '90vh', overflowY: 'auto' }}
+          onPointerDownOutside={e => e.preventDefault()}
+          onEscapeKeyDown={e => e.preventDefault()}
+        >
           <DialogHeader>
-            <DialogTitle>
-              {acidenEditId ? 'Editar Acidente / Ocorrência' : 'Registrar Acidente / Ocorrência'}
-            </DialogTitle>
+            <DialogTitle>{acidEditId ? 'Editar Acidente' : 'Novo Acidente de Trabalho'}</DialogTitle>
           </DialogHeader>
-
-          <div style={{ display: 'grid', gap: 14, padding: '4px 0' }}>
-            {/* Colaborador */}
-            <div style={{ display: 'grid', gap: 4 }}>
-              <Label>Colaborador *</Label>
-              <Select
-                value={acidenForm.colaborador_id || undefined}
-                onValueChange={(v) =>
-                  setAcidenForm((prev) => ({ ...prev, colaborador_id: v }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o colaborador" />
-                </SelectTrigger>
-                <SelectContent>
-                  {colaboradores.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nome} {c.chapa ? `(${c.chapa})` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Obra */}
-            <div style={{ display: 'grid', gap: 4 }}>
-              <Label>Obra</Label>
-              <Select
-                value={acidenForm.obra_id || undefined}
-                onValueChange={(v) => setAcidenForm((prev) => ({ ...prev, obra_id: v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione a obra" />
-                </SelectTrigger>
-                <SelectContent>
-                  {obras.map((o) => (
-                    <SelectItem key={o.id} value={o.id}>
-                      {o.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Data + Hora */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div style={{ display: 'grid', gap: 4 }}>
-                <Label>Data da Ocorrência *</Label>
-                <Input
-                  type="date"
-                  value={acidenForm.data_ocorrencia}
-                  onChange={(e) =>
-                    setAcidenForm((prev) => ({ ...prev, data_ocorrencia: e.target.value }))
-                  }
-                />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
+            <div style={grid2}>
+              <div style={fieldRow}>
+                <Label>Colaborador *</Label>
+                <Select value={acidForm.colaborador_id || undefined} onValueChange={v => setAcidForm(p => ({ ...p, colaborador_id: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                  <SelectContent>{colaboradores.map(c => <SelectItem key={c.id} value={c.id}>{c.nome}{c.chapa ? ` — ${c.chapa}` : ''}</SelectItem>)}</SelectContent>
+                </Select>
               </div>
-              <div style={{ display: 'grid', gap: 4 }}>
+              <div style={fieldRow}>
+                <Label>Obra</Label>
+                <Select value={acidForm.obra_id || undefined} onValueChange={v => setAcidForm(p => ({ ...p, obra_id: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                  <SelectContent>{obras.map(o => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div style={grid2}>
+              <div style={fieldRow}>
+                <Label>Data *</Label>
+                <Input type="date" value={acidForm.data_acidente} onChange={e => setAcidForm(p => ({ ...p, data_acidente: e.target.value }))} />
+              </div>
+              <div style={fieldRow}>
                 <Label>Hora</Label>
-                <Input
-                  type="time"
-                  value={acidenForm.hora_ocorrencia}
-                  onChange={(e) =>
-                    setAcidenForm((prev) => ({ ...prev, hora_ocorrencia: e.target.value }))
-                  }
-                />
+                <Input type="time" value={acidForm.hora_acidente} onChange={e => setAcidForm(p => ({ ...p, hora_acidente: e.target.value }))} />
               </div>
             </div>
-
-            {/* Tipo acidente */}
-            <div style={{ display: 'grid', gap: 4 }}>
-              <Label>Tipo de Acidente</Label>
-              <Select
-                value={acidenForm.tipo_acidente || undefined}
-                onValueChange={(v) =>
-                  setAcidenForm((prev) => ({ ...prev, tipo_acidente: v }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIPOS_ACIDENTE.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
-                      {t.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div style={grid2}>
+              <div style={fieldRow}>
+                <Label>Tipo do acidente</Label>
+                <Select value={acidForm.tipo || undefined} onValueChange={v => setAcidForm(p => ({ ...p, tipo: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                  <SelectContent>{TIPOS_ACIDENTE.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div style={fieldRow}>
+                <Label>Gravidade</Label>
+                <Select value={acidForm.gravidade || undefined} onValueChange={v => setAcidForm(p => ({ ...p, gravidade: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                  <SelectContent>{GRAVIDADES.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
             </div>
-
-            {/* Descrição */}
-            <div style={{ display: 'grid', gap: 4 }}>
+            <div style={fieldRow}>
+              <Label>Local do acidente</Label>
+              <Input value={acidForm.local_acidente} onChange={e => setAcidForm(p => ({ ...p, local_acidente: e.target.value }))} placeholder="Ex: Andar 3, bloco B…" />
+            </div>
+            <div style={fieldRow}>
               <Label>Descrição *</Label>
-              <Textarea
-                rows={3}
-                placeholder="Descreva o acidente / ocorrência..."
-                value={acidenForm.descricao}
-                onChange={(e) =>
-                  setAcidenForm((prev) => ({ ...prev, descricao: e.target.value }))
-                }
-              />
+              <Textarea value={acidForm.descricao} onChange={e => setAcidForm(p => ({ ...p, descricao: e.target.value }))} rows={3} placeholder="Descreva como ocorreu o acidente…" />
             </div>
-
-            {/* CAT comunicada */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '10px 14px',
-                background: acidenForm.comunicado_cat ? '#fff7ed' : '#f8fafc',
-                border: `1px solid ${acidenForm.comunicado_cat ? '#fdba74' : '#e2e8f0'}`,
-                borderRadius: 8,
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-              }}
-              onClick={() =>
-                setAcidenForm((prev) => ({ ...prev, comunicado_cat: !prev.comunicado_cat }))
-              }
-            >
-              <div
-                style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: 4,
-                  border: `2px solid ${acidenForm.comunicado_cat ? '#f97316' : '#cbd5e1'}`,
-                  background: acidenForm.comunicado_cat ? '#f97316' : 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  transition: 'all 0.15s',
-                }}
-              >
-                {acidenForm.comunicado_cat && (
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                    <path d="M2 6l3 3 5-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
+            <div style={{ display: 'flex', gap: 24 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" id="com_afastamento_acid" checked={acidForm.com_afastamento}
+                  onChange={e => setAcidForm(p => ({ ...p, com_afastamento: e.target.checked }))} />
+                <label htmlFor="com_afastamento_acid" style={{ fontSize: 13, cursor: 'pointer' }}>Com afastamento</label>
               </div>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>
-                  CAT — Comunicação de Acidente de Trabalho
-                </div>
-                <div style={{ fontSize: 12, color: '#64748b' }}>
-                  {acidenForm.comunicado_cat
-                    ? 'Comunicação registrada'
-                    : 'Marque se a CAT foi emitida'}
-                </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" id="cat_emitida" checked={acidForm.cat_emitida}
+                  onChange={e => setAcidForm(p => ({ ...p, cat_emitida: e.target.checked }))} />
+                <label htmlFor="cat_emitida" style={{ fontSize: 13, cursor: 'pointer' }}>CAT emitida</label>
               </div>
             </div>
-
-            {/* Observações */}
-            <div style={{ display: 'grid', gap: 4 }}>
+            {acidForm.com_afastamento && (
+              <div style={fieldRow}>
+                <Label>Dias de afastamento</Label>
+                <Input type="number" min="0" value={acidForm.dias_afastamento} onChange={e => setAcidForm(p => ({ ...p, dias_afastamento: e.target.value }))} />
+              </div>
+            )}
+            <div style={fieldRow}>
               <Label>Observações</Label>
-              <Textarea
-                rows={3}
-                placeholder="Informações adicionais..."
-                value={acidenForm.observacoes}
-                onChange={(e) =>
-                  setAcidenForm((prev) => ({ ...prev, observacoes: e.target.value }))
-                }
-              />
+              <Textarea value={acidForm.observacoes} onChange={e => setAcidForm(p => ({ ...p, observacoes: e.target.value }))} rows={2} />
             </div>
           </div>
-
-          <DialogFooter style={{ marginTop: 8 }}>
-            <Button variant="outline" onClick={() => setAcidenModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={saveAcidente} disabled={savingAciden}>
-              {savingAciden ? 'Salvando...' : acidenEditId ? 'Salvar' : 'Registrar'}
-            </Button>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAcidModalOpen(false)}>Cancelar</Button>
+            <Button onClick={saveAcidente} disabled={savingAcid}>{savingAcid ? 'Salvando…' : 'Salvar'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── CONFIRM DELETE — ATESTADO ────────────────────────────────────────── */}
-      <AlertDialog
-        open={!!atestadoDeleteId}
-        onOpenChange={(open) => { if (!open) setAtestadoDeleteId(null) }}
-      >
+      {/* ══════════════════════════════════════════════════════════════════════
+          MODAL — ADVERTÊNCIA
+      ════════════════════════════════════════════════════════════════════════ */}
+      <Dialog open={advModalOpen} onOpenChange={setAdvModalOpen}>
+        <DialogContent
+          style={{ maxWidth: 560, maxHeight: '90vh', overflowY: 'auto' }}
+          onPointerDownOutside={e => e.preventDefault()}
+          onEscapeKeyDown={e => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>{advEditId ? 'Editar Advertência' : 'Nova Advertência'}</DialogTitle>
+          </DialogHeader>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
+            <div style={fieldRow}>
+              <Label>Colaborador *</Label>
+              <Select value={advForm.colaborador_id || undefined} onValueChange={v => setAdvForm(p => ({ ...p, colaborador_id: v }))}>
+                <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                <SelectContent>{colaboradores.map(c => <SelectItem key={c.id} value={c.id}>{c.nome}{c.chapa ? ` — ${c.chapa}` : ''}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div style={grid2}>
+              <div style={fieldRow}>
+                <Label>Data *</Label>
+                <Input type="date" value={advForm.data_advertencia} onChange={e => setAdvForm(p => ({ ...p, data_advertencia: e.target.value }))} />
+              </div>
+              <div style={fieldRow}>
+                <Label>Tipo *</Label>
+                <Select value={advForm.tipo} onValueChange={v => setAdvForm(p => ({ ...p, tipo: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{TIPOS_ADVERTENCIA.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div style={fieldRow}>
+              <Label>Motivo *</Label>
+              <Select value={advForm.motivo || undefined} onValueChange={v => setAdvForm(p => ({ ...p, motivo: v }))}>
+                <SelectTrigger><SelectValue placeholder="Selecione o motivo…" /></SelectTrigger>
+                <SelectContent>{MOTIVOS_ADVERTENCIA.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div style={fieldRow}>
+              <Label>Descrição detalhada</Label>
+              <Textarea value={advForm.descricao} onChange={e => setAdvForm(p => ({ ...p, descricao: e.target.value }))} rows={3}
+                placeholder="Descreva detalhadamente o ocorrido, datas anteriores de advertência (se reincidência), testemunhas, etc." />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" id="assinada" checked={advForm.assinada}
+                onChange={e => setAdvForm(p => ({ ...p, assinada: e.target.checked }))} />
+              <label htmlFor="assinada" style={{ fontSize: 13, cursor: 'pointer' }}>Documento assinado pelo colaborador</label>
+            </div>
+            <div style={fieldRow}>
+              <Label>Observações</Label>
+              <Textarea value={advForm.observacoes} onChange={e => setAdvForm(p => ({ ...p, observacoes: e.target.value }))} rows={2} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAdvModalOpen(false)}>Cancelar</Button>
+            <Button onClick={saveAdvertencia} disabled={savingAdv}>{savingAdv ? 'Salvando…' : 'Salvar'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          CONFIRMS DE EXCLUSÃO
+      ════════════════════════════════════════════════════════════════════════ */}
+      <AlertDialog open={!!atestDeleteId} onOpenChange={o => { if (!o) setAtestDeleteId(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir Atestado?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta ação não pode ser desfeita. O registro de afastamento será permanentemente
-              removido.
-            </AlertDialogDescription>
+            <AlertDialogTitle>Excluir atestado?</AlertDialogTitle>
+            <AlertDialogDescription>Esta ação não pode ser desfeita.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={deleteAtestado}
-              disabled={deletingAtestado}
-              style={{ background: '#ef4444', color: '#fff' }}
-            >
-              {deletingAtestado ? 'Excluindo...' : 'Excluir'}
+            <AlertDialogAction onClick={deleteAtestado} disabled={deletingAtest} style={{ background: '#dc2626' }}>
+              {deletingAtest ? 'Excluindo…' : 'Excluir'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ── CONFIRM DELETE — ACIDENTE ────────────────────────────────────────── */}
-      <AlertDialog
-        open={!!acidenDeleteId}
-        onOpenChange={(open) => { if (!open) setAcidenDeleteId(null) }}
-      >
+      <AlertDialog open={!!acidDeleteId} onOpenChange={o => { if (!o) setAcidDeleteId(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir Acidente / Ocorrência?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta ação é irreversível. A ocorrência e todos os vínculos com atestados serão
-              removidos.
-            </AlertDialogDescription>
+            <AlertDialogTitle>Excluir acidente?</AlertDialogTitle>
+            <AlertDialogDescription>Esta ação não pode ser desfeita.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={deleteAcidente}
-              disabled={deletingAciden}
-              style={{ background: '#ef4444', color: '#fff' }}
-            >
-              {deletingAciden ? 'Excluindo...' : 'Excluir'}
+            <AlertDialogAction onClick={deleteAcidente} disabled={deletingAcid} style={{ background: '#dc2626' }}>
+              {deletingAcid ? 'Excluindo…' : 'Excluir'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!advDeleteId} onOpenChange={o => { if (!o) setAdvDeleteId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir advertência?</AlertDialogTitle>
+            <AlertDialogDescription>Esta ação não pode ser desfeita.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={deleteAdvertencia} disabled={deletingAdv} style={{ background: '#dc2626' }}>
+              {deletingAdv ? 'Excluindo…' : 'Excluir'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

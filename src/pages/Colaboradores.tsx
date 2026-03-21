@@ -51,7 +51,7 @@ function novoTrecho(): VtTrecho {
   return { id: crypto.randomUUID(), nome_linha: '', tipo_veiculo: 'onibus', valor: '', tem_integracao: false }
 }
 
-type VtModalidade = 'nenhum' | 'gasolina' | 'transporte' | 'misto'
+type VtModalidade = 'nenhum' | 'gasolina' | 'transporte'
 
 interface ColabEpiItem {
   epi_id: string
@@ -605,10 +605,11 @@ export default function Colaboradores() {
       banco: c.banco ?? '', agencia: c.agencia ?? '', conta: c.conta ?? '',
       tipo_conta: c.tipo_conta ?? '', pix_tipo: (c as any).pix_tipo ?? '', pix_chave: c.pix_chave ?? '',
       vt_modalidade: (() => {
-        const vd = (c as any).vt_dados as any
         if (!c.vale_transporte) return 'nenhum'
-        if (vd?.modalidade) return vd.modalidade
-        return 'transporte'
+        const m = (c as any).vt_dados?.modalidade ?? ''
+        if (m === 'gasolina') return 'gasolina'
+        if (m === 'transporte' || m === 'misto') return 'transporte'
+        return 'nenhum'
       })() as VtModalidade,
       vt_gasolina_valor_dia: String((c as any).vt_dados?.gasolina_valor_dia ?? ''),
       vt_cartao_tipo: (c as any).vt_dados?.cartao_tipo ?? '',
@@ -1355,20 +1356,45 @@ function calcTotal(trechos: VtTrecho[]): number {
 function VTSection({ form, setForm }: VTSectionProps) {
   const mod = form.vt_modalidade
 
-  const setMod = (m: VtModalidade) => setForm(p => {
-    // Ao trocar modalidade, limpa os dados da anterior para evitar divergências
-    const base: Partial<FormData> = { vt_modalidade: m }
-    if (m !== 'gasolina' && m !== 'misto') {
-      base.vt_gasolina_valor_dia = ''
+  // ── Detectar se já há dados lançados ────────────────────────────────────────
+  const hasGasolinaData = form.vt_gasolina_valor_dia !== ''
+  const hasTransporteData =
+    form.vt_trechos_ida.length > 0 ||
+    form.vt_trechos_volta.length > 0 ||
+    form.vt_cartao_tipo !== ''
+  const hasActiveData =
+    (mod === 'gasolina' && hasGasolinaData) ||
+    (mod === 'transporte' && hasTransporteData)
+
+  // ── Limpa completamente os dados VT (sem trocar modalidade) ─────────────────
+  const excluirLancamento = () =>
+    setForm(p => ({
+      ...p,
+      vt_gasolina_valor_dia: '',
+      vt_cartao_tipo: '',
+      vt_cartao_numero: '',
+      vt_trechos_ida: [],
+      vt_trechos_volta: [],
+    }))
+
+  // ── Trocar modalidade: só permitido se não houver dados ativos ───────────────
+  const setMod = (m: VtModalidade) => {
+    if (m === mod) return
+    // Bloquear troca direta se houver dados lançados (exceto ir para 'nenhum' = excluir)
+    if (hasActiveData && m !== 'nenhum') {
+      toast.warning('⚠️ Exclua o lançamento atual antes de trocar a modalidade.')
+      return
     }
-    if (m !== 'transporte' && m !== 'misto') {
-      base.vt_cartao_tipo = ''
-      base.vt_cartao_numero = ''
-      base.vt_trechos_ida = []
-      base.vt_trechos_volta = []
-    }
-    return { ...p, ...base }
-  })
+    setForm(p => ({
+      ...p,
+      vt_modalidade: m,
+      vt_gasolina_valor_dia: '',
+      vt_cartao_tipo: '',
+      vt_cartao_numero: '',
+      vt_trechos_ida: [],
+      vt_trechos_volta: [],
+    }))
+  }
 
   const addTrecho = (dir: 'ida' | 'volta') =>
     setForm(p => ({
@@ -1395,33 +1421,88 @@ function VTSection({ form, setForm }: VTSectionProps) {
   const totalIda    = calcTotal(form.vt_trechos_ida)
   const totalVolta  = calcTotal(form.vt_trechos_volta)
   const totalDiario = totalIda + totalVolta
-  const totalMensal = totalDiario * 22 // ~22 dias úteis
+  const totalMensal = totalDiario * 22
+
+  const OPCOES: { v: VtModalidade; label: string; cor: string; icon: string }[] = [
+    { v: 'nenhum',     label: 'Não recebe',         cor: '#6b7280', icon: '🚫' },
+    { v: 'gasolina',   label: 'Aux. Gasolina',       cor: '#f59e0b', icon: '⛽' },
+    { v: 'transporte', label: 'Transporte Público',  cor: '#3b82f6', icon: '🚌' },
+  ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-      {/* Seletor de modalidade */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {([
-          { v: 'nenhum',     label: '🚫 Não recebe',             cor: '#6b7280' },
-          { v: 'gasolina',   label: '⛽ Aux. Gasolina',          cor: '#f59e0b' },
-          { v: 'transporte', label: '🚌 Transporte Público',     cor: '#3b82f6' },
-          { v: 'misto',      label: '⛽+🚌 Gasolina + Transporte', cor: '#8b5cf6' },
-        ] as { v: VtModalidade; label: string; cor: string }[]).map(opt => (
-          <button key={opt.v} type="button" onClick={() => setMod(opt.v)}
-            style={{
-              padding: '7px 14px', borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: 'pointer',
-              border: `1px solid ${mod === opt.v ? opt.cor : 'var(--border)'}`,
-              background: mod === opt.v ? opt.cor + '18' : 'transparent',
-              color: mod === opt.v ? opt.cor : 'var(--foreground)',
-            }}>
-            {opt.label}
-          </button>
-        ))}
+      {/* ── Seletor de modalidade ── */}
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted-foreground)', marginBottom: 8 }}>
+          Modalidade de Vale Transporte
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {OPCOES.map(opt => {
+            const isActive = mod === opt.v
+            const isBlocked = hasActiveData && opt.v !== 'nenhum' && !isActive
+            return (
+              <button
+                key={opt.v}
+                type="button"
+                onClick={() => setMod(opt.v)}
+                title={isBlocked ? 'Exclua o lançamento atual antes de trocar a modalidade' : undefined}
+                style={{
+                  padding: '8px 16px', borderRadius: 20, fontSize: 13,
+                  fontWeight: isActive ? 700 : 400, cursor: isBlocked ? 'not-allowed' : 'pointer',
+                  border: `2px solid ${isActive ? opt.cor : 'var(--border)'}`,
+                  background: isActive ? opt.cor + '18' : isBlocked ? 'var(--muted)' : 'transparent',
+                  color: isActive ? opt.cor : isBlocked ? 'var(--muted-foreground)' : 'var(--foreground)',
+                  opacity: isBlocked ? 0.5 : 1,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  transition: 'all 150ms',
+                }}
+              >
+                {opt.icon} {opt.label}
+                {isActive && mod !== 'nenhum' && (
+                  <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 8, background: opt.cor, color: '#fff', marginLeft: 2, fontWeight: 700 }}>
+                    ATIVO
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Alerta de bloqueio */}
+        {hasActiveData && (
+          <div style={{
+            marginTop: 10, display: 'flex', alignItems: 'center', gap: 10,
+            padding: '9px 14px', borderRadius: 7,
+            border: '1px solid rgba(245,158,11,0.4)',
+            background: 'rgba(245,158,11,0.06)',
+          }}>
+            <span style={{ fontSize: 16 }}>🔒</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>
+                Lançamento ativo — para trocar de modalidade, exclua o lançamento atual primeiro.
+              </div>
+              <div style={{ fontSize: 11, color: '#b45309', marginTop: 1 }}>
+                Isso garante que nenhuma informação seja perdida por troca acidental.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={excluirLancamento}
+              style={{
+                padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                border: '1px solid #ef4444', background: 'rgba(239,68,68,0.07)',
+                color: '#dc2626', cursor: 'pointer', whiteSpace: 'nowrap',
+              }}
+            >
+              🗑️ Excluir lançamento
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* GASOLINA */}
-      {(mod === 'gasolina' || mod === 'misto') && (
+      {/* ── GASOLINA ── */}
+      {mod === 'gasolina' && (
         <Sec title="⛽ Auxílio Gasolina">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label="Valor por dia de trajeto (R$)">
@@ -1450,9 +1531,8 @@ function VTSection({ form, setForm }: VTSectionProps) {
         </Sec>
       )}
 
-      {/* TRANSPORTE PÚBLICO */}
-      {/* TIPO E NÚMERO DO CARTÃO */}
-      {(mod === 'transporte' || mod === 'misto') && (
+      {/* ── TRANSPORTE PÚBLICO: Cartão ── */}
+      {mod === 'transporte' && (
         <Sec title="💳 Cartão de Transporte">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label="Tipo de cartão *">
@@ -1487,88 +1567,65 @@ function VTSection({ form, setForm }: VTSectionProps) {
         </Sec>
       )}
 
-      {(mod === 'transporte' || mod === 'misto') && (
+      {/* ── TRANSPORTE PÚBLICO: Trechos Ida ── */}
+      {mod === 'transporte' && (
         <>
-          {/* TRECHOS IDA */}
           <Sec title="🟢 Trechos — Ida">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {form.vt_trechos_ida.length === 0 && (
-                <div style={{ fontSize: 12, color: 'var(--muted-foreground)', fontStyle: 'italic' }}>Nenhum trecho adicionado.</div>
-              )}
-              {form.vt_trechos_ida.map((t, i) => (
-                <TrechoRow key={t.id} trecho={t}
-                  onChange={nt => updTrecho('ida', i, nt)}
-                  onRemove={() => remTrecho('ida', i)} />
-              ))}
-              <button type="button" onClick={() => addTrecho('ida')}
-                style={{ alignSelf: 'flex-start', marginTop: 4, padding: '5px 12px', borderRadius: 6, border: '1px dashed var(--border)', background: 'transparent', cursor: 'pointer', fontSize: 12, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                + Adicionar trecho de ida
-              </button>
-              {form.vt_trechos_ida.length > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4 }}>
-                  <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>Total ida:</span>
-                  <span style={{ fontWeight: 700, color: '#22c55e', fontSize: 14 }}>
-                    R$ {totalIda.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              )}
-            </div>
+            {form.vt_trechos_ida.map((t, i) => (
+              <TrechoRow key={i} trecho={t} onChange={nt => updTrecho('ida', i, nt)} onRemove={() => remTrecho('ida', i)} />
+            ))}
+            <button type="button" onClick={() => addTrecho('ida')}
+              style={{ fontSize: 12, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', fontWeight: 600 }}>
+              + Adicionar trecho
+            </button>
           </Sec>
 
-          {/* TRECHOS VOLTA */}
           <Sec title="🔴 Trechos — Volta">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {form.vt_trechos_volta.length === 0 && (
-                <div style={{ fontSize: 12, color: 'var(--muted-foreground)', fontStyle: 'italic' }}>Nenhum trecho adicionado.</div>
-              )}
-              {form.vt_trechos_volta.map((t, i) => (
-                <TrechoRow key={t.id} trecho={t}
-                  onChange={nt => updTrecho('volta', i, nt)}
-                  onRemove={() => remTrecho('volta', i)} />
-              ))}
-              <button type="button" onClick={() => addTrecho('volta')}
-                style={{ alignSelf: 'flex-start', marginTop: 4, padding: '5px 12px', borderRadius: 6, border: '1px dashed var(--border)', background: 'transparent', cursor: 'pointer', fontSize: 12, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                + Adicionar trecho de volta
-              </button>
-              {form.vt_trechos_volta.length > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4 }}>
-                  <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>Total volta:</span>
-                  <span style={{ fontWeight: 700, color: '#f87171', fontSize: 14 }}>
-                    R$ {totalVolta.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              )}
-            </div>
+            {form.vt_trechos_volta.map((t, i) => (
+              <TrechoRow key={i} trecho={t} onChange={nt => updTrecho('volta', i, nt)} onRemove={() => remTrecho('volta', i)} />
+            ))}
+            <button type="button" onClick={() => addTrecho('volta')}
+              style={{ fontSize: 12, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', fontWeight: 600 }}>
+              + Adicionar trecho
+            </button>
           </Sec>
         </>
       )}
 
-      {/* RESUMO TOTAL */}
-      {(mod === 'transporte' || mod === 'misto') && (form.vt_trechos_ida.length > 0 || form.vt_trechos_volta.length > 0) && (
-        <div style={{ borderRadius: 8, border: '1px solid var(--border)', background: 'var(--muted)', padding: '12px 16px' }}>
-          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--muted-foreground)', marginBottom: 10 }}>
-            Resumo de custos (transporte)
+      {/* ── RESUMO TRANSPORTE ── */}
+      {mod === 'transporte' && (form.vt_trechos_ida.length > 0 || form.vt_trechos_volta.length > 0) && (
+        <div style={{ borderRadius: 8, border: '1px solid rgba(59,130,246,0.2)', background: 'rgba(59,130,246,0.04)', padding: '12px 16px' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#2563eb', marginBottom: 8 }}>
+            💰 Resumo de Valores
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             {[
-              { label: 'Total Ida', value: totalIda, cor: '#22c55e' },
-              { label: 'Total Volta', value: totalVolta, cor: '#f87171' },
-              { label: 'Total Diário', value: totalDiario, cor: 'var(--foreground)' },
-            ].map(item => (
-              <div key={item.label} style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 10, color: 'var(--muted-foreground)', marginBottom: 4 }}>{item.label}</div>
-                <div style={{ fontWeight: 700, fontSize: 16, color: item.cor }}>
-                  R$ {item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              { label: 'Ida (diário)', val: totalIda },
+              { label: 'Volta (diário)', val: totalVolta },
+              { label: 'Total diário', val: totalDiario },
+            ].map(r => (
+              <div key={r.label} style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>{r.label}</div>
+                <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--foreground)' }}>
+                  R$ {r.val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </div>
               </div>
             ))}
           </div>
-          <div style={{ borderTop: '1px solid var(--border)', marginTop: 12, paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>Total mensal estimado (22 dias úteis):</span>
-            <span style={{ fontWeight: 800, fontSize: 18, color: 'var(--primary)' }}>
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(59,130,246,0.15)', textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>Estimativa mensal (22 dias úteis)</div>
+            <div style={{ fontWeight: 800, fontSize: 20, color: '#2563eb' }}>
               R$ {totalMensal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </span>
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* Vazio */}
+      {mod === 'nenhum' && (
+        <div style={{ textAlign: 'center', padding: '32px 24px', color: 'var(--muted-foreground)' }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🚫</div>
+          <div style={{ fontSize: 13 }}>Colaborador não recebe Vale Transporte</div>
         </div>
       )}
 
@@ -1577,7 +1634,6 @@ function VTSection({ form, setForm }: VTSectionProps) {
 }
 
 
-// ─── EpiColabSection — EPIs do colaborador (simples: nome + medidas) ─────────
 const TAMANHOS = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG']
 const NUMEROS_CALCADO = Array.from({ length: 14 }, (_, i) => String(34 + i)) // 34-47
 

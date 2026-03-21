@@ -43,7 +43,11 @@ export interface Profile {
 export interface Funcao {
   id: string; created_at: string; updated_at: string
   nome: string; descricao: string | null; cbo: string | null
-  salario_base: number | null; ativo: boolean
+  sigla: string | null
+  salario_base: number | null   // legado — não usar na interface
+  valor_hora_clt: number | null
+  valor_hora_autonomo: number | null
+  ativo: boolean
 }
 
 export interface Obra {

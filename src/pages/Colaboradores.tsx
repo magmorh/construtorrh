@@ -88,7 +88,7 @@ export default function Colaboradores() {
     const [{ data: cols }, { data: fns }, { data: obs }] = await Promise.all([
       supabase
         .from('colaboradores')
-        .select('*, funcoes(id, nome, cbo, salario_base, ativo), obras(id, nome, codigo, status, ativo)')
+        .select('*, funcoes(id, nome, cbo, sigla, valor_hora_clt, valor_hora_autonomo, ativo), obras(id, nome, codigo, status, ativo)')
         .order('nome'),
       supabase.from('funcoes').select('*').eq('ativo', true).order('nome'),
       supabase.from('obras').select('*').order('nome'),
@@ -162,6 +162,37 @@ export default function Colaboradores() {
 
   const set = (k: keyof FormData, v: string | boolean) =>
     setForm(p => ({ ...p, [k]: v }))
+
+  // ── Auto-preenchimento valor/hora ao trocar função ou tipo de contrato ──────
+  const handleFuncaoChange = (funcaoId: string) => {
+    setForm(p => {
+      const fn = funcoes.find(f => f.id === funcaoId)
+      let valorHora = ''
+      if (fn) {
+        if (p.tipo_contrato === 'pj') {
+          valorHora = fn.valor_hora_autonomo != null ? String(fn.valor_hora_autonomo) : ''
+        } else {
+          valorHora = fn.valor_hora_clt != null ? String(fn.valor_hora_clt) : ''
+        }
+      }
+      return { ...p, funcao_id: funcaoId, salario: valorHora }
+    })
+  }
+
+  const handleTipoContratoChange = (tipo: string) => {
+    setForm(p => {
+      const fn = funcoes.find(f => f.id === p.funcao_id)
+      let valorHora = p.salario
+      if (fn) {
+        if (tipo === 'pj') {
+          valorHora = fn.valor_hora_autonomo != null ? String(fn.valor_hora_autonomo) : ''
+        } else {
+          valorHora = fn.valor_hora_clt != null ? String(fn.valor_hora_clt) : ''
+        }
+      }
+      return { ...p, tipo_contrato: tipo, salario: valorHora }
+    })
+  }
 
   // ── save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -436,7 +467,7 @@ export default function Colaboradores() {
                 <SectionTitle>Vínculo</SectionTitle>
                 <div className="grid grid-cols-2 gap-3">
                   <FieldGroup label="Função">
-                    <Select value={form.funcao_id} onValueChange={v => set('funcao_id', v)}>
+                    <Select value={form.funcao_id} onValueChange={handleFuncaoChange}>
                       <SelectTrigger><SelectValue placeholder="Selecione a função" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="">— Sem função —</SelectItem>
@@ -454,7 +485,7 @@ export default function Colaboradores() {
                     </Select>
                   </FieldGroup>
                   <FieldGroup label="Tipo de contrato">
-                    <Select value={form.tipo_contrato} onValueChange={v => set('tipo_contrato', v)}>
+                    <Select value={form.tipo_contrato} onValueChange={handleTipoContratoChange}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="clt">CLT</SelectItem>
@@ -465,8 +496,20 @@ export default function Colaboradores() {
                       </SelectContent>
                     </Select>
                   </FieldGroup>
-                  <FieldGroup label="Salário (R$)">
-                    <Input type="number" step="0.01" min="0" value={form.salario} onChange={e => set('salario', e.target.value)} placeholder="0,00" />
+                  <FieldGroup label={form.tipo_contrato === 'pj' ? 'Valor/Hora Autônomo (R$)' : 'Valor/Hora CLT (R$)'}>
+                    <Input
+                      type="number" step="0.01" min="0"
+                      value={form.salario}
+                      onChange={e => set('salario', e.target.value)}
+                      placeholder="0,00"
+                    />
+                    {form.funcao_id && funcoes.find(f => f.id === form.funcao_id) && (() => {
+                      const fn = funcoes.find(f => f.id === form.funcao_id)!
+                      const hint = form.tipo_contrato === 'pj'
+                        ? fn.valor_hora_autonomo != null ? `Tabela função: R$ ${fn.valor_hora_autonomo.toFixed(2)}/h` : null
+                        : fn.valor_hora_clt != null ? `Tabela função: R$ ${fn.valor_hora_clt.toFixed(2)}/h` : null
+                      return hint ? <p className="text-[10px] text-muted-foreground mt-1">{hint}</p> : null
+                    })()}
                   </FieldGroup>
                   <FieldGroup label="Data de admissão">
                     <Input type="date" value={form.data_admissao} onChange={e => set('data_admissao', e.target.value)} />

@@ -23,6 +23,9 @@ import {
   Users, Building2, FileText, Download,
 } from 'lucide-react'
 import { toast } from 'sonner'
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
 
@@ -94,6 +97,15 @@ interface ColaboradorEpi {
   } | null
 }
 
+type ColaboradorEpiItem = {
+  id: string
+  epi_id: string
+  documento_url: string | null
+  documento_nome: string | null
+  status: string | null
+  epi_catalogo: { id: string; nome: string; categoria: string | null } | null
+}
+
 interface EpiFormData {
   nome: string
   categoria: string
@@ -136,7 +148,7 @@ const CATEGORIAS = [
 
 const UNIDADES = ['unidade', 'par', 'jogo', 'conjunto']
 
-type Aba = 'catalogo' | 'funcao' | 'solicitacoes'
+type Aba = 'catalogo' | 'funcao' | 'solicitacoes' | 'comprovantes'
 
 // ─── toggle inline ────────────────────────────────────────────────────────────
 
@@ -263,6 +275,14 @@ export default function Epis() {
   const [itensEpi, setItensEpi] = useState<ColaboradorEpi[]>([])
   const [loadingItens, setLoadingItens] = useState(false)
   const [gerou, setGerou] = useState(false)
+
+  // ── Aba 4: comprovantes ──────────────────────────────────────────────────────
+  const [comprovColabId, setComprovColabId] = useState('')
+  const [comprovEpiId, setComprovEpiId]     = useState('')
+  const [comprovFile, setComprovFile]       = useState<File | null>(null)
+  const [comprovEpis, setComprovEpis]       = useState<ColaboradorEpiItem[]>([])
+  const [loadingComprov, setLoadingComprov] = useState(false)
+  const [uploadingComprov, setUploadingComprov] = useState(false)
 
   // ── fetch catálogo ──────────────────────────────────────────────────────────
   const fetchEpis = useCallback(async () => {
@@ -539,6 +559,102 @@ export default function Epis() {
   const obraNome = obras.find(o => o.id === obraSelecionada)?.nome ?? ''
   const colaboradorNome = colaboradores.find(c => c.id === colaboradorSelecionado)?.nome ?? ''
 
+  // ── fetch EPIs do colaborador (aba Comprovantes) ─────────────────────────────
+  const fetchComprovEpis = async (colaboradorId: string) => {
+    setLoadingComprov(true)
+    const { data } = await supabase
+      .from('colaborador_epi')
+      .select('id, epi_id, documento_url, documento_nome, status, epi_catalogo(id, nome, categoria)')
+      .eq('colaborador_id', colaboradorId)
+    setComprovEpis((data as unknown as ColaboradorEpiItem[]) ?? [])
+    setLoadingComprov(false)
+  }
+
+  // ── gerarPDF (aba Solicitações) ──────────────────────────────────────────────
+  const gerarPDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape' })
+
+    const titulo = modoSolicitacao === 'colaborador'
+      ? `Solicitação de EPIs — ${colaboradorNome}`
+      : `Solicitação de EPIs — ${obraNome}`
+
+    doc.setFontSize(16)
+    doc.setFont('helvetica', 'bold')
+    doc.text(titulo, 14, 18)
+
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(100)
+    doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 14, 25)
+    doc.setTextColor(0)
+
+    const colunas: string[] = modoSolicitacao === 'obra'
+      ? ['Colaborador', 'EPI', 'Categoria', 'Tamanho', 'Nº Calç.', 'Qtd']
+      : ['EPI', 'Categoria', 'Tamanho', 'Nº Calç.', 'Qtd']
+
+    const linhas = itensEpi.map(item => {
+      const base = [
+        item.epi_catalogo?.nome ?? '—',
+        item.epi_catalogo?.categoria ?? '—',
+        item.tamanho ?? '—',
+        item.numero ?? '—',
+        String(item.quantidade ?? 1),
+      ]
+      if (modoSolicitacao === 'obra') {
+        return [item.colaboradores?.nome ?? '—', ...base]
+      }
+      return base
+    })
+
+    autoTable(doc, {
+      head: [colunas],
+      body: linhas,
+      startY: 30,
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [245, 248, 255] },
+    })
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const finalY = (doc as any).lastAutoTable?.finalY ?? 100
+    doc.setFontSize(11)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Resumo por Categoria', 14, finalY + 12)
+
+    const resumoLinhas = Object.entries(
+      itensEpi.reduce((acc, item) => {
+        const cat = item.epi_catalogo?.categoria ?? 'Sem categoria'
+        acc[cat] = (acc[cat] ?? 0) + (item.quantidade ?? 1)
+        return acc
+      }, {} as Record<string, number>)
+    ).map(([cat, total]) => [cat, String(total)])
+
+    resumoLinhas.push(['TOTAL GERAL', String(itensEpi.reduce((acc, i) => acc + (i.quantidade ?? 1), 0))])
+
+    autoTable(doc, {
+      head: [['Categoria', 'Quantidade']],
+      body: resumoLinhas,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      startY: (finalY as any) + 16,
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: 'bold' },
+      bodyStyles: { font: 'helvetica' },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      willDrawCell: (data: any) => {
+        if (data.row.index === resumoLinhas.length - 1) {
+          data.cell.styles.fontStyle = 'bold'
+          data.cell.styles.fillColor = [219, 234, 254]
+        }
+      },
+    })
+
+    const nomearq = modoSolicitacao === 'colaborador'
+      ? `epi_${colaboradorNome.replace(/\s+/g, '_')}.pdf`
+      : `epi_obra_${obraNome.replace(/\s+/g, '_')}.pdf`
+
+    doc.save(nomearq)
+  }
+
   // ─── render ────────────────────────────────────────────────────────────────
   return (
     <div>
@@ -560,10 +676,10 @@ export default function Epis() {
           ) : aba === 'solicitacoes' && gerou && itensEpi.length > 0 ? (
             <Button
               variant="outline"
-              onClick={() => window.print()}
+              onClick={gerarPDF}
               style={{ display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              <Download size={16} /> Imprimir / Exportar
+              <Download size={16} /> Gerar PDF
             </Button>
           ) : null
         }
@@ -587,6 +703,9 @@ export default function Epis() {
         </button>
         <button style={tabStyle(aba === 'solicitacoes')} onClick={() => setAba('solicitacoes')}>
           📋 Solicitações de EPI
+        </button>
+        <button style={tabStyle(aba === 'comprovantes')} onClick={() => setAba('comprovantes')}>
+          📎 Comprovantes
         </button>
       </div>
 
@@ -1248,10 +1367,10 @@ export default function Epis() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => window.print()}
+                    onClick={gerarPDF}
                     style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                   >
-                    <Download size={14} /> Imprimir / Exportar
+                    <Download size={14} /> Gerar PDF
                   </Button>
                 )}
               </div>
@@ -1281,17 +1400,12 @@ export default function Epis() {
                           <TableHead style={{ width: 90, textAlign: 'center' }}>Tamanho</TableHead>
                           <TableHead style={{ width: 80, textAlign: 'center' }}>Número</TableHead>
                           <TableHead style={{ width: 100, textAlign: 'center' }}>Qtd</TableHead>
-                          <TableHead style={{ width: 110, textAlign: 'center' }}>Status</TableHead>
+
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {itensEpi.map(item => {
-                          const statusColor =
-                            item.status === 'entregue'
-                              ? { bg: '#dcfce7', color: '#166534' }
-                              : item.status === 'pendente'
-                              ? { bg: '#fef9c3', color: '#92400e' }
-                              : { bg: '#f3f4f6', color: '#6b7280' }
+
                           return (
                             <TableRow key={item.id} style={{ transition: 'background 0.15s' }}>
                               {modoSolicitacao === 'obra' && (
@@ -1336,24 +1450,7 @@ export default function Epis() {
                               <TableCell style={{ textAlign: 'center', fontWeight: 600, fontSize: 14 }}>
                                 {item.quantidade ?? 1}
                               </TableCell>
-                              <TableCell style={{ textAlign: 'center' }}>
-                                <span
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    padding: '2px 8px',
-                                    borderRadius: 999,
-                                    fontSize: 11,
-                                    fontWeight: 500,
-                                    background: statusColor.bg,
-                                    color: statusColor.color,
-                                  }}
-                                >
-                                  {item.status
-                                    ? item.status.charAt(0).toUpperCase() + item.status.slice(1)
-                                    : 'Sem status'}
-                                </span>
-                              </TableCell>
+
                             </TableRow>
                           )
                         })}
@@ -1440,6 +1537,208 @@ export default function Epis() {
               )}
             </div>
           )}
+        </div>
+      )}
+
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          ABA 4 — COMPROVANTES
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {aba === 'comprovantes' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+          {/* Seletor de colaborador + EPI */}
+          <div style={{ borderRadius: 8, border: '1px solid var(--border)', padding: '20px 24px', background: 'var(--background)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted-foreground)', marginBottom: 14 }}>
+              📎 Upload de Comprovante de Entrega de EPI
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div>
+                <Label style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>Colaborador *</Label>
+                <Select
+                  value={comprovColabId || undefined}
+                  onValueChange={v => {
+                    setComprovColabId(v)
+                    setComprovEpiId('')
+                    setComprovFile(null)
+                    fetchComprovEpis(v)
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Selecione o colaborador…" /></SelectTrigger>
+                  <SelectContent>
+                    {colaboradores.map(col => (
+                      <SelectItem key={col.id} value={col.id}>
+                        {col.nome}{col.chapa ? ` — ${col.chapa}` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>EPI *</Label>
+                {loadingComprov ? (
+                  <div style={{ height: 38, borderRadius: 6, background: 'var(--muted)' }} />
+                ) : (
+                  <Select
+                    value={comprovEpiId || undefined}
+                    onValueChange={v => { setComprovEpiId(v); setComprovFile(null) }}
+                    disabled={!comprovColabId || comprovEpis.length === 0}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={
+                        !comprovColabId ? 'Selecione um colaborador…' :
+                        comprovEpis.length === 0 ? 'Nenhum EPI registrado' : 'Selecione o EPI…'
+                      } />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {comprovEpis.map(e => (
+                        <SelectItem key={e.id} value={e.id}>
+                          {e.epi_catalogo?.nome ?? e.epi_id}
+                          {e.documento_url ? ' ✅' : ' ⏳'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
+
+            {/* Upload */}
+            {comprovEpiId && (() => {
+              const epiSel = comprovEpis.find(e => e.id === comprovEpiId)
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {/* Documento atual */}
+                  {epiSel?.documento_url && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderRadius: 6, border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.04)' }}>
+                      <span style={{ fontSize: 18 }}>✅</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#059669' }}>Comprovante já anexado</div>
+                        <a href={epiSel.documento_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: 'var(--primary)' }}>
+                          📄 {epiSel.documento_nome ?? 'Ver documento'}
+                        </a>
+                      </div>
+                      <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>Faça novo upload para substituir</span>
+                    </div>
+                  )}
+
+                  <label style={{ cursor: 'pointer', display: 'block' }}>
+                    <input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      style={{ display: 'none' }}
+                      onChange={e => setComprovFile(e.target.files?.[0] ?? null)}
+                    />
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                      padding: '20px', borderRadius: 8, border: '2px dashed var(--border)',
+                      background: comprovFile ? 'rgba(59,130,246,0.04)' : 'var(--muted)',
+                    }}>
+                      {comprovFile ? (
+                        <>
+                          <span style={{ fontSize: 20 }}>📄</span>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 13 }}>{comprovFile.name}</div>
+                            <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
+                              {(comprovFile.size / 1024).toFixed(0)} KB · clique para trocar
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ fontSize: 24 }}>📎</span>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontWeight: 600, fontSize: 13 }}>Clique para selecionar arquivo</div>
+                            <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>PDF, JPG ou PNG</div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </label>
+
+                  <Button
+                    onClick={async () => {
+                      if (!comprovFile || !comprovEpiId) return
+                      setUploadingComprov(true)
+                      const ext = comprovFile.name.split('.').pop()
+                      const path = `${comprovColabId}/${epiSel?.epi_id ?? comprovEpiId}_${Date.now()}.${ext}`
+                      const { error: upErr } = await supabase.storage
+                        .from('epi-documentos')
+                        .upload(path, comprovFile, { upsert: true })
+                      if (upErr) {
+                        toast.error('Falha no upload: ' + upErr.message)
+                        setUploadingComprov(false)
+                        return
+                      }
+                      const { data: urlData } = supabase.storage.from('epi-documentos').getPublicUrl(path)
+                      const { error: dbErr } = await supabase
+                        .from('colaborador_epi')
+                        .update({ documento_url: urlData?.publicUrl, documento_nome: comprovFile.name, status: 'entregue' })
+                        .eq('id', comprovEpiId)
+                      if (dbErr) {
+                        toast.error('Erro ao salvar: ' + dbErr.message)
+                      } else {
+                        toast.success('✅ Comprovante enviado com sucesso!')
+                        setComprovFile(null)
+                        fetchComprovEpis(comprovColabId)
+                      }
+                      setUploadingComprov(false)
+                    }}
+                    disabled={!comprovFile || uploadingComprov}
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    {uploadingComprov ? '⏳ Enviando…' : '📤 Enviar comprovante'}
+                  </Button>
+                </div>
+              )
+            })()}
+          </div>
+
+          {/* Lista de EPIs do colaborador */}
+          {comprovColabId && comprovEpis.length > 0 && (
+            <div style={{ borderRadius: 8, border: '1px solid var(--border)', overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px', background: 'var(--muted)', borderBottom: '1px solid var(--border)', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                EPIs registrados — {colaboradores.find(x => x.id === comprovColabId)?.nome ?? ''}
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ padding: '8px 14px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>EPI</th>
+                    <th style={{ padding: '8px 14px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>Categoria</th>
+                    <th style={{ padding: '8px 14px', textAlign: 'center', fontWeight: 600, fontSize: 11, textTransform: 'uppercase' }}>Comprovante</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comprovEpis.map(e => (
+                    <tr key={e.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '10px 14px', fontWeight: 500 }}>{e.epi_catalogo?.nome ?? '—'}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 11, color: 'var(--muted-foreground)' }}>{e.epi_catalogo?.categoria ?? '—'}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                        {e.documento_url ? (
+                          <a href={e.documento_url} target="_blank" rel="noopener noreferrer"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#059669', fontWeight: 600, textDecoration: 'none' }}>
+                            ✅ {e.documento_nome ?? 'Ver'}
+                          </a>
+                        ) : (
+                          <span style={{ fontSize: 12, color: 'var(--muted-foreground)', fontStyle: 'italic' }}>⏳ Pendente</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {comprovColabId && !loadingComprov && comprovEpis.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--muted-foreground)' }}>
+              <div style={{ fontSize: 32, marginBottom: 10 }}>🦺</div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>Nenhum EPI registrado para este colaborador</div>
+              <div style={{ fontSize: 12, marginTop: 6 }}>Vincule EPIs ao cadastro do colaborador primeiro.</div>
+            </div>
+          )}
+
         </div>
       )}
 

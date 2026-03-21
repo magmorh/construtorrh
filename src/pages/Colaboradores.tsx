@@ -1106,7 +1106,7 @@ export default function Colaboradores() {
 
             {/* ── SEÇÃO EPIs DO COLABORADOR ─────────────────────────────── */}
             {section === 'epis' && (
-              <EpiColabSection epiList={epiList} setEpiList={setEpiList} funcaoNome={funcoes.find(f => f.id === form.funcao_id)?.nome} colaboradorId={editId} />
+              <EpiColabSection epiList={epiList} setEpiList={setEpiList} funcaoNome={funcoes.find(f => f.id === form.funcao_id)?.nome} />
             )}
           </div>
 
@@ -1577,7 +1577,7 @@ function VTSection({ form, setForm }: VTSectionProps) {
 }
 
 
-// ─── EpiColabSection — EPIs do colaborador ───────────────────────────────────
+// ─── EpiColabSection — EPIs do colaborador (simples: nome + medidas) ─────────
 const TAMANHOS = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG']
 const NUMEROS_CALCADO = Array.from({ length: 14 }, (_, i) => String(34 + i)) // 34-47
 
@@ -1585,201 +1585,138 @@ interface EpiColabSectionProps {
   epiList: ColabEpiItem[]
   setEpiList: React.Dispatch<React.SetStateAction<ColabEpiItem[]>>
   funcaoNome?: string
-  colaboradorId?: string | null  // se existente (edição), para upload
 }
 
-async function uploadDocEpi(
-  file: File,
-  colaboradorId: string,
-  epiId: string,
-): Promise<{ url: string; nome: string } | null> {
-  const ext = file.name.split('.').pop()
-  const path = `${colaboradorId}/${epiId}_${Date.now()}.${ext}`
-  const { error } = await supabase.storage
-    .from('epi-documentos')
-    .upload(path, file, { upsert: true })
-  if (error) { return null }
-  const { data } = supabase.storage.from('epi-documentos').getPublicUrl(path)
-  return { url: data?.publicUrl ?? '', nome: file.name }
-}
-
-function EpiColabSection({ epiList, setEpiList, funcaoNome, colaboradorId }: EpiColabSectionProps) {
+function EpiColabSection({ epiList, setEpiList, funcaoNome }: EpiColabSectionProps) {
   const updEpi = <K extends keyof ColabEpiItem>(idx: number, field: K, value: ColabEpiItem[K]) => {
     setEpiList(prev => prev.map((e, i) => i === idx ? { ...e, [field]: value } : e))
   }
 
-  const handleFileUpload = async (idx: number, file: File) => {
-    if (!colaboradorId) {
-      toast.error('Salve o colaborador primeiro para fazer upload de documentos')
-      return
-    }
-    updEpi(idx, 'uploadingDoc', true)
-    const epiId = epiList[idx].epi_id
-    const res = await uploadDocEpi(file, colaboradorId, epiId)
-    if (res) {
-      updEpi(idx, 'documento_url', res.url)
-      updEpi(idx, 'documento_nome', res.nome)
-      toast.success('Documento enviado!')
-    } else {
-      toast.error('Falha no upload — verifique o bucket "epi-documentos" no Supabase Storage')
-    }
-    updEpi(idx, 'uploadingDoc', false)
-  }
-
   if (!funcaoNome) {
     return (
-      <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--muted-foreground)' }}>
-        <div style={{ fontSize: 32, marginBottom: 12 }}>🦺</div>
+      <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--muted-foreground)' }}>
+        <div style={{ fontSize: 36, marginBottom: 12 }}>🦺</div>
         <div style={{ fontSize: 14, fontWeight: 500 }}>Selecione uma função primeiro</div>
-        <div style={{ fontSize: 12, marginTop: 6 }}>Os EPIs serão carregados automaticamente conforme a função do colaborador.</div>
+        <div style={{ fontSize: 12, marginTop: 6 }}>Os EPIs serão carregados automaticamente.</div>
       </div>
     )
   }
 
   if (epiList.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--muted-foreground)' }}>
-        <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
+      <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--muted-foreground)' }}>
+        <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
         <div style={{ fontSize: 14, fontWeight: 500 }}>Nenhum EPI vinculado à função "{funcaoNome}"</div>
-        <div style={{ fontSize: 12, marginTop: 6 }}>Acesse a página de EPIs para vincular EPIs a esta função.</div>
+        <div style={{ fontSize: 12, marginTop: 6 }}>
+          Acesse <strong>EPIs → EPIs por Função</strong> para vincular EPIs a esta função.
+        </div>
       </div>
     )
   }
 
-  const semMedidas = epiList.filter(e => (e.requer_tamanho && !e.tamanho) || (e.requer_numero && !e.numero)).length
-  const comDoc = epiList.filter(e => e.documento_url).length
+  const semMedidas = epiList.filter(
+    e => (e.requer_tamanho && !e.tamanho) || (e.requer_numero && !e.numero)
+  ).length
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Header */}
+
+      {/* cabeçalho */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600 }}>
-            EPIs da função: <span style={{ color: 'var(--primary)' }}>{funcaoNome}</span>
+            EPIs — <span style={{ color: 'var(--primary)' }}>{funcaoNome}</span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>
-            {epiList.length} EPI{epiList.length !== 1 ? 's' : ''} · {comDoc} com documento
-            {!colaboradorId && <span style={{ color: '#f59e0b' }}> · Salve o colaborador para habilitar upload</span>}
+            {epiList.length} EPI{epiList.length !== 1 ? 's' : ''}
+            {epiList.filter(e => e.requer_tamanho || e.requer_numero).length > 0 &&
+              ` · ${epiList.filter(e => e.requer_tamanho || e.requer_numero).length} requerem medidas`}
           </div>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--muted-foreground)', fontStyle: 'italic' }}>
+          Para entregar EPIs e anexar comprovantes, use a página de EPIs
         </div>
       </div>
 
-      {/* Cards por EPI */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {epiList.map((epi, idx) => (
-          <div key={epi.epi_id} style={{
-            borderRadius: 8, border: '1px solid var(--border)', padding: '12px 14px',
-            background: epi.documento_url ? 'rgba(16,185,129,0.04)' : 'var(--background)',
-            borderLeft: `3px solid ${epi.documento_url ? '#10b981' : epi.obrigatorio ? '#ef4444' : 'var(--border)'}`,
-          }}>
-            {/* Linha 1: nome + obrigatório */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div>
-                <span style={{ fontWeight: 600, fontSize: 13 }}>{epi.epi_nome}</span>
-                {epi.epi_categoria && (
-                  <span style={{ fontSize: 11, color: 'var(--muted-foreground)', marginLeft: 8 }}>{epi.epi_categoria}</span>
-                )}
-                {epi.quantidade > 1 && (
-                  <span style={{ fontSize: 11, marginLeft: 8, color: 'var(--muted-foreground)' }}>× {epi.quantidade}</span>
-                )}
-              </div>
-              {epi.obrigatorio
-                ? <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(239,68,68,0.1)', color: '#dc2626', fontWeight: 600 }}>Obrigatório</span>
-                : <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(107,114,128,0.1)', color: 'var(--muted-foreground)', fontWeight: 600 }}>Opcional</span>
-              }
-            </div>
-
-            {/* Linha 2: medidas */}
-            {(epi.requer_tamanho || epi.requer_numero) && (
-              <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
-                {epi.requer_tamanho && (
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted-foreground)', marginBottom: 4 }}>Tamanho</div>
+      {/* tabela */}
+      <div style={{ borderRadius: 8, border: '1px solid var(--border)', overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
+              <th style={{ padding: '8px 14px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>EPI</th>
+              <th style={{ padding: '8px 14px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', width: 90 }}>Categ.</th>
+              <th style={{ padding: '8px 14px', textAlign: 'center', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', width: 75 }}>Obrig.</th>
+              <th style={{ padding: '8px 14px', textAlign: 'center', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', width: 50 }}>Qtd</th>
+              <th style={{ padding: '8px 14px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', width: 130 }}>Tamanho</th>
+              <th style={{ padding: '8px 14px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', width: 110 }}>Nº Calçado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {epiList.map((epi, idx) => (
+              <tr key={epi.epi_id}
+                style={{ borderBottom: idx < epiList.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                <td style={{ padding: '10px 14px' }}>
+                  <div style={{ fontWeight: 500 }}>{epi.epi_nome}</div>
+                </td>
+                <td style={{ padding: '10px 14px', fontSize: 11, color: 'var(--muted-foreground)' }}>
+                  {epi.epi_categoria ?? '—'}
+                </td>
+                <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                  {epi.obrigatorio
+                    ? <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 10, background: 'rgba(239,68,68,0.1)', color: '#dc2626', fontWeight: 700 }}>Sim</span>
+                    : <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 10, background: 'rgba(107,114,128,0.1)', color: 'var(--muted-foreground)', fontWeight: 700 }}>Não</span>}
+                </td>
+                <td style={{ padding: '10px 14px', textAlign: 'center', fontWeight: 600 }}>
+                  {epi.quantidade}
+                </td>
+                <td style={{ padding: '6px 14px' }}>
+                  {epi.requer_tamanho ? (
                     <select
                       value={epi.tamanho}
                       onChange={e => updEpi(idx, 'tamanho', e.target.value)}
-                      style={{ padding: '4px 10px', borderRadius: 4, border: `1px solid ${epi.tamanho ? 'var(--primary)' : '#f59e0b'}`, background: 'var(--background)', fontSize: 13, fontWeight: 600, cursor: 'pointer', minWidth: 80 }}
+                      style={{
+                        width: '100%', padding: '5px 8px', borderRadius: 6,
+                        border: `1px solid ${epi.tamanho ? 'var(--primary)' : '#f59e0b'}`,
+                        background: 'var(--background)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                      }}
                     >
-                      <option value="">…</option>
+                      <option value="">Sel…</option>
                       {TAMANHOS.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
-                  </div>
-                )}
-                {epi.requer_numero && (
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted-foreground)', marginBottom: 4 }}>Nº Calçado</div>
+                  ) : <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>—</span>}
+                </td>
+                <td style={{ padding: '6px 14px' }}>
+                  {epi.requer_numero ? (
                     <select
                       value={epi.numero}
                       onChange={e => updEpi(idx, 'numero', e.target.value)}
-                      style={{ padding: '4px 10px', borderRadius: 4, border: `1px solid ${epi.numero ? 'var(--primary)' : '#f59e0b'}`, background: 'var(--background)', fontSize: 13, fontWeight: 600, cursor: 'pointer', minWidth: 70 }}
+                      style={{
+                        width: '100%', padding: '5px 8px', borderRadius: 6,
+                        border: `1px solid ${epi.numero ? 'var(--primary)' : '#f59e0b'}`,
+                        background: 'var(--background)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                      }}
                     >
-                      <option value="">…</option>
+                      <option value="">Nº…</option>
                       {NUMEROS_CALCADO.map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Linha 3: upload de documento */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              {epi.documento_url ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
-                  <span style={{ fontSize: 14 }}>✅</span>
-                  <a
-                    href={epi.documento_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize: 12, color: 'var(--primary)', textDecoration: 'none', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                    title={epi.documento_nome ?? 'Ver documento'}
-                  >
-                    📄 {epi.documento_nome ?? 'Documento anexado'}
-                  </a>
-                  <label style={{ cursor: colaboradorId ? 'pointer' : 'not-allowed' }}>
-                    <input
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      style={{ display: 'none' }}
-                      disabled={!colaboradorId || epi.uploadingDoc}
-                      onChange={e => e.target.files?.[0] && handleFileUpload(idx, e.target.files[0])}
-                    />
-                    <span style={{ fontSize: 11, color: 'var(--muted-foreground)', textDecoration: 'underline' }}>
-                      Substituir
-                    </span>
-                  </label>
-                </div>
-              ) : (
-                <label style={{ cursor: colaboradorId ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <input
-                    type="file"
-                    accept=".pdf,.jpg,.jpeg,.png"
-                    style={{ display: 'none' }}
-                    disabled={!colaboradorId || epi.uploadingDoc}
-                    onChange={e => e.target.files?.[0] && handleFileUpload(idx, e.target.files[0])}
-                  />
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 6,
-                    border: `1px dashed ${colaboradorId ? 'var(--border)' : 'rgba(0,0,0,0.1)'}`,
-                    background: 'transparent', fontSize: 12, color: colaboradorId ? 'var(--muted-foreground)' : 'rgba(0,0,0,0.3)',
-                  }}>
-                    {epi.uploadingDoc ? '⏳ Enviando…' : '📎 Anexar comprovante / recibo assinado'}
-                  </div>
-                </label>
-              )}
-            </div>
-          </div>
-        ))}
+                  ) : <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {/* Aviso medidas */}
+      {/* aviso medidas */}
       {semMedidas > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 6, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
           <span style={{ fontSize: 14 }}>⚠️</span>
           <span style={{ fontSize: 12, color: '#92400e' }}>
-            {semMedidas} EPI{semMedidas > 1 ? 's' : ''} aguardando preenchimento de tamanho/número
+            {semMedidas} EPI{semMedidas > 1 ? 's' : ''} com tamanho/número não informados
           </span>
         </div>
       )}
+
     </div>
   )
 }

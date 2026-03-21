@@ -1717,6 +1717,9 @@ export default function Epis() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted-foreground)', padding: '4px 2px', marginBottom: 4 }}>
+                💡 Clique em um colaborador para ver seus EPIs e <strong>anexar comprovantes de entrega</strong>
+              </div>
               {colabsComEpis
                 .filter(col => !buscaColab || col.nome.toLowerCase().includes(buscaColab.toLowerCase()) || (col.chapa ?? '').toLowerCase().includes(buscaColab.toLowerCase()))
                 .map(col => {
@@ -1727,8 +1730,9 @@ export default function Epis() {
                     <div key={col.id} style={{ borderRadius: 8, border: '1px solid var(--border)', overflow: 'hidden', background: 'var(--background)' }}>
                       {/* Linha do colaborador */}
                       <div
-                        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer', background: col.expanded ? 'rgba(99,102,241,0.04)' : 'transparent' }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer', background: col.expanded ? 'rgba(99,102,241,0.04)' : 'transparent', userSelect: 'none' }}
                         onClick={() => toggleExpand(col.id)}
+                        title="Clique para ver os EPIs e anexar comprovantes"
                       >
                         {/* Avatar */}
                         <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(99,102,241,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>

@@ -87,6 +87,8 @@ type Atestado = {
   status: string | null
   colaboradores: { id: string; nome: string; chapa: string } | null
   acidentes?: { id: string; data_ocorrencia: string; tipo_acidente: string | null } | null
+  // campos legados do banco original
+  data?: string
 }
 
 type Acidente = {
@@ -307,12 +309,23 @@ export default function Ocorrencias() {
     setLoadingAtestados(true)
     const { data, error } = await supabase
       .from('atestados')
-      .select('*, colaboradores(id, nome, chapa)')
-      .order('data_inicio', { ascending: false })
+      .select(`
+        id, created_at,
+        colaborador_id,
+        data, dias_afastamento, com_afastamento,
+        cid, medico, descricao, observacoes,
+        data_inicio:data,
+        data_fim,
+        tipo_afastamento,
+        crm,
+        acidente_id,
+        colaboradores(id, nome, chapa)
+      `)
+      .order('data', { ascending: false })
     if (error) {
       toast.error('Erro ao carregar atestados: ' + (error?.message ?? error))
     } else {
-      setAtestados(data as Atestado[])
+      setAtestados(data as unknown as Atestado[])
     }
     setLoadingAtestados(false)
   }
@@ -322,12 +335,26 @@ export default function Ocorrencias() {
     setLoadingAcidentes(true)
     const { data, error } = await supabase
       .from('acidentes')
-      .select('*, colaboradores(id, nome, chapa), obras(id, nome)')
-      .order('data_ocorrencia', { ascending: false })
+      .select(`
+        id, created_at,
+        colaborador_id, obra_id,
+        data_acidente, hora_acidente,
+        tipo, cat_emitida,
+        gravidade, descricao,
+        local_acidente, com_afastamento, dias_afastamento,
+        status, observacoes,
+        data_ocorrencia:data_acidente,
+        hora_ocorrencia:hora_acidente,
+        tipo_acidente:tipo,
+        comunicado_cat:cat_emitida,
+        colaboradores(id, nome, chapa),
+        obras(id, nome)
+      `)
+      .order('data_acidente', { ascending: false })
     if (error) {
       toast.error('Erro ao carregar acidentes: ' + (error?.message ?? error))
     } else {
-      setAcidentes(data as Acidente[])
+      setAcidentes(data as unknown as Acidente[])
     }
     setLoadingAcidentes(false)
   }
@@ -346,9 +373,9 @@ export default function Ocorrencias() {
     setLoadingAcidentesColaborador(true)
     const { data } = await supabase
       .from('acidentes')
-      .select('id, data_ocorrencia, tipo_acidente, descricao')
+      .select('id, data_ocorrencia:data_acidente, tipo_acidente:tipo, descricao')
       .eq('colaborador_id', colaboradorId)
-      .order('data_ocorrencia', { ascending: false })
+      .order('data_acidente', { ascending: false })
     setAcidentesDoColaborador((data as AcidenteRef[]) ?? [])
     setLoadingAcidentesColaborador(false)
   }
@@ -408,17 +435,15 @@ export default function Ocorrencias() {
     }
     setSavingAtestado(true)
 
+    // Mapear nomes do form → nomes reais das colunas do banco
     const payload: Record<string, unknown> = {
-      colaborador_id: atestadoForm.colaborador_id,
-      data_inicio: atestadoForm.data_inicio,
-      data_fim: atestadoForm.data_fim || null,
+      colaborador_id:   atestadoForm.colaborador_id,
+      data:             atestadoForm.data_inicio,    // banco usa 'data'
       dias_afastamento: atestadoForm.dias_afastamento ? Number(atestadoForm.dias_afastamento) : null,
-      tipo_afastamento: atestadoForm.tipo_afastamento || null,
-      cid: atestadoForm.cid || null,
-      medico: atestadoForm.medico || null,
-      crm: atestadoForm.crm || null,
-      acidente_id: atestadoForm.acidente_id || null,
-      observacoes: atestadoForm.observacoes || null,
+      cid:              atestadoForm.cid || null,
+      medico:           atestadoForm.medico || null,
+      descricao:        atestadoForm.observacoes || null,
+      observacoes:      atestadoForm.observacoes || null,
     }
 
     let error: unknown
@@ -492,15 +517,16 @@ export default function Ocorrencias() {
     }
     setSavingAciden(true)
 
+    // Mapear nomes do form → nomes reais das colunas do banco
     const payload: Record<string, unknown> = {
-      colaborador_id: acidenForm.colaborador_id,
-      obra_id: acidenForm.obra_id || null,
-      data_ocorrencia: acidenForm.data_ocorrencia,
-      hora_ocorrencia: acidenForm.hora_ocorrencia || null,
-      tipo_acidente: acidenForm.tipo_acidente || null,
-      descricao: acidenForm.descricao,
-      comunicado_cat: acidenForm.comunicado_cat,
-      observacoes: acidenForm.observacoes || null,
+      colaborador_id:  acidenForm.colaborador_id,
+      obra_id:         acidenForm.obra_id || null,
+      data_acidente:   acidenForm.data_ocorrencia,  // banco usa data_acidente
+      hora_acidente:   acidenForm.hora_ocorrencia || null,
+      tipo:            acidenForm.tipo_acidente || null,
+      descricao:       acidenForm.descricao,
+      cat_emitida:     acidenForm.comunicado_cat,   // banco usa cat_emitida
+      observacoes:     acidenForm.observacoes || null,
     }
 
     let error: unknown

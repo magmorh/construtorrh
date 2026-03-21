@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Colaborador, Funcao, Obra } from '@/lib/supabase'
 import { formatCPF, formatDate, formatCurrency, cn } from '@/lib/utils'
+import { maskCPF, maskRG, maskPIS, maskCEP, maskTelefone, maskCTPS, maskCTPSSerie, maskAgencia, maskConta } from '@/lib/masks'
 import { PageHeader, BadgeStatus, EmptyState, LoadingSkeleton } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -704,8 +705,11 @@ export default function Colaboradores() {
       )}
 
       {/* ═══════════ MODAL COLABORADOR ═══════════════════════════════════════ */}
-      <Dialog open={modalOpen} onOpenChange={open => { if (!open) setModalOpen(false) }}>
-        <DialogContent style={{ maxWidth: 680, padding: 0, display: 'flex', flexDirection: 'column', maxHeight: '92vh', overflow: 'hidden' }}>
+      <Dialog open={modalOpen} onOpenChange={() => {}}>
+        <DialogContent
+          onInteractOutside={e => e.preventDefault()}
+          onEscapeKeyDown={e => e.preventDefault()}
+          style={{ maxWidth: 680, padding: 0, display: 'flex', flexDirection: 'column', maxHeight: '92vh', overflow: 'hidden' }}>
 
           {/* cabeçalho */}
           <DialogHeader style={{ padding: '18px 24px 0', flexShrink: 0 }}>
@@ -743,13 +747,13 @@ export default function Colaboradores() {
                       <Input value={form.nome} onChange={e => set('nome', e.target.value)} placeholder="Nome completo" />
                     </Field>
                     <Field label="CPF">
-                      <Input value={form.cpf} onChange={e => set('cpf', e.target.value)} placeholder="000.000.000-00" />
+                      <Input value={form.cpf} onChange={e => set('cpf', maskCPF(e.target.value))} placeholder="000.000.000-00" inputMode="numeric" />
                     </Field>
                     <Field label="RG">
-                      <Input value={form.rg} onChange={e => set('rg', e.target.value)} placeholder="MG-00.000.000" />
+                      <Input value={form.rg} onChange={e => set('rg', maskRG(e.target.value))} placeholder="MG-00.000.000" />
                     </Field>
                     <Field label="PIS / NIT">
-                      <Input value={form.pis_nit} onChange={e => set('pis_nit', e.target.value)} placeholder="000.00000.00-0" />
+                      <Input value={form.pis_nit} onChange={e => set('pis_nit', maskPIS(e.target.value))} placeholder="000.00000.00-0" inputMode="numeric" />
                     </Field>
                     <Field label="Data de nascimento">
                       <Input type="date" value={form.data_nascimento} onChange={e => set('data_nascimento', e.target.value)} />
@@ -776,7 +780,7 @@ export default function Colaboradores() {
                       </Select>
                     </Field>
                     <Field label="Telefone">
-                      <Input value={form.telefone} onChange={e => set('telefone', e.target.value)} placeholder="(31) 99999-9999" />
+                      <Input value={form.telefone} onChange={e => set('telefone', maskTelefone(e.target.value))} placeholder="(00) 00000-0000" inputMode="tel" />
                     </Field>
                     <Field label="E-mail">
                       <Input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="email@exemplo.com" />
@@ -796,7 +800,7 @@ export default function Colaboradores() {
                       <Input value={form.estado} onChange={e => set('estado', e.target.value)} placeholder="MG" maxLength={2} />
                     </Field>
                     <Field label="CEP">
-                      <Input value={form.cep} onChange={e => set('cep', e.target.value)} placeholder="00000-000" />
+                      <Input value={form.cep} onChange={e => set('cep', maskCEP(e.target.value))} placeholder="00000-000" inputMode="numeric" />
                     </Field>
                   </Grid>
                 </Sec>
@@ -850,10 +854,10 @@ export default function Colaboradores() {
                       <Input value={form.banco} onChange={e => set('banco', e.target.value)} placeholder="Banco do Brasil" />
                     </Field>
                     <Field label="Agência">
-                      <Input value={form.agencia} onChange={e => set('agencia', e.target.value)} placeholder="0000" />
+                      <Input value={form.agencia} onChange={e => set('agencia', maskAgencia(e.target.value))} placeholder="0000-0" inputMode="numeric" style={{ fontFamily: 'monospace' }} />
                     </Field>
                     <Field label="Conta">
-                      <Input value={form.conta} onChange={e => set('conta', e.target.value)} placeholder="00000-0" />
+                      <Input value={form.conta} onChange={e => set('conta', maskConta(e.target.value))} placeholder="00000000-0" inputMode="numeric" style={{ fontFamily: 'monospace' }} />
                     </Field>
                     <Field label="Tipo de conta">
                       <Select value={form.tipo_conta} onValueChange={v => set('tipo_conta', v)}>
@@ -1206,10 +1210,10 @@ function FuncaoSection({
       <Sec title="CTPS">
         <Grid cols={2}>
           <Field label="Nº CTPS">
-            <Input value={form.ctps_numero} onChange={e => onSet('ctps_numero', e.target.value)} placeholder="000000" />
+            <Input value={form.ctps_numero} onChange={e => onSet('ctps_numero', maskCTPS(e.target.value))} placeholder="0000000" inputMode="numeric" style={{ fontFamily: 'monospace' }} />
           </Field>
           <Field label="Série CTPS">
-            <Input value={form.ctps_serie} onChange={e => onSet('ctps_serie', e.target.value)} placeholder="000" />
+            <Input value={form.ctps_serie} onChange={e => onSet('ctps_serie', maskCTPSSerie(e.target.value))} placeholder="0000" inputMode="numeric" style={{ fontFamily: 'monospace' }} />
           </Field>
         </Grid>
       </Sec>

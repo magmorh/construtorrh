@@ -215,10 +215,11 @@ DO $$ BEGIN
     ALTER TABLE public.epi_catalogo RENAME COLUMN ca_numero TO numero_ca;
   END IF;
 END $$;
-ALTER TABLE public.epi_catalogo ADD COLUMN IF NOT EXISTS numero_ca   TEXT;
-ALTER TABLE public.epi_catalogo ADD COLUMN IF NOT EXISTS ca_validade DATE;
-ALTER TABLE public.epi_catalogo ADD COLUMN IF NOT EXISTS categoria   TEXT;
-ALTER TABLE public.epi_catalogo ADD COLUMN IF NOT EXISTS requer_numero BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.epi_catalogo ADD COLUMN IF NOT EXISTS numero_ca     TEXT;
+ALTER TABLE public.epi_catalogo ADD COLUMN IF NOT EXISTS ca_validade   DATE;
+ALTER TABLE public.epi_catalogo ADD COLUMN IF NOT EXISTS categoria      TEXT;
+ALTER TABLE public.epi_catalogo ADD COLUMN IF NOT EXISTS requer_numero  BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.epi_catalogo ADD COLUMN IF NOT EXISTS unidade        TEXT DEFAULT 'unidade';
 
 ALTER TABLE public.epi_catalogo ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "epi_cat_auth" ON public.epi_catalogo;

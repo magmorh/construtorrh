@@ -760,8 +760,20 @@ export default function Epis() {
     const nomearq = modoSolicitacao === 'colaborador'
       ? `solicitacao_epi_colaborador_${hoje.replace(/\//g, '-')}.pdf`
       : `solicitacao_epi_obra_${hoje.replace(/\//g, '-')}.pdf`
-    doc.save(nomearq)
-    toast.success('PDF gerado com sucesso!')
+    // Forçar download via blob (compatível com todos os browsers em Vite)
+    try {
+      const blob = doc.output('blob')
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = nomearq
+      document.body.appendChild(a)
+      a.click()
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url) }, 200)
+      toast.success('PDF gerado!')
+    } catch (err) {
+      toast.error('Erro ao gerar PDF: ' + String(err))
+    }
   }
 
   // ─── render ────────────────────────────────────────────────────────────────

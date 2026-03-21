@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useProfile, ROLE_PERMISSIONS } from '@/hooks/useProfile'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
-  LayoutDashboard, Users, Building2, Briefcase, Shield,
+  LayoutDashboard, Users, Building2, Shield,
   AlertTriangle, FileText, Clock, DollarSign, Award,
   Calculator, Bus, BarChart3, Settings, LogOut, Menu,
   HardHat, ChevronLeft, ChevronRight, UserCog,
@@ -24,7 +24,7 @@ const NAV_GROUPS = [
     items: [
       { to: '/colaboradores',  label: 'Colaboradores',  icon: Users },
       { to: '/obras',          label: 'Obras',          icon: Building2 },
-      { to: '/funcoes',        label: 'Funções',         icon: Briefcase },
+
     ],
   },
   {

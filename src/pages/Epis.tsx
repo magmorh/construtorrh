@@ -757,29 +757,6 @@ export default function Epis() {
       columnStyles: { 4: { halign: 'center', fontStyle: 'bold' } },
     })
 
-    // Resumo por categoria
-    const catMap = new Map<string, number>()
-    for (const r of resumoEpi) {
-      const cat = r.epi_categoria ?? 'Outros'
-      catMap.set(cat, (catMap.get(cat) ?? 0) + r.quantidade)
-    }
-    const totalGeral = resumoEpi.reduce((s, r) => s + r.quantidade, 0)
-    const catLinhas: string[][] = Array.from(catMap.entries()).map(([cat, qtd]) => [cat, String(qtd)])
-    catLinhas.push(['TOTAL GERAL', String(totalGeral)])
-
-    const finalY = (doc as any).lastAutoTable?.finalY ?? 60
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Resumo por Categoria', 14, finalY + 12)
-    autoTable(doc, {
-      head: [['Categoria', 'Qtd']],
-      body: catLinhas,
-      startY: finalY + 16,
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: [71, 85, 105] },
-      columnStyles: { 1: { halign: 'center', fontStyle: 'bold' } },
-    })
-
     const nomearq = modoSolicitacao === 'colaborador'
       ? `solicitacao_epi_colaborador_${hoje.replace(/\//g, '-')}.pdf`
       : `solicitacao_epi_obra_${hoje.replace(/\//g, '-')}.pdf`

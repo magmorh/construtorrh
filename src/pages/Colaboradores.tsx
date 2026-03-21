@@ -53,6 +53,20 @@ function novoTrecho(): VtTrecho {
 
 type VtModalidade = 'nenhum' | 'gasolina' | 'transporte' | 'misto'
 
+interface ColabEpiItem {
+  epi_id: string
+  epi_nome: string
+  epi_categoria: string | null
+  requer_tamanho: boolean
+  requer_numero: boolean
+  obrigatorio: boolean
+  quantidade: number
+  tamanho: string
+  numero: string
+  colaborador_epi_id?: string
+  status: string
+}
+
 type FormData = {
   nome: string; chapa: string; cpf: string; rg: string; pis_nit: string
   data_nascimento: string; genero: string; estado_civil: string
@@ -422,7 +436,8 @@ export default function Colaboradores() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editId, setEditId]       = useState<string | null>(null)
   const [form, setForm]           = useState<FormData>(EMPTY)
-  const [section, setSection]     = useState<'pessoal' | 'funcao' | 'bancario' | 'vt'>('pessoal')
+  const [section, setSection]     = useState<'pessoal' | 'funcao' | 'bancario' | 'vt' | 'epis'>('pessoal')
+  const [epiList, setEpiList]         = useState<ColabEpiItem[]>([])
   const [saving, setSaving]       = useState(false)
 
   // chapa
@@ -502,6 +517,34 @@ export default function Colaboradores() {
     const estaEditando = !!editId
     const mudouFuncao  = estaEditando && funcaoId !== funcaoOriginal && funcaoOriginal !== ''
 
+    // Carregar EPIs da função selecionada
+    const { data: funcaoEpis } = await supabase
+      .from('funcao_epi')
+      .select('*, epi_catalogo(id, nome, categoria, requer_tamanho, requer_numero)')
+      .eq('funcao_id', funcaoId)
+
+    if (funcaoEpis && funcaoEpis.length > 0) {
+      setEpiList(funcaoEpis.map((fe: any) => {
+        // Preservar tamanho/número já preenchido se EPI já existia na lista
+        const existing = epiList.find(e => e.epi_id === fe.epi_id)
+        return {
+          epi_id: fe.epi_id,
+          epi_nome: fe.epi_catalogo?.nome ?? '',
+          epi_categoria: fe.epi_catalogo?.categoria ?? null,
+          requer_tamanho: fe.epi_catalogo?.requer_tamanho ?? false,
+          requer_numero: fe.epi_catalogo?.requer_numero ?? false,
+          obrigatorio: fe.obrigatorio ?? true,
+          quantidade: fe.quantidade ?? 1,
+          tamanho: existing?.tamanho ?? '',
+          numero: existing?.numero ?? '',
+          colaborador_epi_id: existing?.colaborador_epi_id,
+          status: existing?.status ?? 'pendente',
+        }
+      }))
+    } else if (!mudouFuncao) {
+      setEpiList([])
+    }
+
     if (mudouFuncao) {
       setTrocandoFuncao(true)
     } else if (!estaEditando && fn.sigla) {
@@ -528,7 +571,7 @@ export default function Colaboradores() {
   }
 
   // ── abrir modal editar ───────────────────────────────────────────────────
-  const openEdit = (c: ColaboradorRow) => {
+  const openEdit = async (c: ColaboradorRow) => {
     setEditId(c.id)
     setFuncaoOriginal(c.funcao_id ?? '')
     setChapaOriginal(c.chapa ?? '')
@@ -558,6 +601,26 @@ export default function Colaboradores() {
       vt_trechos_volta: ((c as any).vt_dados?.trechos_volta ?? []) as VtTrecho[],
       status: c.status ?? 'ativo', observacoes: c.observacoes ?? '',
     })
+    // Carregar EPIs do colaborador
+    const { data: colabEpiData } = await supabase
+      .from('colaborador_epi')
+      .select('*, epi_catalogo(id, nome, categoria, requer_tamanho, requer_numero)')
+      .eq('colaborador_id', c.id)
+    if (colabEpiData) {
+      setEpiList(colabEpiData.map((e: any) => ({
+        epi_id: e.epi_id,
+        epi_nome: e.epi_catalogo?.nome ?? '',
+        epi_categoria: e.epi_catalogo?.categoria ?? null,
+        requer_tamanho: e.epi_catalogo?.requer_tamanho ?? false,
+        requer_numero: e.epi_catalogo?.requer_numero ?? false,
+        obrigatorio: true,
+        quantidade: e.quantidade_entregue ?? 1,
+        tamanho: e.tamanho ?? '',
+        numero: e.numero ?? '',
+        colaborador_epi_id: e.id,
+        status: e.status ?? 'pendente',
+      })))
+    }
     setModalOpen(true)
   }
 
@@ -639,6 +702,39 @@ export default function Colaboradores() {
 
     setSaving(false)
     if (error) { toast.error(error.message); return }
+
+    // Salvar EPIs do colaborador
+    if (epiList.length > 0) {
+      // Obter ID do colaborador (editId existente ou ID do recém-criado)
+      let colaboradorId = editId
+      if (!colaboradorId) {
+        // Buscar o colaborador recém criado pela chapa
+        const { data: novo } = await supabase
+          .from('colaboradores').select('id').eq('chapa', payloadFull.chapa).single()
+        colaboradorId = novo?.id ?? null
+      }
+      if (colaboradorId) {
+        for (const item of epiList) {
+          if (item.colaborador_epi_id) {
+            await supabase.from('colaborador_epi').update({
+              tamanho: item.tamanho || null,
+              numero: item.numero || null,
+            }).eq('id', item.colaborador_epi_id)
+          } else {
+            await supabase.from('colaborador_epi').insert({
+              colaborador_id: colaboradorId,
+              epi_id: item.epi_id,
+              funcao_id: form.funcao_id || null,
+              tamanho: item.tamanho || null,
+              numero: item.numero || null,
+              quantidade_entregue: 0,
+              status: 'pendente',
+            })
+          }
+        }
+      }
+    }
+
     toast.success(editId ? 'Colaborador atualizado!' : 'Colaborador criado!')
     setModalOpen(false)
     fetchData()
@@ -773,8 +869,8 @@ export default function Colaboradores() {
 
           {/* abas do modal */}
           <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', margin: '12px 24px 0', flexShrink: 0 }}>
-            {(['pessoal', 'funcao', 'bancario', 'vt'] as const).map(s => {
-              const labels: Record<string, string> = { pessoal: 'Dados Pessoais', funcao: 'Função & Contrato', bancario: 'Dados Bancários', vt: 'Vale Transporte' }
+            {(['pessoal', 'funcao', 'bancario', 'vt', 'epis'] as const).map(s => {
+              const labels: Record<string, string> = { pessoal: 'Dados Pessoais', funcao: 'Função & Contrato', bancario: 'Dados Bancários', vt: 'Vale Transporte', epis: '🦺 EPIs' }
               return (
                 <button key={s} onClick={() => setSection(s)} style={{
                   padding: '8px 16px', fontSize: 13, fontWeight: 500, border: 'none', background: 'none', cursor: 'pointer',
@@ -984,6 +1080,11 @@ export default function Colaboradores() {
             {/* ── SEÇÃO VALE TRANSPORTE ─────────────────────────────────── */}
             {section === 'vt' && (
               <VTSection form={form} setForm={setForm} />
+            )}
+
+            {/* ── SEÇÃO EPIs DO COLABORADOR ─────────────────────────────── */}
+            {section === 'epis' && (
+              <EpiColabSection epiList={epiList} setEpiList={setEpiList} funcaoNome={funcoes.find(f => f.id === form.funcao_id)?.nome} />
             )}
           </div>
 
@@ -1314,6 +1415,139 @@ function VTSection({ form, setForm }: VTSectionProps) {
         </div>
       )}
 
+    </div>
+  )
+}
+
+
+// ─── EpiColabSection — EPIs do colaborador ───────────────────────────────────
+const TAMANHOS = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG']
+const NUMEROS_CALCADO = Array.from({ length: 14 }, (_, i) => String(34 + i)) // 34-47
+
+interface EpiColabSectionProps {
+  epiList: ColabEpiItem[]
+  setEpiList: React.Dispatch<React.SetStateAction<ColabEpiItem[]>>
+  funcaoNome?: string
+}
+
+function EpiColabSection({ epiList, setEpiList, funcaoNome }: EpiColabSectionProps) {
+  const updEpi = (idx: number, field: keyof ColabEpiItem, value: string) => {
+    setEpiList(prev => prev.map((e, i) => i === idx ? { ...e, [field]: value } : e))
+  }
+
+  if (!funcaoNome) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--muted-foreground)' }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>🦺</div>
+        <div style={{ fontSize: 14, fontWeight: 500 }}>Selecione uma função primeiro</div>
+        <div style={{ fontSize: 12, marginTop: 6 }}>Os EPIs serão carregados automaticamente conforme a função do colaborador.</div>
+      </div>
+    )
+  }
+
+  if (epiList.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--muted-foreground)' }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
+        <div style={{ fontSize: 14, fontWeight: 500 }}>Nenhum EPI vinculado à função "{funcaoNome}"</div>
+        <div style={{ fontSize: 12, marginTop: 6 }}>Acesse a página de EPIs para vincular EPIs a esta função.</div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>EPIs da função: <span style={{ color: 'var(--primary)' }}>{funcaoNome}</span></div>
+          <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>
+            {epiList.length} EPI{epiList.length !== 1 ? 's' : ''} · {epiList.filter(e => e.requer_tamanho || e.requer_numero).length} requerem medidas
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--muted-foreground)', fontStyle: 'italic' }}>
+          Preencha tamanho/número onde necessário
+        </div>
+      </div>
+
+      {/* Tabela de EPIs */}
+      <div style={{ borderRadius: 8, border: '1px solid var(--border)', overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
+              <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>EPI</th>
+              <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', width: 90 }}>Categoria</th>
+              <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', width: 80 }}>Obrig.</th>
+              <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', width: 130 }}>Tamanho</th>
+              <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', width: 110 }}>Nº Calçado</th>
+              <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', width: 90 }}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {epiList.map((epi, idx) => (
+              <tr key={epi.epi_id} style={{ borderBottom: '1px solid var(--border)', background: idx % 2 === 0 ? 'transparent' : 'var(--muted)/30' }}>
+                <td style={{ padding: '10px 12px' }}>
+                  <div style={{ fontWeight: 500 }}>{epi.epi_nome}</div>
+                  {epi.quantidade > 1 && (
+                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>Qtd: {epi.quantidade}</div>
+                  )}
+                </td>
+                <td style={{ padding: '10px 12px', fontSize: 11, color: 'var(--muted-foreground)' }}>
+                  {epi.epi_categoria ?? '—'}
+                </td>
+                <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                  {epi.obrigatorio
+                    ? <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 10, background: 'rgba(239,68,68,0.1)', color: '#dc2626', fontWeight: 600 }}>Sim</span>
+                    : <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 10, background: 'rgba(107,114,128,0.1)', color: 'var(--muted-foreground)', fontWeight: 600 }}>Não</span>
+                  }
+                </td>
+                <td style={{ padding: '6px 12px' }}>
+                  {epi.requer_tamanho ? (
+                    <select
+                      value={epi.tamanho}
+                      onChange={e => updEpi(idx, 'tamanho', e.target.value)}
+                      style={{ width: '100%', padding: '4px 8px', borderRadius: 4, border: `1px solid ${epi.tamanho ? 'var(--primary)' : 'var(--border)'}`, background: 'var(--background)', fontSize: 12, cursor: 'pointer' }}
+                    >
+                      <option value="">Selecione…</option>
+                      {TAMANHOS.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  ) : <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>—</span>}
+                </td>
+                <td style={{ padding: '6px 12px' }}>
+                  {epi.requer_numero ? (
+                    <select
+                      value={epi.numero}
+                      onChange={e => updEpi(idx, 'numero', e.target.value)}
+                      style={{ width: '100%', padding: '4px 8px', borderRadius: 4, border: `1px solid ${epi.numero ? 'var(--primary)' : 'var(--border)'}`, background: 'var(--background)', fontSize: 12, cursor: 'pointer' }}
+                    >
+                      <option value="">Nº…</option>
+                      {NUMEROS_CALCADO.map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  ) : <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>—</span>}
+                </td>
+                <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                  <span style={{
+                    fontSize: 10, padding: '2px 6px', borderRadius: 10, fontWeight: 600,
+                    background: epi.status === 'entregue' ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
+                    color: epi.status === 'entregue' ? '#059669' : '#d97706',
+                  }}>
+                    {epi.status === 'entregue' ? '✓ Entregue' : '⏳ Pendente'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Aviso de medidas faltando */}
+      {epiList.some(e => (e.requer_tamanho && !e.tamanho) || (e.requer_numero && !e.numero)) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 6, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+          <span style={{ fontSize: 14 }}>⚠️</span>
+          <span style={{ fontSize: 12, color: '#92400e' }}>
+            {epiList.filter(e => (e.requer_tamanho && !e.tamanho) || (e.requer_numero && !e.numero)).length} EPI(s) aguardando preenchimento de tamanho/número
+          </span>
+        </div>
+      )}
     </div>
   )
 }

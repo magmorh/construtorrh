@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { cn } from '@/lib/utils'
 import { PageHeader, EmptyState, LoadingSkeleton } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,16 +17,16 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
 import {
-  Shield, Plus, Search, Pencil, Trash2, Link, Unlink,
-  Package, Tag, CheckCircle2, AlertCircle, X,
+  Shield, Plus, Search, Pencil, Trash2, Link2, Unlink2,
+  Package, Tag, CheckCircle2, AlertCircle, X, ChevronRight,
+  Users, Building2, FileText, Download,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
 
-type EpiCatalogo = {
+interface EpiCatalogo {
   id: string
   nome: string
   categoria: string
@@ -40,13 +39,14 @@ type EpiCatalogo = {
   created_at?: string
 }
 
-type Funcao = {
+interface Funcao {
   id: string
   nome: string
   sigla: string | null
+  ativo: boolean
 }
 
-type FuncaoEpi = {
+interface FuncaoEpi {
   id: string
   funcao_id: string
   epi_id: string
@@ -61,7 +61,40 @@ type FuncaoEpi = {
   } | null
 }
 
-type EpiFormData = {
+interface Colaborador {
+  id: string
+  nome: string
+  chapa: string | null
+  obra_id?: string | null
+}
+
+interface Obra {
+  id: string
+  nome: string
+}
+
+interface ColaboradorEpi {
+  id: string
+  colaborador_id: string
+  epi_id: string
+  tamanho: string | null
+  numero: string | null
+  quantidade: number
+  status: string | null
+  epi_catalogo: {
+    id: string
+    nome: string
+    categoria: string
+  } | null
+  colaboradores: {
+    id: string
+    nome: string
+    chapa: string | null
+    obra_id?: string | null
+  } | null
+}
+
+interface EpiFormData {
   nome: string
   categoria: string
   numero_ca: string
@@ -72,11 +105,13 @@ type EpiFormData = {
   ativo: boolean
 }
 
-type VinculoFormData = {
+interface VinculoFormData {
   epi_id: string
   obrigatorio: boolean
   quantidade: string
 }
+
+// ─── constantes ───────────────────────────────────────────────────────────────
 
 const EMPTY_EPI_FORM: EpiFormData = {
   nome: '',
@@ -100,6 +135,8 @@ const CATEGORIAS = [
 ]
 
 const UNIDADES = ['unidade', 'par', 'jogo', 'conjunto']
+
+type Aba = 'catalogo' | 'funcao' | 'solicitacoes'
 
 // ─── toggle inline ────────────────────────────────────────────────────────────
 
@@ -159,10 +196,34 @@ function Toggle({
   )
 }
 
+// ─── badge categoria ──────────────────────────────────────────────────────────
+
+function CategoriaBadge({ categoria }: { categoria: string | null | undefined }) {
+  if (!categoria) return <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '2px 8px',
+        borderRadius: 999,
+        background: '#eff6ff',
+        color: '#1d4ed8',
+        fontSize: 12,
+        fontWeight: 500,
+      }}
+    >
+      <Tag size={10} />
+      {categoria}
+    </span>
+  )
+}
+
 // ─── componente principal ─────────────────────────────────────────────────────
 
 export default function Epis() {
-  const [aba, setAba] = useState<'catalogo' | 'funcao'>('catalogo')
+  const [aba, setAba] = useState<Aba>('catalogo')
 
   // ── Aba 1: catálogo ─────────────────────────────────────────────────────────
   const [epis, setEpis] = useState<EpiCatalogo[]>([])
@@ -179,15 +240,29 @@ export default function Epis() {
   // ── Aba 2: função-EPI ───────────────────────────────────────────────────────
   const [funcoes, setFuncoes] = useState<Funcao[]>([])
   const [loadingFuncoes, setLoadingFuncoes] = useState(true)
-  const [funcaoSelecionada, setFuncaoSelecionada] = useState<string>('')
+  const [searchFuncao, setSearchFuncao] = useState('')
+  const [funcaoSelecionada, setFuncaoSelecionada] = useState<Funcao | null>(null)
   const [vinculos, setVinculos] = useState<FuncaoEpi[]>([])
   const [loadingVinculos, setLoadingVinculos] = useState(false)
+  const [episPorFuncao, setEpisPorFuncao] = useState<Record<string, number>>({})
 
   const [vinculoModalOpen, setVinculoModalOpen] = useState(false)
   const [vinculoForm, setVinculoForm] = useState<VinculoFormData>(EMPTY_VINCULO_FORM)
   const [savingVinculo, setSavingVinculo] = useState(false)
   const [deleteVinculoId, setDeleteVinculoId] = useState<string | null>(null)
   const [deletingVinculo, setDeletingVinculo] = useState(false)
+
+  // ── Aba 3: solicitações ─────────────────────────────────────────────────────
+  const [modoSolicitacao, setModoSolicitacao] = useState<'colaborador' | 'obra'>('colaborador')
+  const [colaboradores, setColaboradores] = useState<Colaborador[]>([])
+  const [obras, setObras] = useState<Obra[]>([])
+  const [loadingColaboradores, setLoadingColaboradores] = useState(false)
+  const [loadingObras, setLoadingObras] = useState(false)
+  const [colaboradorSelecionado, setColaboradorSelecionado] = useState<string>('')
+  const [obraSelecionada, setObraSelecionada] = useState<string>('')
+  const [itensEpi, setItensEpi] = useState<ColaboradorEpi[]>([])
+  const [loadingItens, setLoadingItens] = useState(false)
+  const [gerou, setGerou] = useState(false)
 
   // ── fetch catálogo ──────────────────────────────────────────────────────────
   const fetchEpis = useCallback(async () => {
@@ -206,12 +281,25 @@ export default function Epis() {
     setLoadingFuncoes(true)
     const { data, error } = await supabase
       .from('funcoes')
-      .select('id, nome, sigla')
+      .select('id, nome, sigla, ativo')
       .eq('ativo', true)
       .order('nome')
     setLoadingFuncoes(false)
     if (error) { toast.error(error.message); return }
-    setFuncoes(data ?? [])
+    setFuncoes((data as Funcao[]) ?? [])
+  }, [])
+
+  // ── fetch contagem de EPIs por função ───────────────────────────────────────
+  const fetchEpisPorFuncao = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('funcao_epi')
+      .select('funcao_id')
+    if (error || !data) return
+    const contagem: Record<string, number> = {}
+    data.forEach((row: { funcao_id: string }) => {
+      contagem[row.funcao_id] = (contagem[row.funcao_id] ?? 0) + 1
+    })
+    setEpisPorFuncao(contagem)
   }, [])
 
   // ── fetch vínculos da função ────────────────────────────────────────────────
@@ -227,18 +315,55 @@ export default function Epis() {
     setVinculos((data as FuncaoEpi[]) ?? [])
   }, [])
 
+  // ── fetch colaboradores ─────────────────────────────────────────────────────
+  const fetchColaboradores = useCallback(async () => {
+    setLoadingColaboradores(true)
+    const { data, error } = await supabase
+      .from('colaboradores')
+      .select('id, nome, chapa')
+      .eq('status', 'ativo')
+      .order('nome')
+    setLoadingColaboradores(false)
+    if (error) { toast.error(error.message); return }
+    setColaboradores((data as Colaborador[]) ?? [])
+  }, [])
+
+  // ── fetch obras ─────────────────────────────────────────────────────────────
+  const fetchObras = useCallback(async () => {
+    setLoadingObras(true)
+    const { data, error } = await supabase
+      .from('obras')
+      .select('id, nome')
+      .order('nome')
+    setLoadingObras(false)
+    if (error) { toast.error(error.message); return }
+    setObras((data as Obra[]) ?? [])
+  }, [])
+
   useEffect(() => { fetchEpis() }, [fetchEpis])
-  useEffect(() => { fetchFuncoes() }, [fetchFuncoes])
+  useEffect(() => { fetchFuncoes(); fetchEpisPorFuncao() }, [fetchFuncoes, fetchEpisPorFuncao])
   useEffect(() => {
-    if (funcaoSelecionada) fetchVinculos(funcaoSelecionada)
+    if (aba === 'solicitacoes') {
+      fetchColaboradores()
+      fetchObras()
+    }
+  }, [aba, fetchColaboradores, fetchObras])
+  useEffect(() => {
+    if (funcaoSelecionada) fetchVinculos(funcaoSelecionada.id)
     else setVinculos([])
   }, [funcaoSelecionada, fetchVinculos])
 
-  // ── filtro busca ────────────────────────────────────────────────────────────
+  // ── filtro busca catálogo ───────────────────────────────────────────────────
   const filtered = epis.filter(e =>
     e.nome.toLowerCase().includes(search.toLowerCase()) ||
     (e.categoria ?? '').toLowerCase().includes(search.toLowerCase()) ||
     (e.numero_ca ?? '').toLowerCase().includes(search.toLowerCase()),
+  )
+
+  // ── filtro busca funções ────────────────────────────────────────────────────
+  const funcoesFiltradas = funcoes.filter(f =>
+    f.nome.toLowerCase().includes(searchFuncao.toLowerCase()) ||
+    (f.sigla ?? '').toLowerCase().includes(searchFuncao.toLowerCase()),
   )
 
   // ── abrir modal catálogo ────────────────────────────────────────────────────
@@ -267,7 +392,6 @@ export default function Epis() {
   const handleSave = async () => {
     if (!form.nome.trim()) { toast.error('Nome é obrigatório'); return }
     setSaving(true)
-
     const payload = {
       nome: form.nome.trim(),
       categoria: form.categoria || null,
@@ -278,11 +402,9 @@ export default function Epis() {
       vida_util_meses: form.vida_util_meses ? parseInt(form.vida_util_meses, 10) : null,
       ativo: form.ativo,
     }
-
     const { error } = editId
       ? await supabase.from('epi_catalogo').update(payload).eq('id', editId)
       : await supabase.from('epi_catalogo').insert(payload)
-
     setSaving(false)
     if (error) { toast.error(error.message); return }
     toast.success(editId ? 'EPI atualizado!' : 'EPI cadastrado!')
@@ -307,20 +429,19 @@ export default function Epis() {
     if (!funcaoSelecionada) { toast.error('Selecione uma função'); return }
     if (!vinculoForm.epi_id) { toast.error('Selecione um EPI'); return }
     setSavingVinculo(true)
-
     const { error } = await supabase.from('funcao_epi').insert({
-      funcao_id: funcaoSelecionada,
+      funcao_id: funcaoSelecionada.id,
       epi_id: vinculoForm.epi_id,
       obrigatorio: vinculoForm.obrigatorio,
       quantidade: parseInt(vinculoForm.quantidade, 10) || 1,
     })
-
     setSavingVinculo(false)
     if (error) { toast.error(error.message); return }
     toast.success('EPI vinculado à função!')
     setVinculoModalOpen(false)
     setVinculoForm(EMPTY_VINCULO_FORM)
-    fetchVinculos(funcaoSelecionada)
+    fetchVinculos(funcaoSelecionada.id)
+    fetchEpisPorFuncao()
   }
 
   // ── desvincular EPI ─────────────────────────────────────────────────────────
@@ -332,13 +453,73 @@ export default function Epis() {
     setDeleteVinculoId(null)
     if (error) { toast.error(error.message); return }
     toast.success('Vínculo removido!')
-    if (funcaoSelecionada) fetchVinculos(funcaoSelecionada)
+    if (funcaoSelecionada) fetchVinculos(funcaoSelecionada.id)
+    fetchEpisPorFuncao()
+  }
+
+  // ── gerar solicitação ───────────────────────────────────────────────────────
+  const handleGerarSolicitacao = async () => {
+    if (modoSolicitacao === 'colaborador' && !colaboradorSelecionado) {
+      toast.error('Selecione um colaborador')
+      return
+    }
+    if (modoSolicitacao === 'obra' && !obraSelecionada) {
+      toast.error('Selecione uma obra')
+      return
+    }
+
+    setLoadingItens(true)
+    setGerou(false)
+
+    if (modoSolicitacao === 'colaborador') {
+      const { data, error } = await supabase
+        .from('colaborador_epi')
+        .select('*, epi_catalogo(id, nome, categoria), colaboradores(id, nome, chapa, obra_id)')
+        .eq('colaborador_id', colaboradorSelecionado)
+      setLoadingItens(false)
+      if (error) { toast.error(error.message); return }
+      setItensEpi((data as ColaboradorEpi[]) ?? [])
+    } else {
+      // Busca colaboradores da obra e seus EPIs
+      const { data: colabs, error: erColabs } = await supabase
+        .from('colaboradores')
+        .select('id')
+        .eq('obra_id', obraSelecionada)
+        .eq('status', 'ativo')
+
+      if (erColabs) { toast.error(erColabs.message); setLoadingItens(false); return }
+
+      const ids = (colabs ?? []).map((c: { id: string }) => c.id)
+      if (ids.length === 0) {
+        setLoadingItens(false)
+        setItensEpi([])
+        setGerou(true)
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('colaborador_epi')
+        .select('*, epi_catalogo(id, nome, categoria), colaboradores(id, nome, chapa, obra_id)')
+        .in('colaborador_id', ids)
+      setLoadingItens(false)
+      if (error) { toast.error(error.message); return }
+      setItensEpi((data as ColaboradorEpi[]) ?? [])
+    }
+
+    setGerou(true)
   }
 
   // ── EPIs disponíveis para vincular (excluindo já vinculados) ─────────────────
   const episDisponiveis = epis.filter(
     e => e.ativo && !vinculos.some(v => v.epi_id === e.id),
   )
+
+  // ── totais por categoria (Aba 3) ────────────────────────────────────────────
+  const totaisPorCategoria: Record<string, number> = {}
+  itensEpi.forEach(item => {
+    const cat = item.epi_catalogo?.categoria ?? 'Outros'
+    totaisPorCategoria[cat] = (totaisPorCategoria[cat] ?? 0) + (item.quantidade ?? 1)
+  })
 
   // ─── estilos das abas ──────────────────────────────────────────────────────
   const tabStyle = (active: boolean): React.CSSProperties => ({
@@ -354,23 +535,35 @@ export default function Epis() {
     whiteSpace: 'nowrap',
   })
 
+  // ─── nome da obra selecionada (para título da solicitação) ─────────────────
+  const obraNome = obras.find(o => o.id === obraSelecionada)?.nome ?? ''
+  const colaboradorNome = colaboradores.find(c => c.id === colaboradorSelecionado)?.nome ?? ''
+
   // ─── render ────────────────────────────────────────────────────────────────
   return (
     <div>
       <PageHeader
         title="EPIs"
-        subtitle="Equipamentos de Proteção Individual — catálogo e vínculos por função"
+        subtitle="Equipamentos de Proteção Individual — catálogo, vínculos e solicitações"
         action={
           aba === 'catalogo' ? (
             <Button onClick={openNew} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <Plus size={16} /> Novo EPI
             </Button>
-          ) : funcaoSelecionada ? (
+          ) : aba === 'funcao' && funcaoSelecionada ? (
             <Button
               onClick={() => { setVinculoForm(EMPTY_VINCULO_FORM); setVinculoModalOpen(true) }}
               style={{ display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              <Link size={16} /> Vincular EPI
+              <Link2 size={16} /> Vincular EPI
+            </Button>
+          ) : aba === 'solicitacoes' && gerou && itensEpi.length > 0 ? (
+            <Button
+              variant="outline"
+              onClick={() => window.print()}
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <Download size={16} /> Imprimir / Exportar
             </Button>
           ) : null
         }
@@ -383,6 +576,7 @@ export default function Epis() {
           borderBottom: '1px solid #e5e7eb',
           marginBottom: 24,
           gap: 4,
+          overflowX: 'auto',
         }}
       >
         <button style={tabStyle(aba === 'catalogo')} onClick={() => setAba('catalogo')}>
@@ -390,6 +584,9 @@ export default function Epis() {
         </button>
         <button style={tabStyle(aba === 'funcao')} onClick={() => setAba('funcao')}>
           🔗 EPIs por Função
+        </button>
+        <button style={tabStyle(aba === 'solicitacoes')} onClick={() => setAba('solicitacoes')}>
+          📋 Solicitações de EPI
         </button>
       </div>
 
@@ -399,7 +596,7 @@ export default function Epis() {
       {aba === 'catalogo' && (
         <div>
           {/* Busca */}
-          <div style={{ position: 'relative', maxWidth: 360, marginBottom: 20 }}>
+          <div style={{ position: 'relative', maxWidth: 380, marginBottom: 20 }}>
             <Search
               size={15}
               style={{
@@ -408,6 +605,7 @@ export default function Epis() {
                 top: '50%',
                 transform: 'translateY(-50%)',
                 color: '#9ca3af',
+                pointerEvents: 'none',
               }}
             />
             <Input
@@ -440,9 +638,9 @@ export default function Epis() {
                     <TableHead>Nome</TableHead>
                     <TableHead style={{ width: 120 }}>Categoria</TableHead>
                     <TableHead style={{ width: 110 }}>Nº CA</TableHead>
-                    <TableHead style={{ width: 90, textAlign: 'center' }}>Requer Tam.</TableHead>
-                    <TableHead style={{ width: 90, textAlign: 'center' }}>Requer Nº</TableHead>
-                    <TableHead style={{ width: 100, textAlign: 'center' }}>Vida Útil</TableHead>
+                    <TableHead style={{ width: 100, textAlign: 'center' }}>Requer Tam.</TableHead>
+                    <TableHead style={{ width: 100, textAlign: 'center' }}>Requer Nº</TableHead>
+                    <TableHead style={{ width: 110, textAlign: 'center' }}>Vida Útil</TableHead>
                     <TableHead style={{ width: 80, textAlign: 'center' }}>Status</TableHead>
                     <TableHead style={{ width: 80, textAlign: 'right' }}>Ações</TableHead>
                   </TableRow>
@@ -460,26 +658,7 @@ export default function Epis() {
 
                       {/* Categoria */}
                       <TableCell>
-                        {epi.categoria ? (
-                          <span
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              padding: '2px 8px',
-                              borderRadius: 999,
-                              background: '#eff6ff',
-                              color: '#1d4ed8',
-                              fontSize: 12,
-                              fontWeight: 500,
-                            }}
-                          >
-                            <Tag size={10} />
-                            {epi.categoria}
-                          </span>
-                        ) : (
-                          <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>
-                        )}
+                        <CategoriaBadge categoria={epi.categoria} />
                       </TableCell>
 
                       {/* Nº CA */}
@@ -574,167 +753,691 @@ export default function Epis() {
       )}
 
       {/* ════════════════════════════════════════════════════════════════════════
-          ABA 2 — EPIs POR FUNÇÃO
+          ABA 2 — EPIs POR FUNÇÃO (layout 2 colunas)
       ══════════════════════════════════════════════════════════════════════════ */}
       {aba === 'funcao' && (
-        <div>
-          {/* Seletor de função */}
-          <div style={{ maxWidth: 400, marginBottom: 24 }}>
-            <Label style={{ display: 'block', marginBottom: 6, fontSize: 13, fontWeight: 500 }}>
-              Selecionar Função
-            </Label>
-            {loadingFuncoes ? (
-              <div style={{ height: 38, background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
-            ) : (
-              <Select
-                value={funcaoSelecionada || undefined}
-                onValueChange={v => setFuncaoSelecionada(v)}
-              >
-                <SelectTrigger style={{ width: '100%' }}>
-                  <SelectValue placeholder="Selecione uma função…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {funcoes.map(f => (
-                    <SelectItem key={f.id} value={f.id}>
-                      {f.nome}{f.sigla ? ` (${f.sigla})` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+        <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 20, alignItems: 'start' }}>
+
+          {/* ─── Coluna esquerda: lista de funções ─── */}
+          <div
+            style={{
+              border: '1px solid #e5e7eb',
+              borderRadius: 10,
+              background: '#fff',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Header + busca */}
+            <div
+              style={{
+                padding: '14px 16px',
+                borderBottom: '1px solid #e5e7eb',
+                background: '#f9fafb',
+              }}
+            >
+              <p style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 600, color: '#374151' }}>
+                <Users size={13} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+                Funções Ativas
+              </p>
+              <div style={{ position: 'relative' }}>
+                <Search
+                  size={13}
+                  style={{
+                    position: 'absolute',
+                    left: 10,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#9ca3af',
+                    pointerEvents: 'none',
+                  }}
+                />
+                <Input
+                  style={{ paddingLeft: 30, height: 32, fontSize: 13 }}
+                  placeholder="Filtrar funções…"
+                  value={searchFuncao}
+                  onChange={e => setSearchFuncao(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Lista */}
+            <div style={{ maxHeight: 520, overflowY: 'auto' }}>
+              {loadingFuncoes ? (
+                <div style={{ padding: 16 }}>
+                  <LoadingSkeleton rows={5} />
+                </div>
+              ) : funcoesFiltradas.length === 0 ? (
+                <div style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
+                  Nenhuma função encontrada
+                </div>
+              ) : (
+                funcoesFiltradas.map(f => {
+                  const isSelected = funcaoSelecionada?.id === f.id
+                  const qtdEpis = episPorFuncao[f.id] ?? 0
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setFuncaoSelecionada(f)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        width: '100%',
+                        padding: '12px 16px',
+                        border: 'none',
+                        borderLeft: isSelected ? '3px solid #2563eb' : '3px solid transparent',
+                        background: isSelected ? '#eff6ff' : 'transparent',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 0.15s',
+                        borderBottom: '1px solid #f3f4f6',
+                      }}
+                    >
+                      {/* Sigla */}
+                      <div
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 8,
+                          background: isSelected ? '#2563eb' : '#e5e7eb',
+                          color: isSelected ? '#fff' : '#4b5563',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          flexShrink: 0,
+                          letterSpacing: '0.03em',
+                        }}
+                      >
+                        {f.sigla ? f.sigla.substring(0, 3).toUpperCase() : f.nome.substring(0, 2).toUpperCase()}
+                      </div>
+
+                      {/* Nome + badge */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p
+                          style={{
+                            margin: 0,
+                            fontSize: 13,
+                            fontWeight: isSelected ? 600 : 400,
+                            color: isSelected ? '#1e40af' : '#374151',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {f.nome}
+                        </p>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            marginTop: 2,
+                            fontSize: 11,
+                            padding: '1px 6px',
+                            borderRadius: 999,
+                            background: qtdEpis > 0 ? '#dcfce7' : '#f3f4f6',
+                            color: qtdEpis > 0 ? '#166534' : '#9ca3af',
+                            fontWeight: 500,
+                          }}
+                        >
+                          {qtdEpis} {qtdEpis === 1 ? 'EPI' : 'EPIs'}
+                        </span>
+                      </div>
+
+                      <ChevronRight
+                        size={14}
+                        style={{ color: isSelected ? '#2563eb' : '#d1d5db', flexShrink: 0 }}
+                      />
+                    </button>
+                  )
+                })
+              )}
+            </div>
           </div>
 
-          {/* Conteúdo da aba 2 */}
-          {!funcaoSelecionada ? (
-            <EmptyState
-              icon={<Link size={32} />}
-              title="Nenhuma função selecionada"
-              description="Selecione uma função acima para ver os EPIs vinculados."
-            />
-          ) : loadingVinculos ? (
-            <LoadingSkeleton rows={4} />
-          ) : vinculos.length === 0 ? (
-            <EmptyState
-              icon={<Unlink size={32} />}
-              title="Nenhum EPI vinculado"
-              description="Esta função ainda não possui EPIs vinculados."
-              action={
-                <Button
-                  size="sm"
-                  style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-                  onClick={() => { setVinculoForm(EMPTY_VINCULO_FORM); setVinculoModalOpen(true) }}
+          {/* ─── Coluna direita: EPIs da função ─── */}
+          <div>
+            {!funcaoSelecionada ? (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 60,
+                  border: '2px dashed #e5e7eb',
+                  borderRadius: 10,
+                  color: '#9ca3af',
+                  gap: 12,
+                }}
+              >
+                <Unlink2 size={40} style={{ color: '#d1d5db' }} />
+                <p style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>Nenhuma função selecionada</p>
+                <p style={{ margin: 0, fontSize: 13 }}>← Selecione uma função na lista ao lado</p>
+              </div>
+            ) : (
+              <div>
+                {/* Header da coluna direita */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 16,
+                  }}
                 >
-                  <Link size={14} /> Vincular EPI
-                </Button>
-              }
-            />
-          ) : (
-            <div style={{ borderRadius: 8, border: '1px solid #e5e7eb', overflow: 'hidden', background: '#fff' }}>
-              <Table>
-                <TableHeader>
-                  <TableRow style={{ background: '#f9fafb' }}>
-                    <TableHead>EPI</TableHead>
-                    <TableHead style={{ width: 120 }}>Categoria</TableHead>
-                    <TableHead style={{ width: 100, textAlign: 'center' }}>Obrigatório</TableHead>
-                    <TableHead style={{ width: 100, textAlign: 'center' }}>Quantidade</TableHead>
-                    <TableHead style={{ width: 80, textAlign: 'center' }}>Desvincular</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {vinculos.map(v => (
-                    <TableRow key={v.id} style={{ transition: 'background 0.15s' }}>
-                      {/* EPI */}
-                      <TableCell>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <Shield size={14} style={{ color: '#2563eb', flexShrink: 0 }} />
-                          <span style={{ fontWeight: 500 }}>
-                            {v.epi_catalogo?.nome ?? '—'}
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#111827' }}>
+                      {funcaoSelecionada.nome}
+                      {funcaoSelecionada.sigla && (
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            fontSize: 12,
+                            fontWeight: 500,
+                            padding: '2px 8px',
+                            borderRadius: 999,
+                            background: '#eff6ff',
+                            color: '#2563eb',
+                            verticalAlign: 'middle',
+                          }}
+                        >
+                          {funcaoSelecionada.sigla}
+                        </span>
+                      )}
+                    </h3>
+                    <p style={{ margin: '2px 0 0', fontSize: 13, color: '#6b7280' }}>
+                      {vinculos.length} EPI{vinculos.length !== 1 ? 's' : ''} vinculado{vinculos.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => { setVinculoForm(EMPTY_VINCULO_FORM); setVinculoModalOpen(true) }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <Plus size={14} /> Vincular EPI
+                  </Button>
+                </div>
+
+                {/* Tabela de vínculos */}
+                {loadingVinculos ? (
+                  <LoadingSkeleton rows={4} />
+                ) : vinculos.length === 0 ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      padding: '40px 24px',
+                      border: '1px dashed #e5e7eb',
+                      borderRadius: 8,
+                      color: '#9ca3af',
+                      gap: 8,
+                      background: '#fafafa',
+                    }}
+                  >
+                    <Shield size={28} style={{ color: '#d1d5db' }} />
+                    <p style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>Nenhum EPI vinculado</p>
+                    <p style={{ margin: 0, fontSize: 13 }}>
+                      Clique em "+ Vincular EPI" para adicionar EPIs a esta função.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ borderRadius: 8, border: '1px solid #e5e7eb', overflow: 'hidden', background: '#fff' }}>
+                    <Table>
+                      <TableHeader>
+                        <TableRow style={{ background: '#f9fafb' }}>
+                          <TableHead>Nome EPI</TableHead>
+                          <TableHead style={{ width: 120 }}>Categoria</TableHead>
+                          <TableHead style={{ width: 110, textAlign: 'center' }}>Obrigatório</TableHead>
+                          <TableHead style={{ width: 100, textAlign: 'center' }}>Quantidade</TableHead>
+                          <TableHead style={{ width: 80, textAlign: 'center' }}>Ação</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {vinculos.map(v => (
+                          <TableRow key={v.id} style={{ transition: 'background 0.15s' }}>
+                            {/* Nome EPI */}
+                            <TableCell>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <Shield size={14} style={{ color: '#2563eb', flexShrink: 0 }} />
+                                <span style={{ fontWeight: 500 }}>
+                                  {v.epi_catalogo?.nome ?? '—'}
+                                </span>
+                              </div>
+                            </TableCell>
+
+                            {/* Categoria */}
+                            <TableCell>
+                              <CategoriaBadge categoria={v.epi_catalogo?.categoria} />
+                            </TableCell>
+
+                            {/* Obrigatório */}
+                            <TableCell style={{ textAlign: 'center' }}>
+                              {v.obrigatorio ? (
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    padding: '2px 8px',
+                                    borderRadius: 999,
+                                    background: '#fef2f2',
+                                    color: '#991b1b',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  <AlertCircle size={11} />
+                                  Sim
+                                </span>
+                              ) : (
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    padding: '2px 8px',
+                                    borderRadius: 999,
+                                    background: '#f3f4f6',
+                                    color: '#6b7280',
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                  }}
+                                >
+                                  Não
+                                </span>
+                              )}
+                            </TableCell>
+
+                            {/* Quantidade */}
+                            <TableCell style={{ textAlign: 'center', fontWeight: 600, fontSize: 14 }}>
+                              {v.quantidade}
+                            </TableCell>
+
+                            {/* Desvincular */}
+                            <TableCell style={{ textAlign: 'center' }}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                style={{ width: 32, height: 32, color: '#dc2626' }}
+                                title="Desvincular EPI"
+                                onClick={() => setDeleteVinculoId(v.id)}
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          ABA 3 — SOLICITAÇÕES DE EPI
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {aba === 'solicitacoes' && (
+        <div>
+          {/* ── Painel de filtros ── */}
+          <div
+            style={{
+              background: '#fff',
+              border: '1px solid #e5e7eb',
+              borderRadius: 10,
+              padding: '20px 24px',
+              marginBottom: 24,
+            }}
+          >
+            <p style={{ margin: '0 0 14px', fontSize: 13, fontWeight: 600, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <FileText size={13} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+              Gerar Solicitação
+            </p>
+
+            {/* Modo */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <button
+                type="button"
+                onClick={() => { setModoSolicitacao('colaborador'); setGerou(false); setItensEpi([]) }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '8px 16px',
+                  borderRadius: 8,
+                  border: '1px solid',
+                  borderColor: modoSolicitacao === 'colaborador' ? '#2563eb' : '#e5e7eb',
+                  background: modoSolicitacao === 'colaborador' ? '#eff6ff' : '#f9fafb',
+                  color: modoSolicitacao === 'colaborador' ? '#1d4ed8' : '#6b7280',
+                  fontSize: 13,
+                  fontWeight: modoSolicitacao === 'colaborador' ? 600 : 400,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <Users size={14} />
+                👤 Por Colaborador
+              </button>
+              <button
+                type="button"
+                onClick={() => { setModoSolicitacao('obra'); setGerou(false); setItensEpi([]) }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '8px 16px',
+                  borderRadius: 8,
+                  border: '1px solid',
+                  borderColor: modoSolicitacao === 'obra' ? '#2563eb' : '#e5e7eb',
+                  background: modoSolicitacao === 'obra' ? '#eff6ff' : '#f9fafb',
+                  color: modoSolicitacao === 'obra' ? '#1d4ed8' : '#6b7280',
+                  fontSize: 13,
+                  fontWeight: modoSolicitacao === 'obra' ? 600 : 400,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <Building2 size={14} />
+                🏗️ Por Obra
+              </button>
+            </div>
+
+            {/* Select de colaborador ou obra */}
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 260 }}>
+                {modoSolicitacao === 'colaborador' ? (
+                  <>
+                    <Label style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>
+                      Colaborador
+                    </Label>
+                    {loadingColaboradores ? (
+                      <div style={{ height: 38, background: '#f3f4f6', borderRadius: 6 }} />
+                    ) : (
+                      <Select
+                        value={colaboradorSelecionado || undefined}
+                        onValueChange={v => { setColaboradorSelecionado(v); setGerou(false); setItensEpi([]) }}
+                      >
+                        <SelectTrigger style={{ width: '100%' }}>
+                          <SelectValue placeholder="Selecione um colaborador…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {colaboradores.map(c => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.nome}{c.chapa ? ` — ${c.chapa}` : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Label style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>
+                      Obra
+                    </Label>
+                    {loadingObras ? (
+                      <div style={{ height: 38, background: '#f3f4f6', borderRadius: 6 }} />
+                    ) : (
+                      <Select
+                        value={obraSelecionada || undefined}
+                        onValueChange={v => { setObraSelecionada(v); setGerou(false); setItensEpi([]) }}
+                      >
+                        <SelectTrigger style={{ width: '100%' }}>
+                          <SelectValue placeholder="Selecione uma obra…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {obras.map(o => (
+                            <SelectItem key={o.id} value={o.id}>
+                              {o.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <Button
+                onClick={handleGerarSolicitacao}
+                disabled={loadingItens}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, height: 38 }}
+              >
+                {loadingItens ? (
+                  'Gerando…'
+                ) : (
+                  <>
+                    <FileText size={14} /> Gerar Solicitação
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {/* ── Resultado ── */}
+          {loadingItens ? (
+            <LoadingSkeleton rows={6} />
+          ) : gerou && (
+            <div>
+              {/* Cabeçalho do resultado */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 16,
+                }}
+              >
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#111827' }}>
+                    {modoSolicitacao === 'colaborador'
+                      ? `EPIs de: ${colaboradorNome}`
+                      : `EPIs da Obra: ${obraNome}`}
+                  </h3>
+                  <p style={{ margin: '2px 0 0', fontSize: 13, color: '#6b7280' }}>
+                    {itensEpi.length} registro{itensEpi.length !== 1 ? 's' : ''} encontrado{itensEpi.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+                {itensEpi.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => window.print()}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <Download size={14} /> Imprimir / Exportar
+                  </Button>
+                )}
+              </div>
+
+              {itensEpi.length === 0 ? (
+                <EmptyState
+                  icon={<Package size={32} />}
+                  title="Nenhum item encontrado"
+                  description={
+                    modoSolicitacao === 'colaborador'
+                      ? 'Este colaborador não possui registros de EPIs.'
+                      : 'Nenhum colaborador ativo nesta obra possui registros de EPIs.'
+                  }
+                />
+              ) : (
+                <>
+                  {/* Tabela */}
+                  <div style={{ borderRadius: 8, border: '1px solid #e5e7eb', overflow: 'hidden', background: '#fff', marginBottom: 16 }}>
+                    <Table>
+                      <TableHeader>
+                        <TableRow style={{ background: '#f9fafb' }}>
+                          {modoSolicitacao === 'obra' && (
+                            <TableHead style={{ width: 180 }}>Colaborador</TableHead>
+                          )}
+                          <TableHead>EPI</TableHead>
+                          <TableHead style={{ width: 120 }}>Categoria</TableHead>
+                          <TableHead style={{ width: 90, textAlign: 'center' }}>Tamanho</TableHead>
+                          <TableHead style={{ width: 80, textAlign: 'center' }}>Número</TableHead>
+                          <TableHead style={{ width: 100, textAlign: 'center' }}>Qtd</TableHead>
+                          <TableHead style={{ width: 110, textAlign: 'center' }}>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {itensEpi.map(item => {
+                          const statusColor =
+                            item.status === 'entregue'
+                              ? { bg: '#dcfce7', color: '#166534' }
+                              : item.status === 'pendente'
+                              ? { bg: '#fef9c3', color: '#92400e' }
+                              : { bg: '#f3f4f6', color: '#6b7280' }
+                          return (
+                            <TableRow key={item.id} style={{ transition: 'background 0.15s' }}>
+                              {modoSolicitacao === 'obra' && (
+                                <TableCell>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                    <span style={{ fontWeight: 500, fontSize: 13 }}>
+                                      {item.colaboradores?.nome ?? '—'}
+                                    </span>
+                                    {item.colaboradores?.chapa && (
+                                      <span style={{ fontSize: 11, color: '#9ca3af', fontFamily: 'monospace' }}>
+                                        {item.colaboradores.chapa}
+                                      </span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              )}
+                              <TableCell>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <Shield size={14} style={{ color: '#2563eb', flexShrink: 0 }} />
+                                  <span style={{ fontWeight: 500 }}>
+                                    {item.epi_catalogo?.nome ?? '—'}
+                                  </span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <CategoriaBadge categoria={item.epi_catalogo?.categoria} />
+                              </TableCell>
+                              <TableCell style={{ textAlign: 'center' }}>
+                                {item.tamanho ? (
+                                  <span style={{ fontSize: 13, fontWeight: 500 }}>{item.tamanho}</span>
+                                ) : (
+                                  <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>
+                                )}
+                              </TableCell>
+                              <TableCell style={{ textAlign: 'center' }}>
+                                {item.numero ? (
+                                  <span style={{ fontSize: 13, fontWeight: 500 }}>{item.numero}</span>
+                                ) : (
+                                  <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>
+                                )}
+                              </TableCell>
+                              <TableCell style={{ textAlign: 'center', fontWeight: 600, fontSize: 14 }}>
+                                {item.quantidade ?? 1}
+                              </TableCell>
+                              <TableCell style={{ textAlign: 'center' }}>
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    padding: '2px 8px',
+                                    borderRadius: 999,
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    background: statusColor.bg,
+                                    color: statusColor.color,
+                                  }}
+                                >
+                                  {item.status
+                                    ? item.status.charAt(0).toUpperCase() + item.status.slice(1)
+                                    : 'Sem status'}
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* Totais por categoria */}
+                  <div
+                    style={{
+                      background: '#f9fafb',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 8,
+                      padding: '14px 18px',
+                    }}
+                  >
+                    <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Totais por Categoria
+                    </p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {Object.entries(totaisPorCategoria).map(([cat, total]) => (
+                        <div
+                          key={cat}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '6px 12px',
+                            borderRadius: 8,
+                            background: '#fff',
+                            border: '1px solid #e5e7eb',
+                            fontSize: 13,
+                          }}
+                        >
+                          <Tag size={12} style={{ color: '#2563eb' }} />
+                          <span style={{ fontWeight: 500, color: '#374151' }}>{cat}</span>
+                          <span
+                            style={{
+                              marginLeft: 4,
+                              background: '#2563eb',
+                              color: '#fff',
+                              borderRadius: 999,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              padding: '1px 7px',
+                            }}
+                          >
+                            {total}
                           </span>
                         </div>
-                      </TableCell>
-
-                      {/* Categoria */}
-                      <TableCell>
-                        {v.epi_catalogo?.categoria ? (
-                          <span
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              padding: '2px 8px',
-                              borderRadius: 999,
-                              background: '#eff6ff',
-                              color: '#1d4ed8',
-                              fontSize: 12,
-                              fontWeight: 500,
-                            }}
-                          >
-                            <Tag size={10} />
-                            {v.epi_catalogo.categoria}
-                          </span>
-                        ) : (
-                          <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>
-                        )}
-                      </TableCell>
-
-                      {/* Obrigatório */}
-                      <TableCell style={{ textAlign: 'center' }}>
-                        {v.obrigatorio ? (
-                          <span
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              padding: '2px 8px',
-                              borderRadius: 999,
-                              background: '#fef2f2',
-                              color: '#991b1b',
-                              fontSize: 11,
-                              fontWeight: 600,
-                            }}
-                          >
-                            <AlertCircle size={11} />
-                            Sim
-                          </span>
-                        ) : (
-                          <span
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              padding: '2px 8px',
-                              borderRadius: 999,
-                              background: '#f3f4f6',
-                              color: '#6b7280',
-                              fontSize: 11,
-                              fontWeight: 500,
-                            }}
-                          >
-                            Não
-                          </span>
-                        )}
-                      </TableCell>
-
-                      {/* Quantidade */}
-                      <TableCell style={{ textAlign: 'center', fontWeight: 500, fontSize: 14 }}>
-                        {v.quantidade}
-                      </TableCell>
-
-                      {/* Desvincular */}
-                      <TableCell style={{ textAlign: 'center' }}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          style={{ width: 32, height: 32, color: '#dc2626' }}
-                          onClick={() => setDeleteVinculoId(v.id)}
+                      ))}
+                      {/* Total geral */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 12px',
+                          borderRadius: 8,
+                          background: '#1e40af',
+                          fontSize: 13,
+                          marginLeft: 4,
+                        }}
+                      >
+                        <Package size={12} style={{ color: '#bfdbfe' }} />
+                        <span style={{ fontWeight: 600, color: '#bfdbfe' }}>Total geral</span>
+                        <span
+                          style={{
+                            marginLeft: 4,
+                            background: '#fff',
+                            color: '#1e40af',
+                            borderRadius: 999,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            padding: '1px 7px',
+                          }}
                         >
-                          <Trash2 size={14} />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                          {itensEpi.reduce((acc, i) => acc + (i.quantidade ?? 1), 0)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -913,8 +1616,13 @@ export default function Epis() {
         <DialogContent style={{ maxWidth: 460 }}>
           <DialogHeader>
             <DialogTitle style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Link size={18} style={{ color: '#2563eb' }} />
-              Vincular EPI à Função
+              <Link2 size={18} style={{ color: '#2563eb' }} />
+              Vincular EPI
+              {funcaoSelecionada && (
+                <span style={{ fontSize: 14, fontWeight: 400, color: '#6b7280' }}>
+                  — {funcaoSelecionada.nome}
+                </span>
+              )}
             </DialogTitle>
           </DialogHeader>
 
@@ -949,8 +1657,7 @@ export default function Epis() {
                   <SelectContent>
                     {episDisponiveis.map(e => (
                       <SelectItem key={e.id} value={e.id}>
-                        {e.nome}
-                        {e.categoria ? ` — ${e.categoria}` : ''}
+                        {e.nome}{e.categoria ? ` — ${e.categoria}` : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1064,7 +1771,7 @@ export default function Epis() {
             <AlertDialogTitle>Desvincular EPI?</AlertDialogTitle>
             <AlertDialogDescription>
               O EPI será removido dos requisitos desta função. Esta ação pode ser desfeita
-              vinculando o EPI novamente.
+              vinculando novamente.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

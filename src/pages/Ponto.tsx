@@ -339,8 +339,11 @@ export default function Ponto() {
       newDiasMap[lanc.id]=await fetchDiasLanc(lanc,colab,horMapFull,diasAtestado,diasSuspensao,diasUsados)
     }
     setDiasMap(newDiasMap)
-    // Abre automaticamente o primeiro lançamento
-    setExpandido(list[0]?.id ?? null)
+    // Preserva o lançamento expandido atual ao recarregar (não fecha o que o usuário está vendo)
+    setExpandido(prev => {
+      if(prev&&list.some(l=>l.id===prev))return prev
+      return list[0]?.id ?? null
+    })
     setLoadingDias(false)
   },[fetchLancamentos,fetchProducoes,fetchPlaybooks,fetchHorariosObras,fetchDiasLanc])
 
@@ -559,11 +562,18 @@ export default function Ponto() {
     fetchProducoes(colabSel.id,mesRef)
   }
 
+  const [confirmarExclusaoProd, setConfirmarExclusaoProd] = useState<string|null>(null)
+
   async function deletarProducao(id:string){
-    if(!confirm('Remover este lançamento de produção?'))return
-    await supabase.from('ponto_producao').delete().eq('id',id)
+    setConfirmarExclusaoProd(id)
+  }
+
+  async function confirmarDeleteProd(id:string){
+    const{error}=await supabase.from('ponto_producao').delete().eq('id',id)
+    if(error){toast.error('Erro: '+error.message);return}
     if(colabSel)fetchProducoes(colabSel.id,mesRef)
     toast.success('Produção removida')
+    setConfirmarExclusaoProd(null)
   }
 
   // ── Totais por lançamento ─────────────────────────────────────────────────
@@ -769,17 +779,37 @@ export default function Ponto() {
                   {/* Produções do lançamento */}
                   {prodLanc.length>0&&(
                     <div style={{background:'#fffbeb',borderBottom:'1px solid #fde68a',padding:'6px 14px'}}>
-                      <div style={{fontSize:11,fontWeight:700,color:'#92400e',marginBottom:4}}>🏗️ Produção lançada</div>
-                      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                        {prodLanc.map(p=>(
-                          <div key={p.id} style={{display:'flex',alignItems:'center',gap:6,background:'#fef3c7',borderRadius:6,padding:'3px 8px',fontSize:11}}>
-                            <span style={{fontWeight:600}}>{p.playbook_item?.descricao}</span>
-                            <span style={{color:'#92400e'}}>{p.quantidade} {p.playbook_item?.unidade} = <strong>{formatCurrency(p.valor_total)}</strong></span>
-                            <span style={{color:'#9ca3af',fontSize:10}}>{p.dias.map(d=>d.slice(8)).join(',')}  </span>
-                            <button onClick={()=>p.id&&deletarProducao(p.id)} style={{border:'none',background:'none',cursor:'pointer',color:'#ef4444',padding:0,lineHeight:1}}><X size={11}/></button>
-                          </div>
-                        ))}
-                      </div>
+                      {(() => {
+                        const totalProdLanc = prodLanc.reduce((s,p)=>s+p.valor_total,0)
+                        const diasTrab = totaisLanc(lanc.id).presentes
+                        const mediaDia = diasTrab>0 ? totalProdLanc/diasTrab : 0
+                        return (
+                          <>
+                            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
+                              <div style={{fontSize:11,fontWeight:700,color:'#92400e'}}>🏗️ Produção lançada</div>
+                              <div style={{marginLeft:'auto',display:'flex',gap:12,fontSize:11}}>
+                                <span style={{color:'#b45309'}}>Total: <strong style={{color:'#92400e'}}>{formatCurrency(totalProdLanc)}</strong></span>
+                                {mediaDia>0&&<span style={{color:'#92400e'}}>≈ <strong>{formatCurrency(mediaDia)}</strong>/dia ({diasTrab} dia{diasTrab!==1?'s':''})</span>}
+                              </div>
+                            </div>
+                            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                              {prodLanc.map(p=>{
+                                const nDias = p.dias?.length??0
+                                const mediaDiaItem = nDias>0 ? p.valor_total/nDias : 0
+                                return (
+                                  <div key={p.id} style={{display:'flex',alignItems:'center',gap:6,background:'#fef3c7',borderRadius:6,padding:'3px 8px',fontSize:11}}>
+                                    <span style={{fontWeight:600}}>{p.playbook_item?.descricao}</span>
+                                    <span style={{color:'#92400e'}}>{p.quantidade} {p.playbook_item?.unidade} = <strong>{formatCurrency(p.valor_total)}</strong></span>
+                                    <span style={{color:'#78350f',fontSize:10}}>({nDias} dia{nDias!==1?'s':''}{nDias>0?` · ${formatCurrency(mediaDiaItem)}/dia`:''})</span>
+                                    {(lanc.status==='rascunho'||lanc.status==='recusado')&&
+                                      <button onClick={()=>p.id&&deletarProducao(p.id)} style={{border:'none',background:'none',cursor:'pointer',color:'#ef4444',padding:0,lineHeight:1}}><X size={11}/></button>}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </>
+                        )
+                      })()}
                     </div>
                   )}
 
@@ -873,6 +903,21 @@ export default function Ponto() {
         )}
       </div>
     </div>
+
+    {/* ═══ MODAL CONFIRMAR EXCLUSÃO PRODUÇÃO ═══ */}
+    {confirmarExclusaoProd&&(
+      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:78,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div style={{background:'var(--background)',borderRadius:12,width:360,padding:24,boxShadow:'0 20px 60px rgba(0,0,0,0.3)',textAlign:'center'}}>
+          <div style={{fontSize:32,marginBottom:8}}>🗑️</div>
+          <h3 style={{fontWeight:800,fontSize:14,margin:'0 0 8px'}}>Remover produção?</h3>
+          <p style={{fontSize:12,color:'var(--muted-foreground)',marginBottom:20}}>Este lançamento de produção será removido permanentemente.</p>
+          <div style={{display:'flex',gap:10,justifyContent:'center'}}>
+            <button onClick={()=>setConfirmarExclusaoProd(null)} style={{padding:'6px 16px',borderRadius:6,border:'1px solid var(--border)',background:'var(--background)',cursor:'pointer',fontSize:13}}>Cancelar</button>
+            <button onClick={()=>confirmarDeleteProd(confirmarExclusaoProd)} style={{padding:'6px 16px',borderRadius:6,border:'none',background:'#dc2626',color:'#fff',cursor:'pointer',fontSize:13,fontWeight:700}}>Remover</button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* ═══ MODAL CONFIRMAR EXCLUSÃO ═══ */}
     {modalExcluir&&(

@@ -612,12 +612,12 @@ export default function Ponto() {
                             )}
                           </td>
 
-                          <td style={TD}><TI disabled={!d.presente||d.falta} value={d.hora_entrada}    onChange={v=>updDia(idx,'hora_entrada',v)}/></td>
-                          <td style={TD}><TI disabled={!d.presente||d.falta} value={d.saida_almoco}   onChange={v=>updDia(idx,'saida_almoco',v)}/></td>
-                          <td style={TD}><TI disabled={!d.presente||d.falta} value={d.retorno_almoco} onChange={v=>updDia(idx,'retorno_almoco',v)}/></td>
-                          <td style={TD}><TI disabled={!d.presente||d.falta} value={d.hora_saida}     onChange={v=>updDia(idx,'hora_saida',v)}/></td>
-                          <td style={{ ...TD, background:'rgba(45,90,158,0.04)' }}><TI disabled={!d.presente||d.falta} value={d.he_entrada} onChange={v=>updDia(idx,'he_entrada',v)}/></td>
-                          <td style={{ ...TD, background:'rgba(45,90,158,0.04)' }}><TI disabled={!d.presente||d.falta} value={d.he_saida}   onChange={v=>updDia(idx,'he_saida',v)}/></td>
+                          <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.hora_entrada}    onChange={v=>updDia(idx,'hora_entrada',v)}/></td>
+                          <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.saida_almoco}   onChange={v=>updDia(idx,'saida_almoco',v)}/></td>
+                          <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.retorno_almoco} onChange={v=>updDia(idx,'retorno_almoco',v)}/></td>
+                          <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.hora_saida}     onChange={v=>updDia(idx,'hora_saida',v)}/></td>
+                          <td style={{ ...TD, background:'rgba(45,90,158,0.04)' }}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.he_entrada} onChange={v=>updDia(idx,'he_entrada',v)}/></td>
+                          <td style={{ ...TD, background:'rgba(45,90,158,0.04)' }}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.he_saida}   onChange={v=>updDia(idx,'he_saida',v)}/></td>
 
                           <td style={{ ...TD, textAlign:'center', fontWeight:600, color:calc.normais>0?'#15803d':'#9ca3af', background:'rgba(22,163,74,0.05)' }}>{calc.normais>0?fmtHHMM(calc.normais):'—'}</td>
                           <td style={{ ...TD, textAlign:'center', fontWeight:600, color:calc.extras50>0?'#1d4ed8':'#9ca3af', background:'rgba(45,90,158,0.05)' }} title={calc.extras50>0?'+50%':''}>{calc.extras50>0?fmtHHMM(calc.extras50)+'*':'—'}</td>

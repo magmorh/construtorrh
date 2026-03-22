@@ -436,7 +436,8 @@ export default function Ponto() {
   async function criarLancamento(){
     if(!colabSel||!novoLancObraId||!novoLancInicio||!novoLancFim){toast.error('Preencha todos os campos');return}
     if(novoLancInicio>novoLancFim){toast.error('Data de início deve ser anterior à data de fim');return}
-    if(lancamentos.length>=3){toast.error('Limite de 3 lançamentos por mês atingido');return}
+    const lancsPorObra=lancamentos.filter(l=>l.obra_id===novoLancObraId).length
+    if(lancsPorObra>=2){toast.error('Esta obra já tem 2 lançamentos neste mês');return}
     const diasNovos=new Set(expandRange(novoLancInicio,novoLancFim))
     const conflitos=lancamentos.flatMap(l=>expandRange(l.data_inicio,l.data_fim)).filter(d=>diasNovos.has(d))
     if(conflitos.length>0){toast.error(`${conflitos.length} dia(s) já pertencem a outro lançamento`);return}
@@ -613,7 +614,7 @@ export default function Ponto() {
                 <button onClick={mesSeguinte} style={{border:'1px solid var(--border)',borderRadius:5,background:'none',cursor:'pointer',padding:'3px 7px',display:'flex'}}><ChevronRight size={13}/></button>
               </div>
               <Button variant="outline" size="sm" onClick={()=>window.print()} style={{gap:4,height:30,fontSize:12}}><Printer size={12}/></Button>
-              <Button size="sm" onClick={()=>{setNovoLancObraId('');setNovoLancInicio('');setNovoLancFim('');setModalLanc(true)}} disabled={lancamentos.length>=3} title={lancamentos.length>=3?'Limite de 3 lançamentos/mês':''} style={{gap:4,height:30,fontSize:12}}>
+              <Button size="sm" onClick={()=>{setNovoLancObraId('');setNovoLancInicio('');setNovoLancFim('');setModalLanc(true)}} style={{gap:4,height:30,fontSize:12}}>
                 <Plus size={12}/> Novo Lançamento
               </Button>
             </div>
@@ -843,21 +844,46 @@ export default function Ponto() {
             <button onClick={()=>setModalLanc(false)} style={{border:'none',background:'none',cursor:'pointer'}}><X size={18}/></button>
           </div>
           <div style={{display:'flex',flexDirection:'column',gap:14}}>
-            {/* Info: mês aberto automaticamente */}
-            <div style={{fontSize:12,color:'var(--muted-foreground)',padding:'8px 12px',background:'var(--muted)',borderRadius:6,display:'flex',alignItems:'center',gap:6}}>
-              <Clock size={13}/>
-              Será aberto o mês completo: <strong>{MESES[mes-1]} / {ano}</strong> — todos os dias ficam livres para lançamento
-            </div>
             <div>
               <label style={LBL}>Obra *</label>
               <select value={novoLancObraId} onChange={e=>setNovoLancObraId(e.target.value)} style={SEL}>
                 <option value="">— Selecionar obra —</option>
                 {obras.map(o=>{
-                  const lancObra=lancamentos.filter(l=>l.obra_id===o.id)
-                  return<option key={o.id} value={o.id}>{o.nome}{lancObra.length>0?` (+${lancObra.length} já aberto${lancObra.length!==1?'s':''})`:''}</option>
+                  const n=lancamentos.filter(l=>l.obra_id===o.id).length
+                  const bloq=n>=2
+                  return<option key={o.id} value={o.id} disabled={bloq}>{o.nome}{n>0?` (${n}/2 lançamento${n!==1?'s':''})`:''}{bloq?' — limite atingido':''}</option>
                 })}
               </select>
+              {novoLancObraId&&lancamentos.filter(l=>l.obra_id===novoLancObraId).length>=2&&(
+                <div style={{fontSize:11,color:'#b91c1c',marginTop:4}}>⚠️ Esta obra já tem 2 lançamentos neste mês</div>
+              )}
             </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              <div>
+                <label style={LBL}>Data de Início *</label>
+                <input type="date" value={novoLancInicio} onChange={e=>setNovoLancInicio(e.target.value)}
+                  min={`${mesRef}-01`} max={`${mesRef}-${String(new Date(ano,mes,0).getDate()).padStart(2,'0')}`}
+                  style={{width:'100%',padding:'8px 10px',fontSize:13,border:'1px solid var(--border)',borderRadius:6,background:'var(--background)',color:'var(--foreground)'}}/>
+              </div>
+              <div>
+                <label style={LBL}>Data de Fim *</label>
+                <input type="date" value={novoLancFim} onChange={e=>setNovoLancFim(e.target.value)}
+                  min={novoLancInicio||`${mesRef}-01`} max={`${mesRef}-${String(new Date(ano,mes,0).getDate()).padStart(2,'0')}`}
+                  style={{width:'100%',padding:'8px 10px',fontSize:13,border:'1px solid var(--border)',borderRadius:6,background:'var(--background)',color:'var(--foreground)'}}/>
+              </div>
+            </div>
+            {novoLancInicio&&novoLancFim&&(()=>{
+              const dias=expandRange(novoLancInicio,novoLancFim)
+              const conf=dias.filter(d=>lancamentos.some(l=>expandRange(l.data_inicio,l.data_fim).includes(d)))
+              return(
+                <div style={{fontSize:12,padding:'6px 10px',background:conf.length>0?'#fee2e2':'var(--muted)',borderRadius:6,border:conf.length>0?'1px solid #fecaca':undefined}}>
+                  {conf.length>0
+                    ?<span style={{color:'#b91c1c'}}>⚠️ {conf.length} dia(s) em conflito com outro lançamento</span>
+                    :<span><strong>{dias.length} dias</strong> ({dias.filter(d=>!isFDS(d)).length} úteis + {dias.filter(d=>isFDS(d)).length} fins de semana)</span>
+                  }
+                </div>
+              )
+            })()}
           </div>
           <div style={{display:'flex',gap:10,marginTop:20,justifyContent:'flex-end'}}>
             <Button variant="outline" onClick={()=>setModalLanc(false)}>Cancelar</Button>

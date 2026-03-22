@@ -812,40 +812,42 @@ export default function Colaboradores() {
       })
     }
 
-    const { error } = editId
-      ? await supabase.from('colaboradores').update(payloadFull).eq('id', editId)
-      : await supabase.from('colaboradores').insert(payloadFull)
+    // ── 1. Salvar colaborador ────────────────────────────────────────────────
+    let colaboradorId: string | null = editId
 
-    setSaving(false)
-    if (error) { toast.error(error.message); return }
-
-    // ── Salvar EPIs do colaborador ──────────────────────────────────────────
-    // Obtém o ID (editId já existente ou o recém-criado)
-    let colaboradorId = editId
-    if (!colaboradorId) {
-      const { data: novo } = await supabase
-        .from('colaboradores').select('id').eq('chapa', payloadFull.chapa).single()
-      colaboradorId = novo?.id ?? null
+    if (editId) {
+      const { error } = await supabase.from('colaboradores').update(payloadFull).eq('id', editId)
+      if (error) { toast.error(error.message); setSaving(false); return }
+    } else {
+      const { data: inserted, error } = await supabase
+        .from('colaboradores').insert(payloadFull).select('id').single()
+      if (error || !inserted) { toast.error(error?.message ?? 'Erro ao criar colaborador'); setSaving(false); return }
+      colaboradorId = inserted.id
     }
 
+    // ── 2. Salvar EPIs ───────────────────────────────────────────────────────
     if (colaboradorId && epiList.length > 0) {
-      // 1. Apaga TODOS os EPIs atuais do colaborador
-      await supabase
+      // Apaga todos os EPIs existentes do colaborador
+      const { error: delErr } = await supabase
         .from('colaborador_epi')
         .delete()
         .eq('colaborador_id', colaboradorId)
 
-      // 2. Reinsere a lista completa (já atualizada pelo botão "Atualizar EPIs" se clicado)
+      if (delErr) {
+        console.error('Erro ao limpar EPIs:', delErr.message)
+      }
+
+      // Insere a lista atualizada
       const rows = epiList
-        .filter(item => !item._foraFuncao) // ignora marcados como fora da função
+        .filter(item => !item._foraFuncao)
         .map(item => ({
           colaborador_id: colaboradorId as string,
           epi_id: item.epi_id,
           funcao_id: form.funcao_id || null,
           tamanho: item.tamanho || null,
           numero: item.numero || null,
-          obrigatorio: item.obrigatorio,
-          quantidade: item.quantidade,
+          obrigatorio: item.obrigatorio ?? true,
+          quantidade: item.quantidade ?? 1,
           quantidade_entregue: 0,
           status: 'pendente',
           documento_url: item.documento_url || null,
@@ -853,11 +855,17 @@ export default function Colaboradores() {
         }))
 
       if (rows.length > 0) {
-        const { error: epiErr } = await supabase.from('colaborador_epi').insert(rows)
-        if (epiErr) toast.error('EPIs salvos com erro: ' + epiErr.message)
+        const { error: insErr } = await supabase.from('colaborador_epi').insert(rows)
+        if (insErr) {
+          toast.error('Colaborador salvo, mas erro nos EPIs: ' + insErr.message)
+          console.error('Erro insert EPIs:', insErr)
+          setSaving(false)
+          return
+        }
       }
     }
 
+    setSaving(false)
     toast.success(editId ? 'Colaborador atualizado!' : 'Colaborador criado!')
     setModalOpen(false)
     fetchData()

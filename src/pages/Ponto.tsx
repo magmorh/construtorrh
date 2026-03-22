@@ -301,15 +301,24 @@ export default function Ponto() {
       expandRange(da,f.toISOString().slice(0,10)).forEach(x=>diasSuspensao.add(x))
     })
 
-    // Carregar valor/hora por função+contrato
+    // Carregar valor/hora: 1º funcao_valores, 2º fallback nas colunas da funcao
     if(colab.funcao_id){
-      // 1ª tentativa: funcao_id direto + tipo_contrato exato
-      const{data:fvList}=await supabase.from('funcao_valores')
-        .select('valor_hora,tipo_contrato').eq('funcao_id',colab.funcao_id)
-      const fvMatch = (fvList??[]).find((r:any)=>r.tipo_contrato===colab.tipo_contrato)
-      if(fvMatch){ setValorHora(fvMatch.valor_hora) }
-      else if((fvList??[]).length>0){ setValorHora((fvList??[])[0].valor_hora) }
-      else{ setValorHora(0) }
+      const[{data:fvList},{data:funcaoRow}]=await Promise.all([
+        supabase.from('funcao_valores').select('valor_hora,tipo_contrato').eq('funcao_id',colab.funcao_id),
+        supabase.from('funcoes').select('valor_hora_clt,valor_hora_autonomo').eq('id',colab.funcao_id).single(),
+      ])
+      const fvMatch=(fvList??[]).find((r:any)=>r.tipo_contrato===colab.tipo_contrato)
+      if(fvMatch){
+        setValorHora(fvMatch.valor_hora)
+      } else if((fvList??[]).length>0){
+        setValorHora((fvList??[])[0].valor_hora)
+      } else if(funcaoRow){
+        // Fallback: usar coluna direta da funcao
+        const vh=colab.tipo_contrato==='clt'?funcaoRow.valor_hora_clt:funcaoRow.valor_hora_autonomo
+        setValorHora(vh??funcaoRow.valor_hora_clt??funcaoRow.valor_hora_autonomo??0)
+      } else {
+        setValorHora(0)
+      }
     } else { setValorHora(0) }
 
     const [list,,pbMap,horMap]=await Promise.all([
@@ -689,7 +698,11 @@ export default function Ponto() {
                 <button onClick={mesSeguinte} style={{border:'1px solid var(--border)',borderRadius:5,background:'none',cursor:'pointer',padding:'3px 7px',display:'flex'}}><ChevronRight size={13}/></button>
               </div>
               <Button variant="outline" size="sm" onClick={()=>window.print()} style={{gap:4,height:30,fontSize:12}}><Printer size={12}/></Button>
-              <Button size="sm" onClick={()=>{setNovoLancObraId('');setNovoLancInicio('');setNovoLancFim('');setModalLanc(true)}} style={{gap:4,height:30,fontSize:12}}>
+              <Button size="sm"
+                disabled={!colabSel||lancamentos.some(l=>l.status==='rascunho'||l.status==='recusado')}
+                title={lancamentos.some(l=>l.status==='rascunho'||l.status==='recusado')?'Aprove os lançamentos em aberto antes de criar um novo':undefined}
+                onClick={()=>{setNovoLancObraId('');setNovoLancInicio('');setNovoLancFim('');setModalLanc(true)}}
+                style={{gap:4,height:30,fontSize:12}}>
                 <Plus size={12}/> Novo Lançamento
               </Button>
             </div>
@@ -769,7 +782,7 @@ export default function Ponto() {
                     })()}
                     {/* Ações */}
                     <div style={{display:'flex',gap:4}} onClick={e=>e.stopPropagation()}>
-                      <Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:3,borderColor:'#f59e0b',color:pb.length===0?'#d97706':'#b45309',opacity:pb.length===0?0.6:1}} title={pb.length===0?'Nenhum item cadastrado no Playbook desta obra':'Lançar produção'} onClick={()=>abrirModalProd(lanc.id)}><Factory size={11}/> Produção{pb.length===0&&<span style={{fontSize:9,marginLeft:2}}>⚠</span>}</Button>
+                      <Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:3,borderColor:'#f59e0b',color:pb.length===0?'#d97706':'#b45309',opacity:pb.length===0?0.6:1}} onClick={()=>{ if(pb.length===0){toast.error('Cadastre os itens de produção no Playbook desta obra antes de lançar'); return;} abrirModalProd(lanc.id)}}><Factory size={11}/> Produção{pb.length===0&&<span style={{fontSize:9,marginLeft:2}}>⚠</span>}</Button>
                       {lanc.status==='rascunho'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#16a34a',color:'#15803d',background:'#f0fdf4'}} disabled={saving} onClick={async()=>{await salvarLanc(lanc.id);await mudarStatus(lanc.id,'aguardando_aprovacao')}}>✔ Salvar e Aprovar</Button>}
                       {lanc.status==='aguardando_aprovacao'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#16a34a',color:'#15803d'}} onClick={()=>mudarStatus(lanc.id,'aprovado')}>✅ Confirmar</Button>}
                       {lanc.status==='aguardando_aprovacao'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#dc2626',color:'#dc2626'}} onClick={()=>setModalRecusa({lancId:lanc.id,motivo:''})}>❌ Recusar</Button>}

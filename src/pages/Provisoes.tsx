@@ -354,7 +354,7 @@ export default function Provisoes() {
                   <SelectValue placeholder="Selecionar obra" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhuma</SelectItem>
+                  <SelectItem value="nenhuma">Nenhuma</SelectItem>
                   {obras.map((o) => (
                     <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>
                   ))}

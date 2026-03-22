@@ -397,10 +397,10 @@ export default function Playbooks() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Categoria</Label>
-                <Select value={form.categoria ?? ''} onValueChange={v => setF('categoria', v || null)}>
+                <Select value={form.categoria ?? 'sem_categoria'} onValueChange={v => setF('categoria', v==='sem_categoria'?null:v)}>
                   <SelectTrigger className="mt-1"><SelectValue placeholder="Selecionar…" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">— Sem categoria —</SelectItem>
+                    <SelectItem value="sem_categoria">— Sem categoria —</SelectItem>
                     {CATEGORIAS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                   </SelectContent>
                 </Select>

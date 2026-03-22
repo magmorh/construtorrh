@@ -332,7 +332,9 @@ export default function Ponto() {
       const diasUsados=new Set<string>()
       for(const [outroId,outroDias] of Object.entries(newDiasMap)){
         if(outroId===lanc.id)continue
-        outroDias.forEach(d=>{ if(!d.bloqueado||d.evento==='atestado'||d.evento==='suspensao')diasUsados.add(d.data) })
+        // Bloqueia apenas dias que JÁ TÊM registro salvo (d.id) ou afastamento/suspensão
+        // Dias no range sem presença ficam livres para outras obras
+        outroDias.forEach(d=>{ if(d.id||(d.evento==='atestado'||d.evento==='suspensao'))diasUsados.add(d.data) })
       }
       newDiasMap[lanc.id]=await fetchDiasLanc(lanc,colab,horMapFull,diasAtestado,diasSuspensao,diasUsados)
     }
@@ -453,6 +455,8 @@ export default function Ponto() {
     setSaving(false)
     if(errs.length){toast.error('Erro: '+errs[0]);return}
     toast.success('Ponto salvo!')
+    // Recarregar para obter IDs dos registros inseridos
+    if(colabSel)fetchTudo(colabSel,ano,mes)
   }
 
   // ── Criar novo lançamento ─────────────────────────────────────────────────
@@ -790,6 +794,7 @@ export default function Ponto() {
                             <th style={TH}>Entrada</th><th style={TH}>Saída Alm.</th><th style={TH}>Ret. Alm.</th><th style={TH}>Saída</th>
                             <th style={{...TH,background:'#2d5a9e'}}>H.E.In</th><th style={{...TH,background:'#2d5a9e'}}>H.E.Out</th>
                             <th style={{...TH,background:'#1a4a1a'}}>Norm</th><th style={{...TH,background:'#2d5a1a'}}>Ext</th><th style={{...TH,background:'#0f3320'}}>Total</th>
+                            <th style={{...TH,background:'#4a1a7a',width:80}}>Valor</th>
                             <th style={{...TH,width:80}}>Obs.</th>
                           </tr>
                         </thead>
@@ -821,6 +826,15 @@ export default function Ponto() {
                                 <td style={{...TD,textAlign:'center',fontWeight:600,color:calc.normais>0?'#15803d':'#9ca3af',background:'rgba(22,163,74,0.05)'}}>{calc.normais>0?fmtHHMM(calc.normais):'—'}</td>
                                 <td style={{...TD,textAlign:'center',fontWeight:600,color:calc.extras50>0?'#1d4ed8':'#9ca3af',background:'rgba(45,90,158,0.05)'}}>{calc.extras50>0?fmtHHMM(calc.extras50)+'*':'—'}</td>
                                 <td style={{...TD,textAlign:'center',fontWeight:700,background:'rgba(0,0,0,0.03)'}}>{calc.total>0?fmtHHMM(calc.total):'—'}</td>
+                                <td style={{...TD,textAlign:'right',fontWeight:700,background:'rgba(74,26,122,0.05)',color:'#6d28d9',fontSize:11}}>
+                                  {calc.total>0&&valorHora>0
+                                    ? <span title={`R$ ${valorHora.toFixed(4)}/h`}>{formatCurrency(calc.normais*valorHora + calc.extras50*valorHora*1.5)}</span>
+                                    : d.evento==='atestado'||d.falta?<span style={{color:'#9ca3af'}}>—</span>
+                                    : d.evento==='outro_lancamento'?null
+                                    : calc.total===0&&valorHora===0?<span style={{color:'#d1d5db',fontSize:9}}>s/val</span>
+                                    : '—'
+                                  }
+                                </td>
                                 <td style={{...TD,fontSize:10}}>
                                   {d.evento==='atestado'&&<span style={{color:'#1d4ed8',fontWeight:600}}>Afastamento</span>}
                                   {d.evento==='suspensao'&&<span style={{color:'#b91c1c',fontWeight:600}}>Suspensão</span>}
@@ -840,6 +854,11 @@ export default function Ponto() {
                             <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(22,163,74,0.3)'}}>{fmtHHMM(tot.normais)}</td>
                             <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(45,90,158,0.4)'}}>{fmtHHMM(tot.extras50)}</td>
                             <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(0,0,0,0.2)'}}>{fmtHHMM(tot.total)}</td>
+                            <td style={{padding:'7px 8px',textAlign:'right',background:'rgba(74,26,122,0.4)',color:'#e9d5ff',fontWeight:700,fontSize:11}}>
+                              {valorHora>0
+                                ? formatCurrency(fmtDecimal(tot.normais)*valorHora + fmtDecimal(tot.extras50)*valorHora*1.5)
+                                : '—'}
+                            </td>
                             <td/>
                           </tr>
                         </tfoot>

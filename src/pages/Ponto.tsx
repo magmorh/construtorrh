@@ -1,6 +1,9 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
-import { Search, ChevronLeft, ChevronRight, CheckCircle2, Printer, Factory, X, Plus, Trash2 } from 'lucide-react'
+import {
+  Search, ChevronLeft, ChevronRight, CheckCircle2, Printer,
+  Factory, X, Plus, Trash2, ChevronDown, Building2, Clock, AlertCircle
+} from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -10,1085 +13,864 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface ColabSimples {
-  id: string
-  nome: string
-  chapa: string | null
-  salario: number | null
-  obra_id: string | null
-  funcao_nome: string
+  id: string; nome: string; chapa: string | null
+  salario: number | null; obra_id: string | null
+  tipo_contrato: string; funcao_nome: string
 }
-
-interface ObraSimples {
-  id: string
-  nome: string
+interface ObraSimples { id: string; nome: string }
+interface HorarioDia {
+  dia_semana: string; hora_entrada: string; saida_almoco: string
+  retorno_almoco: string; hora_saida: string; ativo: boolean
 }
-
-// Playbook
 interface PlaybookItem {
-  id: string
-  descricao: string
-  unidade: string
-  preco_unitario: number
-  categoria: string | null
+  id: string; descricao: string; unidade: string
+  preco_unitario: number; categoria: string | null
 }
-
-// Lançamento de produção (salvo no banco)
+// Um lançamento = obra + período (max 2 por obra/mês)
+interface Lancamento {
+  id: string; obra_id: string; obra_nome: string
+  mes_referencia: string; data_inicio: string; data_fim: string
+  numero_lancamento: 1 | 2
+}
+type TipoEvento = 'atestado' | 'suspensao' | null
+interface DiaRegistro {
+  id?: string; lancamento_id: string; colaborador_id: string
+  data: string; obra_id: string
+  presente: boolean; falta: boolean
+  hora_entrada: string; saida_almoco: string; retorno_almoco: string; hora_saida: string
+  he_entrada: string; he_saida: string; justificativa: string
+  evento: TipoEvento; bloqueado: boolean
+}
 interface LancProducao {
-  id?: string
-  colaborador_id: string
-  mes_referencia: string   // YYYY-MM
-  playbook_item_id: string
-  dias: string[]           // datas YYYY-MM-DD
-  quantidade: number
-  valor_total: number
-  observacoes: string | null
+  id?: string; colaborador_id: string; lancamento_id: string
+  obra_id: string; mes_referencia: string
+  playbook_item_id: string; dias: string[]
+  quantidade: number; valor_total: number; observacoes: string | null
   playbook_item?: PlaybookItem
 }
 
-// Item de produção no modal (antes de salvar)
-interface ItemModalProd {
-  playbook_item_id: string
-  quantidade: number
-}
-
-// Horário padrão por dia da semana (da tabela obra_horarios)
-interface HorarioDia {
-  dia_semana: string   // 'seg','ter','qua','qui','sex','sab','dom'
-  hora_entrada: string
-  saida_almoco: string
-  retorno_almoco: string
-  hora_saida: string
-  ativo: boolean
-}
-
-// Evento que afeta um dia (atestado ou suspensão)
-type TipoEvento = 'atestado' | 'suspensao' | null
-
-interface DiaRegistro {
-  id?: string
-  colaborador_id: string
-  data: string
-  presente: boolean
-  falta: boolean
-  hora_entrada:    string
-  saida_almoco:    string
-  retorno_almoco:  string
-  hora_saida:      string
-  he_entrada:      string
-  he_saida:        string
-  justificativa:   string
-  // controle de bloqueio
-  evento: TipoEvento        // null = normal, 'atestado' = afastamento, 'suspensao' = suspensão
-  bloqueado: boolean        // não pode alterar presença
-}
-
 // ─── Utilitários ──────────────────────────────────────────────────────────────
+const DIAS_KEY: Record<number,string> = {1:'seg',2:'ter',3:'qua',4:'qui',5:'sex',6:'sab',0:'dom'}
+const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
-const DIAS_KEY: Record<number, string> = { 1:'seg', 2:'ter', 3:'qua', 4:'qui', 5:'sex', 6:'sab', 0:'dom' }
-
-function toMin(t: string): number | null {
-  if (!t || !t.includes(':')) return null
-  const [h, m] = t.split(':').map(Number)
-  if (isNaN(h) || isNaN(m)) return null
-  return h * 60 + m
-}
-
-function diffMin(a: string, b: string): number {
-  const ma = toMin(a), mb = toMin(b)
-  if (ma === null || mb === null) return 0
-  let d = mb - ma
-  if (d < 0) d += 1440
-  return d
-}
-
-function fmtHHMM(min: number): string {
-  if (min <= 0) return '00:00'
-  return `${String(Math.floor(min/60)).padStart(2,'0')}:${String(min%60).padStart(2,'0')}`
-}
-
-function fmtDecimal(min: number): number {
-  return parseFloat((min / 60).toFixed(2))
-}
-
-// calcDia retorna:
-// normais   = horas seg-sex (regular, sem HE) — multiplicador 1.0
-// extras50  = HE (qualquer dia) + horas do sábado — multiplicador 1.5
-function calcDia(d: DiaRegistro): { normais: number; extras50: number; extras: number; total: number } {
-  if (!d.presente || d.falta) return { normais: 0, extras50: 0, extras: 0, total: 0 }
-
-  const isSab = new Date(d.data + 'T12:00:00').getDay() === 6
-
-  let horasDia = 0
-  if (d.hora_entrada && d.hora_saida) {
-    let bruto = diffMin(d.hora_entrada, d.hora_saida)
-    if (d.saida_almoco && d.retorno_almoco) bruto -= diffMin(d.saida_almoco, d.retorno_almoco)
-    else if (d.saida_almoco) bruto -= 60
-    horasDia = Math.max(0, bruto)
-  }
-
-  // HE (entrada/saída extra)
-  let he = 0
-  if (d.he_entrada && d.he_saida) he = Math.max(0, diffMin(d.he_entrada, d.he_saida))
-
-  // Sábado: horas do dia vão para extras50 (adicional 50%)
-  // Seg-Sex: horas normais = horasDia, HE = extras50
-  const normais  = isSab ? 0       : horasDia
-  const extras50 = isSab ? horasDia + he : he
-
-  return { normais, extras50, extras: extras50, total: normais + extras50 }
-}
-
-function diasDoMes(ano: number, mes: number): string[] {
-  const dias: string[] = []
-  const total = new Date(ano, mes, 0).getDate()
-  for (let d = 1; d <= total; d++)
-    dias.push(`${ano}-${String(mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`)
+function normTime(t:string|null|undefined):string { return t ? t.slice(0,5) : '' }
+function toMin(t:string):number|null { if(!t||!t.includes(':'))return null; const[h,m]=t.split(':').map(Number); return isNaN(h)||isNaN(m)?null:h*60+m }
+function diffMin(a:string,b:string):number { const ma=toMin(a),mb=toMin(b); if(ma===null||mb===null)return 0; let d=mb-ma; if(d<0)d+=1440; return d }
+function fmtHHMM(min:number):string { if(min<=0)return'00:00'; return`${String(Math.floor(min/60)).padStart(2,'0')}:${String(min%60).padStart(2,'0')}` }
+function fmtDecimal(min:number):number { return parseFloat((min/60).toFixed(2)) }
+function isFDS(data:string):boolean { const d=new Date(data+'T12:00:00').getDay(); return d===0||d===6 }
+function diaSemana(data:string):string { return['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date(data+'T12:00:00').getDay()] }
+function expandRange(inicio:string,fim:string):string[] {
+  const dias:string[]=[];const d=new Date(inicio+'T12:00:00');const end=new Date(fim+'T12:00:00')
+  while(d<=end){dias.push(d.toISOString().slice(0,10));d.setDate(d.getDate()+1)}
   return dias
 }
 
-function diaSemana(data: string): string {
-  return ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date(data+'T12:00:00').getDay()]
-}
-
-function isFDS(data: string): boolean {
-  const d = new Date(data+'T12:00:00').getDay()
-  return d === 0 || d === 6
-}
-
-// Normaliza campo TIME do Supabase (HH:MM:SS ou HH:MM) → HH:MM
-function normTime(t: string | null | undefined): string {
-  if (!t) return ''
-  return t.slice(0, 5) // pega apenas HH:MM
-}
-
-function emptyDia(colaborador_id: string, data: string): DiaRegistro {
-  return {
-    colaborador_id, data,
-    presente: false, falta: false,
-    hora_entrada: '', saida_almoco: '', retorno_almoco: '', hora_saida: '',
-    he_entrada: '', he_saida: '', justificativa: '',
-    evento: null, bloqueado: false,
+function calcDia(d:DiaRegistro):{normais:number;extras50:number;total:number} {
+  if(!d.presente||d.falta)return{normais:0,extras50:0,total:0}
+  const isSab=new Date(d.data+'T12:00:00').getDay()===6
+  let horasDia=0
+  if(d.hora_entrada&&d.hora_saida){
+    let bruto=diffMin(d.hora_entrada,d.hora_saida)
+    if(d.saida_almoco&&d.retorno_almoco)bruto-=diffMin(d.saida_almoco,d.retorno_almoco)
+    else if(d.saida_almoco)bruto-=60
+    horasDia=Math.max(0,bruto)
   }
+  let he=0; if(d.he_entrada&&d.he_saida)he=Math.max(0,diffMin(d.he_entrada,d.he_saida))
+  const normais=isSab?0:horasDia; const extras50=isSab?horasDia+he:he
+  return{normais,extras50,total:normais+extras50}
 }
 
-// Expande range de datas em um Set de strings 'YYYY-MM-DD'
-function expandRange(inicio: string, fim: string): Set<string> {
-  const set = new Set<string>()
-  const d = new Date(inicio + 'T12:00:00')
-  const end = new Date(fim + 'T12:00:00')
-  while (d <= end) {
-    set.add(d.toISOString().slice(0,10))
-    d.setDate(d.getDate() + 1)
-  }
-  return set
+function emptyDia(colabId:string,lancId:string,obraId:string,data:string):DiaRegistro {
+  return{lancamento_id:lancId,colaborador_id:colabId,data,obra_id:obraId,
+    presente:false,falta:false,hora_entrada:'',saida_almoco:'',retorno_almoco:'',hora_saida:'',
+    he_entrada:'',he_saida:'',justificativa:'',evento:null,bloqueado:false}
 }
-
-const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
-               'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
 // ─── Componente ───────────────────────────────────────────────────────────────
-
 export default function Ponto() {
   const hoje = new Date()
   const [ano, setAno]   = useState(hoje.getFullYear())
-  const [mes, setMes]   = useState(hoje.getMonth() + 1)
-  const [busca, setBusca]       = useState('')
-  const [obraFiltro, setObraFiltro] = useState<string>('todas')
+  const [mes, setMes]   = useState(hoje.getMonth()+1)
+  const [busca, setBusca] = useState('')
+  const [obraFiltro, setObraFiltro] = useState('todas')
 
   const [colaboradores, setColaboradores] = useState<ColabSimples[]>([])
-  const [obras,          setObras]         = useState<ObraSimples[]>([])
-  const [loadingColabs,  setLoadingColabs] = useState(true)
+  const [obras, setObras] = useState<ObraSimples[]>([])
+  const [loadingColabs, setLoadingColabs] = useState(true)
+  const [colabSel, setColabSel] = useState<ColabSimples|null>(null)
 
-  const [colabSel, setColabSel] = useState<ColabSimples | null>(null)
-  // horários da obra do colaborador selecionado: mapa dia_semana → HorarioDia
-  const [horarioObra, setHorarioObra] = useState<Record<string, HorarioDia>>({})
+  // Lançamentos do mês
+  const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
+  // Dias por lançamento: { lancId → DiaRegistro[] }
+  const [diasMap, setDiasMap] = useState<Record<string,DiaRegistro[]>>({})
+  // Lançamentos expandidos
+  const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
+  // Horários por obra: { obraId → { diaSemana → HorarioDia } }
+  const [horariosObra, setHorariosObra] = useState<Record<string,Record<string,HorarioDia>>>({})
 
-  const [dias, setDias]     = useState<DiaRegistro[]>([])
-  const [loadingDias, setLoadingDias] = useState(false)
+  // Produção
+  const [producoes, setProducoes]     = useState<LancProducao[]>([])
+  const [playbookMap, setPlaybookMap] = useState<Record<string,PlaybookItem[]>>({}) // obraId → itens
+
+  // Modal novo lançamento
+  const [modalLanc, setModalLanc] = useState(false)
+  const [novoLancObraId, setNovoLancObraId] = useState('')
+  const [novoLancInicio, setNovoLancInicio] = useState('')
+  const [novoLancFim, setNovoLancFim]       = useState('')
+  const [savingLanc, setSavingLanc] = useState(false)
+
+  // Modal produção
+  const [modalProd, setModalProd]   = useState(false)
+  const [prodLancId, setProdLancId] = useState('')
+  const [diasSelProd, setDiasSelProd] = useState<Set<string>>(new Set())
+  const [itensProd, setItensProd]   = useState<{playbook_item_id:string;quantidade:number}[]>([])
+  const [savingProd, setSavingProd] = useState(false)
+
   const [saving, setSaving] = useState(false)
+  const [loadingDias, setLoadingDias] = useState(false)
 
-  // ── Produção ──────────────────────────────────────────────────────────────
-  const [playbookItens, setPlaybookItens] = useState<PlaybookItem[]>([])
-  const [lancamentos,   setLancamentos]   = useState<LancProducao[]>([])
-  const [modalProd,     setModalProd]     = useState(false)
-  // seleção de dias no modal
-  const [diasSel,       setDiasSel]       = useState<Set<string>>(new Set())
-  // itens de produção no modal
-  const [itensProd,     setItensProd]     = useState<ItemModalProd[]>([{ playbook_item_id:'', quantidade:0 }])
-  const [savingProd,    setSavingProd]    = useState(false)
-  const [editLanc,      setEditLanc]      = useState<LancProducao | null>(null)
+  const mesRef = `${ano}-${String(mes).padStart(2,'0')}`
 
-  // ── Carregar colaboradores e obras ────────────────────────────────────────
-  useEffect(() => {
-    const load = async () => {
-      const [{ data: colsRaw, error: colErr }, { data: obsRaw }] = await Promise.all([
-        supabase.from('colaboradores')
-          .select('id, nome, chapa, salario, obra_id, funcoes(nome)')
-          .order('nome'),
-        supabase.from('obras').select('id, nome').order('nome'),
+  // ── Carregar colaboradores + obras ──────────────────────────────────────
+  useEffect(()=>{
+    const load=async()=>{
+      const [{data:colsRaw},{data:obsRaw}]=await Promise.all([
+        supabase.from('colaboradores').select('id,nome,chapa,salario,obra_id,tipo_contrato,funcoes(nome)').order('nome'),
+        supabase.from('obras').select('id,nome').order('nome'),
       ])
-
-      if (colErr) { toast.error('Erro: ' + colErr.message); setLoadingColabs(false); return }
-
-      setColaboradores((colsRaw ?? []).map((c: any) => ({
-        id: c.id, nome: c.nome, chapa: c.chapa ?? null,
-        salario: c.salario ?? null, obra_id: c.obra_id ?? null,
-        funcao_nome: c.funcoes?.nome ?? 'Sem função',
+      setColaboradores((colsRaw??[]).map((c:any)=>({
+        id:c.id,nome:c.nome,chapa:c.chapa??null,salario:c.salario??null,
+        obra_id:c.obra_id??null,tipo_contrato:c.tipo_contrato??'clt',
+        funcao_nome:c.funcoes?.nome??'Sem função',
       })))
-      setObras((obsRaw ?? []) as ObraSimples[])
+      setObras((obsRaw??[]) as ObraSimples[])
       setLoadingColabs(false)
     }
     load()
-  }, [])
+  },[])
 
-  // ── Filtro ────────────────────────────────────────────────────────────────
-  const colabsFiltrados = useMemo(() => {
-    let lista = colaboradores
-    if (obraFiltro !== 'todas') lista = lista.filter(c => c.obra_id === obraFiltro)
-    const q = busca.toLowerCase()
-    if (q) lista = lista.filter(c =>
-      c.nome.toLowerCase().includes(q) ||
-      (c.chapa ?? '').toLowerCase().includes(q) ||
-      c.funcao_nome.toLowerCase().includes(q)
-    )
-    return lista
-  }, [colaboradores, busca, obraFiltro])
+  // ── Fetch lançamentos do mês ─────────────────────────────────────────────
+  const fetchLancamentos = useCallback(async(colabId:string,mr:string)=>{
+    const{data}=await supabase.from('ponto_lancamentos')
+      .select('*,obras(nome)')
+      .eq('colaborador_id',colabId).eq('mes_referencia',mr)
+      .order('data_inicio')
+    const list:Lancamento[]=(data??[]).map((l:any)=>({
+      id:l.id,obra_id:l.obra_id,obra_nome:l.obras?.nome??'Obra',
+      mes_referencia:l.mes_referencia,data_inicio:l.data_inicio,data_fim:l.data_fim,
+      numero_lancamento:l.numero_lancamento,
+    }))
+    setLancamentos(list)
+    return list
+  },[])
 
-  // ── Carregar registros do mês + atestados + advertências ──────────────────
-  const fetchDias = useCallback(async (colab: ColabSimples, a: number, m: number, horarioObraMap: Record<string, HorarioDia> = {}) => {
+  // ── Fetch horários de múltiplas obras ────────────────────────────────────
+  const fetchHorariosObras = useCallback(async(obraIds:string[])=>{
+    if(!obraIds.length)return{}
+    const{data}=await supabase.from('obra_horarios').select('*').in('obra_id',obraIds)
+    const mapa:Record<string,Record<string,HorarioDia>>={}
+    ;(data??[]).forEach((h:any)=>{
+      if(!mapa[h.obra_id])mapa[h.obra_id]={}
+      mapa[h.obra_id][h.dia_semana]={...h,hora_entrada:normTime(h.hora_entrada),saida_almoco:normTime(h.saida_almoco),retorno_almoco:normTime(h.retorno_almoco),hora_saida:normTime(h.hora_saida)}
+    })
+    setHorariosObra(mapa)
+    return mapa
+  },[])
+
+  // ── Fetch playbooks de múltiplas obras ───────────────────────────────────
+  const fetchPlaybooks = useCallback(async(obraIds:string[])=>{
+    if(!obraIds.length)return{}
+    const{data}=await supabase.from('playbook_itens').select('*').in('obra_id',obraIds).eq('ativo',true)
+    const mapa:Record<string,PlaybookItem[]>={}
+    ;(data??[]).forEach((p:any)=>{
+      if(!mapa[p.obra_id])mapa[p.obra_id]=[]
+      mapa[p.obra_id].push(p as PlaybookItem)
+    })
+    setPlaybookMap(mapa)
+    return mapa
+  },[])
+
+  // ── Fetch dias de um lançamento ──────────────────────────────────────────
+  const fetchDiasLanc = useCallback(async(
+    lanc:Lancamento,colab:ColabSimples,
+    horMapa:Record<string,Record<string,HorarioDia>>,
+    diasAtestado:Set<string>,diasSuspensao:Set<string>
+  ):Promise<DiaRegistro[]>=>{
+    const{data:pontosRaw}=await supabase.from('registro_ponto').select('*')
+      .eq('lancamento_id',lanc.id)
+    const mapaP:Record<string,any>={}
+    ;(pontosRaw??[]).forEach((r:any)=>{mapaP[r.data]=r})
+    const horObra=horMapa[lanc.obra_id]??{}
+
+    return expandRange(lanc.data_inicio,lanc.data_fim).map(d=>{
+      const r=mapaP[d]
+      const isAtestado=diasAtestado.has(d)
+      const isSuspensao=diasSuspensao.has(d)
+      const evento:TipoEvento=isSuspensao?'suspensao':isAtestado?'atestado':null
+      const diaSem=DIAS_KEY[new Date(d+'T12:00:00').getDay()]
+      const hor=horObra[diaSem]
+
+      if(!r){
+        const base=emptyDia(colab.id,lanc.id,lanc.obra_id,d)
+        if(isAtestado)return{...base,presente:true,evento,bloqueado:true,
+          hora_entrada:hor?.hora_entrada??'',saida_almoco:hor?.saida_almoco??'',
+          retorno_almoco:hor?.retorno_almoco??'',hora_saida:hor?.hora_saida??''}
+        if(isSuspensao)return{...base,evento,bloqueado:true}
+        return{...base,evento,bloqueado:false}
+      }
+      if(isAtestado)return{
+        id:r.id,lancamento_id:lanc.id,colaborador_id:colab.id,data:d,obra_id:lanc.obra_id,
+        presente:true,falta:false,evento,bloqueado:true,justificativa:r.justificativa??'',
+        hora_entrada:hor?.hora_entrada||r.hora_entrada||'',
+        saida_almoco:hor?.saida_almoco||r.saida_almoco||'',
+        retorno_almoco:hor?.retorno_almoco||r.retorno_almoco||'',
+        hora_saida:hor?.hora_saida||r.hora_saida||'',
+        he_entrada:'',he_saida:'',
+      }
+      return{
+        id:r.id,lancamento_id:lanc.id,colaborador_id:colab.id,data:d,obra_id:lanc.obra_id,
+        presente:!!(r.hora_entrada||r.hora_saida),falta:r.falta??false,
+        hora_entrada:r.hora_entrada??'',saida_almoco:r.saida_almoco??'',
+        retorno_almoco:r.retorno_almoco??'',hora_saida:r.hora_saida??'',
+        he_entrada:r.he_entrada??'',he_saida:r.he_saida??'',
+        justificativa:r.justificativa??'',evento,bloqueado:isSuspensao,
+      }
+    })
+  },[])
+
+  // ── Fetch produções do mês ────────────────────────────────────────────────
+  const fetchProducoes = useCallback(async(colabId:string,mr:string)=>{
+    const{data}=await supabase.from('ponto_producao')
+      .select('*,playbook_item:playbook_itens(*)')
+      .eq('colaborador_id',colabId).eq('mes_referencia',mr)
+    setProducoes((data??[]) as LancProducao[])
+  },[])
+
+  // ── Carregar tudo para o colaborador/mês ─────────────────────────────────
+  const fetchTudo = useCallback(async(colab:ColabSimples,a:number,m:number)=>{
     setLoadingDias(true)
-    const inicio = `${a}-${String(m).padStart(2,'0')}-01`
-    const fim    = `${a}-${String(m).padStart(2,'0')}-${new Date(a, m, 0).getDate()}`
+    const mr=`${a}-${String(m).padStart(2,'0')}`
 
-    const [
-      { data: pontosRaw },
-      { data: atestadosRaw },
-      { data: advertenciasRaw },
-    ] = await Promise.all([
-      supabase.from('registro_ponto').select('*').eq('colaborador_id', colab.id).gte('data', inicio).lte('data', fim),
-      supabase.from('atestados').select('data, dias_afastamento').eq('colaborador_id', colab.id),
-      supabase.from('advertencias').select('data_advertencia, tipo, dias_suspensao').eq('colaborador_id', colab.id).eq('tipo', 'suspensao'),
+    // Atestados e suspensões
+    const inicio=`${mr}-01`; const fim=`${mr}-${new Date(a,m,0).getDate()}`
+    const[{data:atestRaw},{data:advRaw}]=await Promise.all([
+      supabase.from('atestados').select('data,dias_afastamento').eq('colaborador_id',colab.id),
+      supabase.from('advertencias').select('data_advertencia,dias_suspensao').eq('colaborador_id',colab.id).eq('tipo','suspensao'),
     ])
 
-    // Montar mapa de pontos existentes
-    const mapaPonto: Record<string, any> = {}
-    ;(pontosRaw ?? []).forEach((r: any) => { mapaPonto[r.data] = r })
-
-    // Montar set de dias de atestado (apenas seg-sex)
-    const diasAtestado = new Set<string>()
-    ;(atestadosRaw ?? []).forEach((at: any) => {
-      if (!at.data) return
-      const diasAfast = at.dias_afastamento ?? 0
-      if (diasAfast > 0) {
-        const fim2 = new Date(at.data + 'T12:00:00')
-        fim2.setDate(fim2.getDate() + diasAfast - 1)
-        expandRange(at.data, fim2.toISOString().slice(0,10)).forEach(d => {
-          // apenas dias úteis (seg-sex)
-          const dow = new Date(d + 'T12:00:00').getDay()
-          if (dow !== 0 && dow !== 6) diasAtestado.add(d)
-        })
-      } else {
-        const dow = new Date(at.data + 'T12:00:00').getDay()
-        if (dow !== 0 && dow !== 6) diasAtestado.add(at.data)
-      }
+    const diasAtestado=new Set<string>()
+    ;(atestRaw??[]).forEach((at:any)=>{
+      if(!at.data)return
+      const d=at.dias_afastamento??0
+      if(d>0){const f=new Date(at.data+'T12:00:00');f.setDate(f.getDate()+d-1);expandRange(at.data,f.toISOString().slice(0,10)).forEach(x=>{const dow=new Date(x+'T12:00:00').getDay();if(dow!==0&&dow!==6)diasAtestado.add(x)})}
+      else{const dow=new Date(at.data+'T12:00:00').getDay();if(dow!==0&&dow!==6)diasAtestado.add(at.data)}
+    })
+    const diasSuspensao=new Set<string>()
+    ;(advRaw??[]).forEach((adv:any)=>{
+      const da=adv.data_advertencia; if(!da||!adv.dias_suspensao||adv.dias_suspensao<=0)return
+      const f=new Date(da+'T12:00:00');f.setDate(f.getDate()+(adv.dias_suspensao-1))
+      expandRange(da,f.toISOString().slice(0,10)).forEach(x=>diasSuspensao.add(x))
     })
 
-    // Montar set de dias de suspensão
-    const diasSuspensao = new Set<string>()
-    ;(advertenciasRaw ?? []).forEach((adv: any) => {
-      const dataAdv = adv.data_advertencia
-      if (!dataAdv || !adv.dias_suspensao || adv.dias_suspensao <= 0) return
-      const fim2 = new Date(dataAdv + 'T12:00:00')
-      fim2.setDate(fim2.getDate() + (adv.dias_suspensao - 1))
-      expandRange(dataAdv, fim2.toISOString().slice(0,10)).forEach(d => diasSuspensao.add(d))
-    })
+    const [list,,pbMap,horMap]=await Promise.all([
+      fetchLancamentos(colab.id,mr),
+      fetchProducoes(colab.id,mr),
+      fetchPlaybooks([...new Set([colab.obra_id,...([] as (string|null)[])].filter(Boolean) as string[])]),
+      fetchHorariosObras([colab.obra_id].filter(Boolean) as string[]),
+    ])
 
-    setDias(diasDoMes(a, m).map(d => {
-      const r = mapaPonto[d]
-      const isAtestado  = diasAtestado.has(d)
-      const isSuspensao = diasSuspensao.has(d)
-      const evento: TipoEvento = isSuspensao ? 'suspensao' : isAtestado ? 'atestado' : null
+    // Buscar obras únicas dos lançamentos
+    const obraIds=[...new Set(list.map(l=>l.obra_id))]
+    const[horMapFull,pbMapFull]=await Promise.all([
+      fetchHorariosObras(obraIds),
+      fetchPlaybooks(obraIds),
+    ])
 
-      if (!r) {
-        const base = emptyDia(colab.id, d)
-        // Atestado: marca como presente + preenche horários da obra + bloqueia edição
-        if (isAtestado) {
-          const diaSem = DIAS_KEY[new Date(d + 'T12:00:00').getDay()]
-          const hor = horarioObraMap[diaSem]
-          return {
-            ...base,
-            presente:       true,
-            evento,
-            bloqueado:      true,
-            hora_entrada:   hor?.hora_entrada   ?? '',
-            saida_almoco:   hor?.saida_almoco   ?? '',
-            retorno_almoco: hor?.retorno_almoco ?? '',
-            hora_saida:     hor?.hora_saida     ?? '',
-          }
-        }
-        // Suspensão: bloqueia presença
-        if (isSuspensao) return { ...base, presente: false, falta: false, evento, bloqueado: true }
-        return { ...base, evento, bloqueado: false }
-      }
-
-      // Dia com registro já salvo
-      // Se for atestado: garante que os horários da obra estejam preenchidos (seg-sex)
-      if (isAtestado) {
-        const diaSem = DIAS_KEY[new Date(d + 'T12:00:00').getDay()]
-        const hor = horarioObraMap[diaSem]
-        return {
-          id: r.id, colaborador_id: colab.id, data: d,
-          presente:       true,
-          falta:          false,
-          hora_entrada:   hor?.hora_entrada   || r.hora_entrada   || '',
-          saida_almoco:   hor?.saida_almoco   || r.saida_almoco   || '',
-          retorno_almoco: hor?.retorno_almoco || r.retorno_almoco || '',
-          hora_saida:     hor?.hora_saida     || r.hora_saida     || '',
-          he_entrada:     '',
-          he_saida:       '',
-          justificativa:  r.justificativa ?? '',
-          evento,
-          bloqueado: true,
-        } as DiaRegistro
-      }
-
-      return {
-        id: r.id, colaborador_id: colab.id, data: d,
-        presente:       !!(r.hora_entrada || r.hora_saida),
-        falta:          r.falta ?? false,
-        hora_entrada:   r.hora_entrada   ?? '',
-        saida_almoco:   r.saida_almoco   ?? '',
-        retorno_almoco: r.retorno_almoco ?? '',
-        hora_saida:     r.hora_saida     ?? '',
-        he_entrada:     r.he_entrada     ?? '',
-        he_saida:       r.he_saida       ?? '',
-        justificativa:  r.justificativa  ?? '',
-        evento,
-        bloqueado: isSuspensao,
-      } as DiaRegistro
+    // Dias de cada lançamento
+    const newDiasMap:Record<string,DiaRegistro[]>={}
+    await Promise.all(list.map(async lanc=>{
+      newDiasMap[lanc.id]=await fetchDiasLanc(lanc,colab,horMapFull,diasAtestado,diasSuspensao)
     }))
+    setDiasMap(newDiasMap)
+    setExpandidos(new Set(list.map(l=>l.id)))
     setLoadingDias(false)
-  }, [])
+  },[fetchLancamentos,fetchProducoes,fetchPlaybooks,fetchHorariosObras,fetchDiasLanc])
 
-  useEffect(() => {
-    if (!colabSel) return
-    const load = async () => {
-      // Carrega horários da obra primeiro, depois usa no fetchDias
-      let horMap: Record<string, HorarioDia> = {}
-      if (colabSel.obra_id) {
-        const { data } = await supabase.from('obra_horarios').select('*').eq('obra_id', colabSel.obra_id)
-        ;(data ?? []).forEach((h: any) => {
-          horMap[h.dia_semana] = {
-            ...h,
-            hora_entrada:   normTime(h.hora_entrada),
-            saida_almoco:   normTime(h.saida_almoco),
-            retorno_almoco: normTime(h.retorno_almoco),
-            hora_saida:     normTime(h.hora_saida),
-          }
-        })
-        setHorarioObra(horMap)
-      } else {
-        setHorarioObra({})
-      }
-      fetchDias(colabSel, ano, mes, horMap)
+  useEffect(()=>{ if(colabSel)fetchTudo(colabSel,ano,mes) },[colabSel,ano,mes,fetchTudo])
+
+  // ── Totais globais ────────────────────────────────────────────────────────
+  const totaisGlobais = useMemo(()=>{
+    let normais=0,extras50=0
+    Object.values(diasMap).forEach(dias=>dias.forEach(d=>{const c=calcDia(d);normais+=c.normais;extras50+=c.extras50}))
+    return{normais,extras50,total:normais+extras50}
+  },[diasMap])
+
+  const valorHora  = colabSel?.salario?(colabSel.salario/220):0
+  const totalHoras = valorHora>0?(fmtDecimal(totaisGlobais.normais)*valorHora + fmtDecimal(totaisGlobais.extras50)*valorHora*1.5):0
+  const totalProd  = producoes.reduce((s,p)=>s+p.valor_total,0)
+
+  // Valor a receber com regra CLT/autônomo
+  const totalReceber = useMemo(()=>{
+    if(!colabSel||valorHora===0)return totalProd
+    const tipo=colabSel.tipo_contrato
+    const diasComProd=new Set(producoes.flatMap(p=>p.dias))
+    if(tipo==='autonomo'||tipo==='pj'){
+      let minSemProd=0
+      Object.values(diasMap).forEach(dias=>dias.forEach(d=>{
+        if(!diasComProd.has(d.data)){const c=calcDia(d);minSemProd+=c.normais+c.extras50}
+      }))
+      return fmtDecimal(minSemProd)*valorHora + totalProd
+    } else {
+      let minProdDias=0
+      Object.values(diasMap).forEach(dias=>dias.forEach(d=>{
+        if(diasComProd.has(d.data)){const c=calcDia(d);minProdDias+=c.normais+c.extras50}
+      }))
+      const excedente=totalProd-(fmtDecimal(minProdDias)*valorHora)
+      const premio=excedente>0?excedente:0
+      return totalHoras+premio
     }
-    load()
-  }, [colabSel, ano, mes, fetchDias])
+  },[colabSel,diasMap,producoes,valorHora,totalHoras,totalProd])
 
-  // ── Toggle presença (preenche horários da obra automaticamente) ───────────
-  function togglePresente(idx: number) {
-    setDias(prev => prev.map((d, i) => {
-      if (i !== idx) return d
-      if (d.bloqueado) {
-        if (d.evento === 'atestado') toast.info('Dia de afastamento — não é possível alterar a presença')
-        if (d.evento === 'suspensao') toast.info('Dia de suspensão — não é possível marcar presença')
-        return d
+  // ── Toggle dia ────────────────────────────────────────────────────────────
+  function togglePresente(lancId:string,idx:number,colab:ColabSimples){
+    setDiasMap(prev=>{
+      const dias=[...(prev[lancId]??[])]
+      const d={...dias[idx]}
+      if(d.bloqueado){
+        if(d.evento==='atestado')toast.info('Dia de afastamento')
+        if(d.evento==='suspensao')toast.info('Dia de suspensão')
+        return prev
       }
-      if (d.presente) {
-        // desmarca
-        return { ...d, presente: false, falta: false, hora_entrada: '', saida_almoco: '', retorno_almoco: '', hora_saida: '', he_entrada: '', he_saida: '' }
+      const lanc=lancamentos.find(l=>l.id===lancId)
+      if(d.presente){
+        dias[idx]={...d,presente:false,falta:false,hora_entrada:'',saida_almoco:'',retorno_almoco:'',hora_saida:'',he_entrada:'',he_saida:''}
+      } else {
+        const diaSem=DIAS_KEY[new Date(d.data+'T12:00:00').getDay()]
+        const hor=lanc?horariosObra[lanc.obra_id]?.[diaSem]:undefined
+        dias[idx]={...d,presente:true,falta:false,hora_entrada:hor?.hora_entrada??'',saida_almoco:hor?.saida_almoco??'',retorno_almoco:hor?.retorno_almoco??'',hora_saida:hor?.hora_saida??''}
       }
-      // Marca presença — preenche horários da obra conforme o dia da semana
-      const diaSem = DIAS_KEY[new Date(d.data + 'T12:00:00').getDay()]
-      const hor = horarioObra[diaSem]
-      return {
-        ...d, presente: true, falta: false,
-        hora_entrada:   hor?.hora_entrada   ?? '',
-        saida_almoco:   hor?.saida_almoco   ?? '',
-        retorno_almoco: hor?.retorno_almoco ?? '',
-        hora_saida:     hor?.hora_saida     ?? '',
-      }
-    }))
-  }
-
-  function toggleFalta(idx: number) {
-    setDias(prev => prev.map((d, i) => {
-      if (i !== idx) return d
-      if (d.bloqueado) {
-        toast.info(d.evento === 'atestado' ? 'Dia de afastamento' : 'Dia de suspensão')
-        return d
-      }
-      return { ...d, falta: !d.falta, presente: false,
-        hora_entrada: '', saida_almoco: '', retorno_almoco: '', hora_saida: '', he_entrada: '', he_saida: '' }
-    }))
-  }
-
-  function updDia(idx: number, field: keyof DiaRegistro, value: unknown) {
-    setDias(prev => prev.map((d, i) => i !== idx ? d : { ...d, [field]: value }))
-  }
-
-  // ── Totais ────────────────────────────────────────────────────────────────
-  const totais = useMemo(() => {
-    let normais = 0, extras50 = 0, faltas = 0, presentes = 0, atestados = 0, suspensoes = 0
-    dias.forEach(d => {
-      const c = calcDia(d)
-      normais  += c.normais
-      extras50 += c.extras50
-      if (d.presente && !d.falta) presentes++
-      if (d.falta) faltas++
-      if (d.evento === 'atestado' && !isFDS(d.data)) atestados++
-      if (d.evento === 'suspensao') suspensoes++
+      return{...prev,[lancId]:dias}
     })
-    const total = normais + extras50
-    return { normais, extras50, extras: extras50, total, presentes, faltas, atestados, suspensoes }
-  }, [dias])
-
-  // Valor hora base = salário ÷ 220h
-  const valorHora    = colabSel?.salario ? colabSel.salario / 220 : 0
-  // Valores de recebimento
-  const valorNormal  = valorHora > 0 ? fmtDecimal(totais.normais)  * valorHora        : 0
-  const valorExtra   = valorHora > 0 ? fmtDecimal(totais.extras50) * valorHora * 1.5  : 0
-  const valorTotal   = valorNormal + valorExtra
-
-  // ── Salvar ────────────────────────────────────────────────────────────────
-  const handleSalvar = async () => {
-    if (!colabSel) return
-    setSaving(true)
-
-    const upserts = dias
-      .filter(d => d.presente || d.falta || d.id)
-      .map(d => {
-        const c = calcDia(d)
-        return {
-          ...(d.id ? { id: d.id } : {}),
-          colaborador_id:    d.colaborador_id,
-          data:              d.data,
-          hora_entrada:      d.hora_entrada   || null,
-          saida_almoco:      d.saida_almoco   || null,
-          retorno_almoco:    d.retorno_almoco || null,
-          hora_saida:        d.hora_saida     || null,
-          horas_trabalhadas: fmtDecimal(c.normais),
-          horas_extras:      fmtDecimal(c.extras),
-          falta:             d.falta,
-          justificativa:     d.justificativa  || null,
-        }
-      })
-
-    if (upserts.length === 0) { toast.info('Nenhum registro para salvar'); setSaving(false); return }
-
-    const { error } = await supabase
-      .from('registro_ponto')
-      .upsert(upserts, { onConflict: 'colaborador_id,data' })
-
-    setSaving(false)
-    if (error) { toast.error('Erro ao salvar: ' + error.message); return }
-    toast.success('Ponto salvo!')
-    fetchDias(colabSel, ano, mes)
   }
 
-  function mesAnterior() { if (mes===1){setAno(a=>a-1);setMes(12)}else setMes(m=>m-1) }
-  function mesSeguinte() { if (mes===12){setAno(a=>a+1);setMes(1)}else setMes(m=>m+1) }
+  function toggleFalta(lancId:string,idx:number){
+    setDiasMap(prev=>{
+      const dias=[...(prev[lancId]??[])]
+      const d={...dias[idx]}
+      if(d.bloqueado)return prev
+      dias[idx]={...d,falta:!d.falta,presente:false,hora_entrada:'',saida_almoco:'',retorno_almoco:'',hora_saida:'',he_entrada:'',he_saida:''}
+      return{...prev,[lancId]:dias}
+    })
+  }
 
-  // ── Funções de produção ───────────────────────────────────────────────────
+  function updDia(lancId:string,idx:number,field:keyof DiaRegistro,value:unknown){
+    setDiasMap(prev=>{
+      const dias=[...(prev[lancId]??[])]
+      dias[idx]={...dias[idx],[field]:value}
+      return{...prev,[lancId]:dias}
+    })
+  }
 
-  // Carregar playbook e lançamentos quando colaborador ou mês mudar
-  const fetchProducao = useCallback(async (colab: ColabSimples, a: number, m: number) => {
-    const mesRef = `${a}-${String(m).padStart(2,'0')}`
-    const obraId = colab.obra_id
+  // ── Salvar dias de um lançamento ──────────────────────────────────────────
+  async function salvarLanc(lancId:string){
+    if(!colabSel)return
+    setSaving(true)
+    const dias=diasMap[lancId]??[]
+    const upserts=dias.filter(d=>d.presente||d.falta||d.id).map(d=>{
+      const c=calcDia(d)
+      return{
+        ...(d.id?{id:d.id}:{}),
+        lancamento_id:lancId,colaborador_id:d.colaborador_id,
+        obra_id:d.obra_id,data:d.data,
+        hora_entrada:d.hora_entrada||null,saida_almoco:d.saida_almoco||null,
+        retorno_almoco:d.retorno_almoco||null,hora_saida:d.hora_saida||null,
+        he_entrada:d.he_entrada||null,he_saida:d.he_saida||null,
+        horas_trabalhadas:fmtDecimal(c.normais),horas_extras:fmtDecimal(c.extras50),
+        falta:d.falta,justificativa:d.justificativa||null,
+      }
+    })
+    if(upserts.length===0){toast.info('Nenhum registro para salvar');setSaving(false);return}
+    const{error}=await supabase.from('registro_ponto').upsert(upserts,{onConflict:'lancamento_id,data'})
+    setSaving(false)
+    if(error){toast.error('Erro: '+error.message);return}
+    toast.success('Ponto salvo!')
+  }
 
-    const [{ data: pbRaw }, { data: lancRaw }] = await Promise.all([
-      obraId
-        ? supabase.from('playbook_itens').select('*').eq('obra_id', obraId).eq('ativo', true).order('categoria').order('descricao')
-        : Promise.resolve({ data: [] }),
-      supabase.from('ponto_producao').select('*, playbook_item:playbook_itens(*)').eq('colaborador_id', colab.id).eq('mes_referencia', mesRef),
-    ])
-    setPlaybookItens((pbRaw ?? []) as PlaybookItem[])
-    setLancamentos((lancRaw ?? []) as LancProducao[])
-  }, [])
+  // ── Criar novo lançamento ─────────────────────────────────────────────────
+  async function criarLancamento(){
+    if(!colabSel||!novoLancObraId||!novoLancInicio||!novoLancFim){toast.error('Preencha todos os campos');return}
+    if(novoLancInicio>novoLancFim){toast.error('Data de início deve ser anterior à data de fim');return}
 
-  // Chama fetchProducao quando seleciona colaborador / muda mês
-  useEffect(() => {
-    if (colabSel) fetchProducao(colabSel, ano, mes)
-  }, [colabSel, ano, mes, fetchProducao])
+    // Verificar limite de 2 por obra/mês
+    const lancObra=lancamentos.filter(l=>l.obra_id===novoLancObraId)
+    if(lancObra.length>=2){toast.error('Limite de 2 lançamentos por obra/mês atingido');return}
 
-  function abrirModalProd() {
-    setEditLanc(null)
-    setDiasSel(new Set())
-    setItensProd([{ playbook_item_id: playbookItens[0]?.id ?? '', quantidade: 0 }])
+    // Verificar sobreposição de datas para essa obra
+    for(const l of lancObra){
+      if(!(novoLancFim<l.data_inicio||novoLancInicio>l.data_fim)){
+        toast.error(`Período sobrepõe com lançamento ${l.numero_lancamento} (${l.data_inicio} a ${l.data_fim})`);return
+      }
+    }
+
+    // Verificar sobreposição com outros lançamentos de outras obras
+    for(const l of lancamentos){
+      if(l.obra_id===novoLancObraId)continue
+      if(!(novoLancFim<l.data_inicio||novoLancInicio>l.data_fim)){
+        toast.error(`Período sobrepõe com obra "${l.obra_nome}" (${l.data_inicio.slice(8)}/${l.data_inicio.slice(5,7)} a ${l.data_fim.slice(8)}/${l.data_fim.slice(5,7)})`);return
+      }
+    }
+
+    setSavingLanc(true)
+    const{data,error}=await supabase.from('ponto_lancamentos').insert({
+      colaborador_id:colabSel.id,obra_id:novoLancObraId,mes_referencia:mesRef,
+      data_inicio:novoLancInicio,data_fim:novoLancFim,
+      numero_lancamento:(lancObra.length+1) as 1|2,
+    }).select('*,obras(nome)').single()
+    setSavingLanc(false)
+    if(error){toast.error('Erro: '+error.message);return}
+    toast.success('Lançamento criado!')
+    setModalLanc(false)
+    fetchTudo(colabSel,ano,mes)
+  }
+
+  // ── Excluir lançamento ────────────────────────────────────────────────────
+  async function excluirLancamento(id:string){
+    if(!confirm('Excluir este lançamento e todos os registros de ponto do período?'))return
+    await supabase.from('registro_ponto').delete().eq('lancamento_id',id)
+    await supabase.from('ponto_lancamentos').delete().eq('id',id)
+    toast.success('Lançamento excluído')
+    if(colabSel)fetchTudo(colabSel,ano,mes)
+  }
+
+  // ── Produção ──────────────────────────────────────────────────────────────
+  function abrirModalProd(lancId:string){
+    setProdLancId(lancId)
+    const lanc=lancamentos.find(l=>l.id===lancId)
+    const itens=lanc?playbookMap[lanc.obra_id]??[]:[]
+    setDiasSelProd(new Set())
+    setItensProd([{playbook_item_id:itens[0]?.id??'',quantidade:0}])
     setModalProd(true)
   }
 
-  async function salvarProducao() {
-    if (!colabSel) return
-    if (diasSel.size === 0) { toast.error('Selecione ao menos um dia de produção'); return }
-    const itensValidos = itensProd.filter(i => i.playbook_item_id && i.quantidade > 0)
-    if (itensValidos.length === 0) { toast.error('Informe ao menos um item com quantidade > 0'); return }
+  async function salvarProducao(){
+    if(!colabSel)return
+    const lanc=lancamentos.find(l=>l.id===prodLancId)
+    if(!lanc){return}
+    if(diasSelProd.size===0){toast.error('Selecione ao menos um dia');return}
+    const itensValidos=itensProd.filter(i=>i.playbook_item_id&&i.quantidade>0)
+    if(itensValidos.length===0){toast.error('Informe ao menos um serviço com quantidade');return}
     setSavingProd(true)
-
-    const mesRef = `${ano}-${String(mes).padStart(2,'0')}`
-    const diasArr = Array.from(diasSel).sort()
-
-    // Remove lançamentos anteriores para os mesmos dias (substitui)
-    if (editLanc?.id) {
-      await supabase.from('ponto_producao').delete().eq('id', editLanc.id)
-    }
-
-    const rows = itensValidos.map(item => {
-      const pb = playbookItens.find(p => p.id === item.playbook_item_id)
-      return {
-        colaborador_id:   colabSel.id,
-        mes_referencia:   mesRef,
-        playbook_item_id: item.playbook_item_id,
-        dias:             diasArr,
-        quantidade:       item.quantidade,
-        valor_total:      (pb?.preco_unitario ?? 0) * item.quantidade,
-        observacoes:      null as string | null,
+    const rows=itensValidos.map(item=>{
+      const pb=(playbookMap[lanc.obra_id]??[]).find(p=>p.id===item.playbook_item_id)
+      return{
+        colaborador_id:colabSel.id,lancamento_id:prodLancId,obra_id:lanc.obra_id,
+        mes_referencia:mesRef,playbook_item_id:item.playbook_item_id,
+        dias:Array.from(diasSelProd).sort(),
+        quantidade:item.quantidade,valor_total:(pb?.preco_unitario??0)*item.quantidade,
+        observacoes:null as string|null,
       }
     })
-
-    const { error } = await supabase.from('ponto_producao').insert(rows)
+    const{error}=await supabase.from('ponto_producao').insert(rows)
     setSavingProd(false)
-    if (error) { toast.error('Erro ao salvar produção: ' + error.message); return }
+    if(error){toast.error('Erro: '+error.message);return}
     toast.success('Produção lançada!')
     setModalProd(false)
-    fetchProducao(colabSel, ano, mes)
+    fetchProducoes(colabSel.id,mesRef)
   }
 
-  async function deletarLanc(id: string) {
-    const { error } = await supabase.from('ponto_producao').delete().eq('id', id)
-    if (error) { toast.error('Erro: ' + error.message); return }
-    toast.success('Lançamento removido')
-    if (colabSel) fetchProducao(colabSel, ano, mes)
+  async function deletarProducao(id:string){
+    if(!confirm('Remover este lançamento de produção?'))return
+    await supabase.from('ponto_producao').delete().eq('id',id)
+    if(colabSel)fetchProducoes(colabSel.id,mesRef)
+    toast.success('Produção removida')
   }
 
-  // Calcula o resumo financeiro considerando tipo_contrato
-  const resumoFinanceiro = useMemo(() => {
-    if (!colabSel || valorHora === 0) return null
-
-    const tipoContrato = (colabSel as any).tipo_contrato ?? 'clt'
-    const totalProd = lancamentos.reduce((s, l) => s + l.valor_total, 0)
-
-    // Dias que têm lançamento de produção
-    const diasComProd = new Set(lancamentos.flatMap(l => l.dias))
-
-    // Horas sem produção (dias normais não cobertos por produção)
-    let minSemProd = 0
-    dias.forEach(d => {
-      if (!diasComProd.has(d.data)) {
-        const c = calcDia(d)
-        minSemProd += c.normais + c.extras50
-      }
+  // ── Totais por lançamento ─────────────────────────────────────────────────
+  function totaisLanc(lancId:string){
+    const dias=diasMap[lancId]??[]
+    let normais=0,extras50=0,presentes=0,faltas=0,atestados=0,suspensoes=0
+    dias.forEach(d=>{
+      const c=calcDia(d);normais+=c.normais;extras50+=c.extras50
+      if(d.presente&&!d.falta)presentes++
+      if(d.falta)faltas++
+      if(d.evento==='atestado'&&!isFDS(d.data))atestados++
+      if(d.evento==='suspensao')suspensoes++
     })
-    const valorHorasSemProd = fmtDecimal(minSemProd) * valorHora
+    return{normais,extras50,total:normais+extras50,presentes,faltas,atestados,suspensoes}
+  }
 
-    if (tipoContrato === 'autonomo' || tipoContrato === 'pj') {
-      // Autônomo: horas sem produção + valor da produção
-      return {
-        tipo: 'autonomo' as const,
-        valorHorasSemProd,
-        totalProd,
-        totalPagar: valorHorasSemProd + totalProd,
-        premio: 0,
-      }
-    } else {
-      // CLT: salário base pelas horas totais
-      // Horas nos dias de produção
-      let minComProd = 0
-      dias.forEach(d => {
-        if (diasComProd.has(d.data)) {
-          const c = calcDia(d)
-          minComProd += c.normais + c.extras50
-        }
-      })
-      const valorHorasProd = fmtDecimal(minComProd) * valorHora
-      const valorHoraTotal = fmtDecimal(totais.normais + totais.extras50) * valorHora
+  function mesAnterior(){if(mes===1){setAno(a=>a-1);setMes(12)}else setMes(m=>m-1)}
+  function mesSeguinte(){if(mes===12){setAno(a=>a+1);setMes(1)}else setMes(m=>m+1)}
 
-      // Compara produção vs horas nos dias de produção
-      const excedente = totalProd - valorHorasProd
-      const premio = excedente > 0 ? excedente : 0
-
-      return {
-        tipo: 'clt' as const,
-        valorHoraTotal,      // base CLT (nunca recebe menos)
-        valorHorasProd,      // valor das horas nos dias de produção
-        totalProd,           // valor apurado por produção
-        premio,              // excedente pago como prêmio
-        totalPagar: valorHoraTotal + premio,
-      }
-    }
-  }, [colabSel, lancamentos, dias, totais, valorHora])
+  const colabsFiltrados=useMemo(()=>{
+    let lista=colaboradores
+    if(obraFiltro!=='todas')lista=lista.filter(c=>c.obra_id===obraFiltro)
+    const q=busca.toLowerCase()
+    if(q)lista=lista.filter(c=>c.nome.toLowerCase().includes(q)||(c.chapa??'').toLowerCase().includes(q)||c.funcao_nome.toLowerCase().includes(q))
+    return lista
+  },[colaboradores,busca,obraFiltro])
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <>
-    <div style={{ display:'flex', height:'calc(100vh - 80px)', overflow:'hidden' }}>
+    <div style={{display:'flex',height:'calc(100vh - 80px)',overflow:'hidden'}}>
 
-      {/* ── Painel esquerdo ──────────────────────────────────────────────── */}
-      <div style={{ width:280, flexShrink:0, borderRight:'1px solid var(--border)', display:'flex', flexDirection:'column', overflow:'hidden' }}>
-        <div style={{ padding:'14px 12px 10px', borderBottom:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:8 }}>
-          <div style={{ fontWeight:700, fontSize:14 }}>🕐 Controle de Ponto</div>
+      {/* ── Painel esquerdo ── */}
+      <div style={{width:272,flexShrink:0,borderRight:'1px solid var(--border)',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        <div style={{padding:'12px 10px 8px',borderBottom:'1px solid var(--border)',display:'flex',flexDirection:'column',gap:6}}>
+          <div style={{fontWeight:700,fontSize:13}}>🕐 Controle de Ponto</div>
           <Select value={obraFiltro} onValueChange={setObraFiltro}>
-            <SelectTrigger style={{ fontSize:12, height:32 }}><SelectValue placeholder="Todas as obras" /></SelectTrigger>
+            <SelectTrigger style={{fontSize:12,height:30}}><SelectValue placeholder="Todas as obras"/></SelectTrigger>
             <SelectContent>
               <SelectItem value="todas">Todas as obras</SelectItem>
-              {obras.map(o => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
+              {obras.map(o=><SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
             </SelectContent>
           </Select>
-          <div style={{ position:'relative' }}>
-            <Search size={12} style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', color:'var(--muted-foreground)' }} />
-            <Input placeholder="Buscar nome ou chapa…" value={busca} onChange={e => setBusca(e.target.value)} style={{ paddingLeft:26, fontSize:12, height:32 }} />
+          <div style={{position:'relative'}}>
+            <Search size={11} style={{position:'absolute',left:7,top:'50%',transform:'translateY(-50%)',color:'var(--muted-foreground)'}}/>
+            <Input placeholder="Nome ou chapa…" value={busca} onChange={e=>setBusca(e.target.value)} style={{paddingLeft:22,fontSize:12,height:30}}/>
           </div>
         </div>
-
-        <div style={{ flex:1, overflowY:'auto' }}>
-          {loadingColabs ? (
-            <div style={{ padding:20, textAlign:'center', fontSize:12, color:'var(--muted-foreground)' }}>Carregando…</div>
-          ) : colabsFiltrados.length === 0 ? (
-            <div style={{ padding:20, textAlign:'center', fontSize:12, color:'var(--muted-foreground)' }}>Nenhum colaborador</div>
-          ) : colabsFiltrados.map(c => (
-            <button key={c.id} onClick={() => setColabSel(c)} style={{
-              width:'100%', textAlign:'left', padding:'10px 12px',
-              border:'none', borderBottom:'1px solid var(--border)',
-              background: colabSel?.id===c.id ? 'var(--primary)' : 'transparent',
-              color: colabSel?.id===c.id ? '#fff' : 'var(--foreground)',
-              cursor:'pointer',
+        <div style={{flex:1,overflowY:'auto'}}>
+          {loadingColabs?<div style={{padding:16,textAlign:'center',fontSize:12,color:'var(--muted-foreground)'}}>Carregando…</div>
+          :colabsFiltrados.length===0?<div style={{padding:16,textAlign:'center',fontSize:12,color:'var(--muted-foreground)'}}>Nenhum colaborador</div>
+          :colabsFiltrados.map(c=>(
+            <button key={c.id} onClick={()=>setColabSel(c)} style={{
+              width:'100%',textAlign:'left',padding:'8px 10px',border:'none',
+              borderBottom:'1px solid var(--border)',
+              background:colabSel?.id===c.id?'var(--primary)':'transparent',
+              color:colabSel?.id===c.id?'#fff':'var(--foreground)',cursor:'pointer',
             }}>
-              <div style={{ fontSize:10, fontFamily:'monospace', fontWeight:700, opacity:0.65 }}>{c.chapa ?? '—'}</div>
-              <div style={{ fontSize:13, fontWeight:600 }}>{c.nome}</div>
-              <div style={{ fontSize:11, opacity:0.7 }}>{c.funcao_nome}</div>
+              <div style={{fontSize:10,fontFamily:'monospace',fontWeight:700,opacity:0.6}}>{c.chapa??'—'}</div>
+              <div style={{fontSize:13,fontWeight:600}}>{c.nome}</div>
+              <div style={{fontSize:11,opacity:0.7}}>{c.funcao_nome}</div>
             </button>
           ))}
         </div>
       </div>
 
-      {/* ── Painel direito ───────────────────────────────────────────────── */}
-      <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-
-        {!colabSel ? (
-          <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:10, color:'var(--muted-foreground)' }}>
-            <span style={{ fontSize:44 }}>👈</span>
-            <div style={{ fontSize:15, fontWeight:600 }}>Selecione um colaborador</div>
-            <div style={{ fontSize:13 }}>para lançar o ponto do mês</div>
+      {/* ── Painel direito ── */}
+      <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        {!colabSel?(
+          <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:8,color:'var(--muted-foreground)'}}>
+            <span style={{fontSize:44}}>👈</span>
+            <div style={{fontSize:15,fontWeight:600}}>Selecione um colaborador</div>
           </div>
-        ) : (
+        ):(
           <>
-            {/* Cabeçalho */}
-            <div style={{ padding:'10px 16px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:12, flexShrink:0, flexWrap:'wrap' }}>
-              <div style={{ flex:1, minWidth:180 }}>
-                <div style={{ fontWeight:700, fontSize:15 }}>{colabSel.nome}</div>
-                <div style={{ fontSize:12, color:'var(--muted-foreground)' }}>
-                  {colabSel.chapa && <><span style={{ fontFamily:'monospace', fontWeight:600 }}>{colabSel.chapa}</span> · </>}
+          {/* ── Topo: colaborador + mês + totais ── */}
+          <div style={{flexShrink:0,borderBottom:'1px solid var(--border)',background:'var(--background)'}}>
+            {/* Linha 1: nome + mês + botões */}
+            <div style={{padding:'8px 14px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+              <div style={{flex:1,minWidth:160}}>
+                <div style={{fontWeight:700,fontSize:15}}>{colabSel.nome}</div>
+                <div style={{fontSize:11,color:'var(--muted-foreground)'}}>
+                  {colabSel.chapa&&<><span style={{fontFamily:'monospace',fontWeight:600}}>{colabSel.chapa}</span> · </>}
                   {colabSel.funcao_nome}
-                  {valorHora>0 && <> · <strong>R$ {valorHora.toFixed(2)}/h</strong></>}
-                  {Object.keys(horarioObra).length > 0 && <span style={{ marginLeft:8, background:'#dcfce7', color:'#15803d', borderRadius:4, padding:'1px 6px', fontSize:10, fontWeight:600 }}>✓ Horários da obra</span>}
+                  <span style={{marginLeft:6,background:'var(--muted)',borderRadius:4,padding:'1px 6px',fontSize:10,textTransform:'uppercase',fontWeight:700}}>{colabSel.tipo_contrato}</span>
                 </div>
               </div>
-
-              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <button onClick={mesAnterior} style={{ border:'1px solid var(--border)', borderRadius:6, background:'none', cursor:'pointer', padding:'4px 8px', display:'flex' }}><ChevronLeft size={14}/></button>
-                <span style={{ fontWeight:700, fontSize:13, minWidth:130, textAlign:'center' }}>{MESES[mes-1]} / {ano}</span>
-                <button onClick={mesSeguinte} style={{ border:'1px solid var(--border)', borderRadius:6, background:'none', cursor:'pointer', padding:'4px 8px', display:'flex' }}><ChevronRight size={14}/></button>
+              <div style={{display:'flex',alignItems:'center',gap:5}}>
+                <button onClick={mesAnterior} style={{border:'1px solid var(--border)',borderRadius:5,background:'none',cursor:'pointer',padding:'3px 7px',display:'flex'}}><ChevronLeft size={13}/></button>
+                <span style={{fontWeight:700,fontSize:13,minWidth:130,textAlign:'center'}}>{MESES[mes-1]} / {ano}</span>
+                <button onClick={mesSeguinte} style={{border:'1px solid var(--border)',borderRadius:5,background:'none',cursor:'pointer',padding:'3px 7px',display:'flex'}}><ChevronRight size={13}/></button>
               </div>
-
-              <Button variant="outline" size="sm" onClick={() => window.print()} style={{ gap:5 }}><Printer size={13}/> Imprimir</Button>
-              {playbookItens.length > 0 && (
-                <Button variant="outline" size="sm" onClick={abrirModalProd} style={{ gap:5, borderColor:'#f59e0b', color:'#b45309' }}>
-                  <Factory size={13}/> Lançar Produção
-                </Button>
-              )}
-              <Button size="sm" onClick={handleSalvar} disabled={saving}>{saving ? '⏳ Salvando…' : '💾 Salvar Ponto'}</Button>
+              <Button variant="outline" size="sm" onClick={()=>window.print()} style={{gap:4,height:30,fontSize:12}}><Printer size={12}/></Button>
+              <Button size="sm" onClick={()=>{setNovoLancObraId('');setNovoLancInicio('');setNovoLancFim('');setModalLanc(true)}} style={{gap:4,height:30,fontSize:12}}>
+                <Plus size={12}/> Novo Lançamento
+              </Button>
             </div>
 
-            {/* Legenda */}
-            <div style={{ padding:'6px 16px', background:'var(--muted)', borderBottom:'1px solid var(--border)', display:'flex', gap:16, fontSize:11, flexShrink:0, flexWrap:'wrap' }}>
-              <span>○ Ausente</span>
-              <span style={{ color:'#16a34a' }}>✓ Presente</span>
-              <span style={{ color:'#dc2626' }}>✗ Falta</span>
-              <span style={{ background:'rgba(59,130,246,0.12)', padding:'1px 6px', borderRadius:3, color:'#1d4ed8' }}>🩺 Afastamento (atestado)</span>
-              <span style={{ background:'rgba(239,68,68,0.12)', padding:'1px 6px', borderRadius:3, color:'#b91c1c' }}>⛔ Suspensão</span>
-            </div>
-
-            {/* Tabela */}
-            <div style={{ flex:1, overflowY:'auto' }}>
-              {loadingDias ? (
-                <div style={{ padding:32, textAlign:'center', color:'var(--muted-foreground)' }}>Carregando…</div>
-              ) : (
-                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
-                  <thead>
-                    <tr style={{ background:'#1e3a5f', color:'#fff', position:'sticky', top:0, zIndex:10 }}>
-                      <th style={TH}>Dia</th>
-                      <th style={TH}>Data</th>
-                      <th style={{ ...TH, width:70 }}>Presente</th>
-                      <th style={{ ...TH, width:60 }}>Falta</th>
-                      <th style={TH}>Entrada</th>
-                      <th style={TH}>Saída Alm.</th>
-                      <th style={TH}>Ret. Alm.</th>
-                      <th style={TH}>Saída</th>
-                      <th style={{ ...TH, background:'#2d5a9e' }}>H.E. Entrada</th>
-                      <th style={{ ...TH, background:'#2d5a9e' }}>H.E. Saída</th>
-                      <th style={{ ...TH, background:'#1a4a1a' }}>Normais</th>
-                      <th style={{ ...TH, background:'#2d5a1a' }} title="HE + Sábado (+50%)">Extras</th>
-                      <th style={{ ...TH, background:'#0f3320' }}>Total</th>
-                      <th style={{ ...TH, width:90 }}>Obs.</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dias.map((d, idx) => {
-                      const fds  = isFDS(d.data)
-                      const calc = calcDia(d)
-
-                      // cor de fundo por estado
-                      const bg = d.evento === 'suspensao'
-                        ? 'rgba(239,68,68,0.09)'
-                        : d.evento === 'atestado'
-                          ? 'rgba(59,130,246,0.09)'
-                          : fds
-                            ? 'rgba(100,100,100,0.05)'
-                            : d.falta
-                              ? 'rgba(239,68,68,0.06)'
-                              : d.presente
-                                ? 'rgba(22,163,74,0.04)'
-                                : 'transparent'
-
-                      return (
-                        <tr key={d.data} style={{ borderBottom:'1px solid var(--border)', background:bg }}>
-                          <td style={{ ...TD, fontWeight:700, textAlign:'center', color:fds?'#9ca3af':undefined }}>{diaSemana(d.data)}</td>
-                          <td style={{ ...TD, textAlign:'center', fontFamily:'monospace', fontWeight:600 }}>{d.data.slice(8)}/{d.data.slice(5,7)}</td>
-
-                          {/* Presença */}
-                          <td style={{ ...TD, textAlign:'center' }}>
-                            {fds ? <span style={{ fontSize:10, color:'#9ca3af' }}>FDS</span>
-                              : d.evento === 'atestado' ? <span title="Afastamento por atestado" style={{ fontSize:13 }}>🩺</span>
-                              : d.evento === 'suspensao' ? <span title="Suspensão" style={{ fontSize:13 }}>⛔</span>
-                              : (
-                                <button onClick={() => togglePresente(idx)} style={{ border:'none', background:'none', cursor:'pointer', padding:2, color:d.presente?'#16a34a':'#9ca3af' }}>
-                                  {d.presente ? <CheckCircle2 size={17}/> : <span style={{ fontSize:17, opacity:0.35 }}>○</span>}
-                                </button>
-                              )}
-                          </td>
-
-                          {/* Falta */}
-                          <td style={{ ...TD, textAlign:'center' }}>
-                            {!fds && !d.bloqueado && (
-                              <button onClick={() => toggleFalta(idx)} style={{ border:'none', background:'none', cursor:'pointer', padding:2, color:d.falta?'#dc2626':'#9ca3af' }}>
-                                <span style={{ fontSize:16, opacity:d.falta?1:0.3 }}>✗</span>
-                              </button>
-                            )}
-                          </td>
-
-                          <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.hora_entrada}    onChange={v=>updDia(idx,'hora_entrada',v)}/></td>
-                          <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.saida_almoco}   onChange={v=>updDia(idx,'saida_almoco',v)}/></td>
-                          <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.retorno_almoco} onChange={v=>updDia(idx,'retorno_almoco',v)}/></td>
-                          <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.hora_saida}     onChange={v=>updDia(idx,'hora_saida',v)}/></td>
-                          <td style={{ ...TD, background:'rgba(45,90,158,0.04)' }}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.he_entrada} onChange={v=>updDia(idx,'he_entrada',v)}/></td>
-                          <td style={{ ...TD, background:'rgba(45,90,158,0.04)' }}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.he_saida}   onChange={v=>updDia(idx,'he_saida',v)}/></td>
-
-                          <td style={{ ...TD, textAlign:'center', fontWeight:600, color:calc.normais>0?'#15803d':'#9ca3af', background:'rgba(22,163,74,0.05)' }}>{calc.normais>0?fmtHHMM(calc.normais):'—'}</td>
-                          <td style={{ ...TD, textAlign:'center', fontWeight:600, color:calc.extras50>0?'#1d4ed8':'#9ca3af', background:'rgba(45,90,158,0.05)' }} title={calc.extras50>0?'+50%':''}>{calc.extras50>0?fmtHHMM(calc.extras50)+'*':'—'}</td>
-                          <td style={{ ...TD, textAlign:'center', fontWeight:700, background:'rgba(0,0,0,0.03)' }}>{calc.total>0?fmtHHMM(calc.total):'—'}</td>
-
-                          {/* Obs / indicador */}
-                          <td style={{ ...TD, fontSize:10 }}>
-                            {d.evento === 'atestado' && <span style={{ color:'#1d4ed8', fontWeight:600 }}>Afastamento</span>}
-                            {d.evento === 'suspensao' && <span style={{ color:'#b91c1c', fontWeight:600 }}>Suspensão</span>}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-
-                  <tfoot>
-                    {/* Linha 1: horas */}
-                    <tr style={{ background:'#1e3a5f', color:'#fff', fontWeight:700 }}>
-                      <td colSpan={4} style={{ padding:'10px 14px', fontSize:12 }}>
-                        TOTAIS — {totais.presentes} dia{totais.presentes!==1?'s':''} trabalhado{totais.presentes!==1?'s':''}
-                        {totais.faltas>0    && <span style={{ color:'#fca5a5', marginLeft:8 }}>· {totais.faltas} falta{totais.faltas!==1?'s':''}</span>}
-                        {totais.atestados>0 && <span style={{ color:'#93c5fd', marginLeft:8 }}>· {totais.atestados} afastamento{totais.atestados!==1?'s':''}</span>}
-                        {totais.suspensoes>0 && <span style={{ color:'#fca5a5', marginLeft:8 }}>· {totais.suspensoes} suspensão</span>}
-                      </td>
-                      <td colSpan={6} style={{ padding:'10px 14px', textAlign:'right', fontSize:11, opacity:0.7 }}>
-                        {valorHora>0 && <><strong>R$ {valorHora.toFixed(4)}/h</strong> base</>}
-                      </td>
-                      <td style={{ padding:'10px 8px', textAlign:'center', background:'rgba(22,163,74,0.3)', fontSize:13 }}>{fmtHHMM(totais.normais)}</td>
-                      <td style={{ padding:'10px 8px', textAlign:'center', background:'rgba(45,90,158,0.4)', fontSize:13 }}>{fmtHHMM(totais.extras50)}</td>
-                      <td style={{ padding:'10px 8px', textAlign:'center', background:'rgba(0,0,0,0.2)', fontSize:13 }}>{fmtHHMM(totais.total)}</td>
-                      <td />
-                    </tr>
-
-                    {/* Linha 2: valores em R$ */}
-                    {valorHora>0 && (
-                      <tr style={{ background:'#0f2d4a', color:'#fff' }}>
-                        <td colSpan={4} style={{ padding:'8px 14px', fontSize:12 }}>
-                          <span style={{ opacity:0.8 }}>
-                            {fmtDecimal(totais.normais)}h normais × R$ {valorHora.toFixed(4)}
-                            &nbsp;+&nbsp;
-                            {fmtDecimal(totais.extras50)}h extras/sáb × R$ {valorHora.toFixed(4)} × 1,5
-                          </span>
-                        </td>
-
-                        {/* Valor Normal */}
-                        <td colSpan={3} style={{ padding:'8px 10px', textAlign:'right' }}>
-                          <div style={{ fontSize:10, opacity:0.6, marginBottom:1 }}>HORAS NORMAIS</div>
-                          <div style={{ fontSize:14, fontWeight:700, color:'#86efac' }}>
-                            {formatCurrency(valorNormal)}
-                          </div>
-                        </td>
-
-                        {/* Valor Extra (+50%) */}
-                        <td colSpan={3} style={{ padding:'8px 10px', textAlign:'right', background:'rgba(45,90,158,0.3)' }}>
-                          <div style={{ fontSize:10, opacity:0.6, marginBottom:1 }}>EXTRAS / SÁB +50%</div>
-                          <div style={{ fontSize:14, fontWeight:700, color:'#93c5fd' }}>
-                            {formatCurrency(valorExtra)}
-                          </div>
-                        </td>
-
-                        {/* Total */}
-                        <td colSpan={3} style={{ padding:'8px 14px', textAlign:'right', background:'rgba(255,255,255,0.08)' }}>
-                          <div style={{ fontSize:10, opacity:0.6, marginBottom:1 }}>💰 TOTAL A RECEBER</div>
-                          <div style={{ fontSize:16, fontWeight:800, color:'#fbbf24' }}>
-                            {formatCurrency(valorTotal)}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-
-                    {valorHora === 0 && (
-                      <tr style={{ background:'#0f2d4a', color:'#fff' }}>
-                        <td colSpan={14} style={{ padding:'10px 14px', fontSize:12, opacity:0.6, textAlign:'center' }}>
-                          Cadastre o salário do colaborador para calcular os valores a receber
-                        </td>
-                      </tr>
-                    )}
-                  </tfoot>
-                </table>
-              )}
-            </div>
-
-            {/* ── Painel de Produção ──────────────────────────────────── */}
-            {lancamentos.length > 0 && (
-              <div style={{ flexShrink:0, borderTop:'2px solid #f59e0b', background:'#fffbeb' }}>
-                <div style={{ padding:'8px 16px 4px', display:'flex', alignItems:'center', gap:8 }}>
-                  <Factory size={14} style={{ color:'#b45309' }}/>
-                  <span style={{ fontWeight:700, fontSize:13, color:'#92400e' }}>Produção lançada no mês</span>
+            {/* Linha 2: cards de totais */}
+            <div style={{display:'flex',gap:1,borderTop:'1px solid var(--border)',background:'var(--muted)'}}>
+              {[
+                {label:'⏱ Total de Horas',value:fmtHHMM(totaisGlobais.total),sub:`${fmtHHMM(totaisGlobais.normais)} norm + ${fmtHHMM(totaisGlobais.extras50)} extras`,color:'#1d4ed8'},
+                {label:'💰 Valor das Horas',value:valorHora>0?formatCurrency(totalHoras):'—',sub:valorHora>0?`R$ ${valorHora.toFixed(4)}/h`:'Sem salário cadastrado',color:'#15803d'},
+                {label:'🏗️ Produção',value:totalProd>0?formatCurrency(totalProd):`${producoes.length} lançamento${producoes.length!==1?'s':''}`,sub:`${producoes.length} item${producoes.length!==1?'ns':''}`,color:'#b45309'},
+                {label:'💵 Total a Receber',value:formatCurrency(totalReceber),sub:colabSel.tipo_contrato==='clt'?'CLT: base + prêmio':'Autônomo: horas + prod.',color:'#7c3aed'},
+              ].map(card=>(
+                <div key={card.label} style={{flex:1,padding:'8px 12px',textAlign:'center',borderRight:'1px solid var(--border)'}}>
+                  <div style={{fontSize:10,color:'var(--muted-foreground)',fontWeight:600,marginBottom:2}}>{card.label}</div>
+                  <div style={{fontSize:15,fontWeight:800,color:card.color}}>{card.value}</div>
+                  <div style={{fontSize:10,color:'var(--muted-foreground)'}}>{card.sub}</div>
                 </div>
-                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
-                  <thead>
-                    <tr style={{ background:'#fef3c7' }}>
-                      <th style={{ padding:'5px 16px', textAlign:'left', fontWeight:700, fontSize:11 }}>Serviço</th>
-                      <th style={{ padding:'5px 8px',  textAlign:'left', fontWeight:700, fontSize:11 }}>Dias</th>
-                      <th style={{ padding:'5px 8px',  textAlign:'right',fontWeight:700, fontSize:11 }}>Qtd</th>
-                      <th style={{ padding:'5px 8px',  textAlign:'right',fontWeight:700, fontSize:11 }}>Preço unit.</th>
-                      <th style={{ padding:'5px 16px', textAlign:'right',fontWeight:700, fontSize:11 }}>Total</th>
-                      <th style={{ padding:'5px 8px',  width:40 }}></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lancamentos.map(l => (
-                      <tr key={l.id} style={{ borderTop:'1px solid #fde68a' }}>
-                        <td style={{ padding:'6px 16px', fontWeight:600 }}>{l.playbook_item?.descricao ?? '—'}</td>
-                        <td style={{ padding:'6px 8px', fontSize:11, color:'#92400e' }}>{l.dias.map(d=>d.slice(8)+'/'+d.slice(5,7)).join(', ')}</td>
-                        <td style={{ padding:'6px 8px', textAlign:'right' }}>{l.quantidade} {l.playbook_item?.unidade}</td>
-                        <td style={{ padding:'6px 8px', textAlign:'right', color:'#92400e' }}>R$ {(l.playbook_item?.preco_unitario??0).toFixed(2)}</td>
-                        <td style={{ padding:'6px 16px', textAlign:'right', fontWeight:700, color:'#b45309' }}>{formatCurrency(l.valor_total)}</td>
-                        <td style={{ padding:'6px 8px' }}>
-                          <button onClick={()=>l.id && deletarLanc(l.id)} style={{ border:'none', background:'none', cursor:'pointer', color:'#ef4444', padding:2 }}>
-                            <Trash2 size={13}/>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ background:'#fde68a', fontWeight:700 }}>
-                      <td colSpan={4} style={{ padding:'8px 16px' }}>Total apurado por produção</td>
-                      <td style={{ padding:'8px 16px', textAlign:'right', fontSize:14, color:'#92400e' }}>
-                        {formatCurrency(lancamentos.reduce((s,l)=>s+l.valor_total,0))}
-                      </td>
-                      <td/>
-                    </tr>
-                  </tfoot>
-                </table>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Área de lançamentos ── */}
+          <div style={{flex:1,overflowY:'auto',padding:'12px 14px',display:'flex',flexDirection:'column',gap:12}}>
+
+            {loadingDias&&<div style={{textAlign:'center',padding:32,color:'var(--muted-foreground)'}}>Carregando…</div>}
+
+            {!loadingDias&&lancamentos.length===0&&(
+              <div style={{textAlign:'center',padding:40,color:'var(--muted-foreground)',display:'flex',flexDirection:'column',alignItems:'center',gap:10}}>
+                <Clock size={40} style={{opacity:0.3}}/>
+                <div style={{fontWeight:600}}>Nenhum lançamento neste mês</div>
+                <div style={{fontSize:13}}>Clique em "Novo Lançamento" para iniciar o ponto</div>
               </div>
             )}
 
-            {/* ── Resumo financeiro com regra CLT/Autônomo ─────────── */}
-            {resumoFinanceiro && (
-              <div style={{ flexShrink:0, borderTop:'2px solid #1e3a5f', background:'#0f2d4a', color:'#fff', padding:'10px 16px' }}>
-                {resumoFinanceiro.tipo === 'autonomo' ? (
-                  <div style={{ display:'flex', gap:24, flexWrap:'wrap', alignItems:'center' }}>
-                    <span style={{ fontSize:11, opacity:0.7 }}>AUTÔNOMO / PJ</span>
-                    <span>🕐 Horas sem produção: <strong>{formatCurrency(resumoFinanceiro.valorHorasSemProd)}</strong></span>
-                    <span>🏗️ Produção: <strong>{formatCurrency(resumoFinanceiro.totalProd)}</strong></span>
-                    <span style={{ marginLeft:'auto', fontSize:16, fontWeight:800, color:'#fbbf24' }}>
-                      💰 TOTAL: {formatCurrency(resumoFinanceiro.totalPagar)}
-                    </span>
+            {/* Card por lançamento */}
+            {lancamentos.map(lanc=>{
+              const tot=totaisLanc(lanc.id)
+              const diasLanc=diasMap[lanc.id]??[]
+              const exp=expandidos.has(lanc.id)
+              const pb=playbookMap[lanc.obra_id]??[]
+              const prodLanc=producoes.filter(p=>p.lancamento_id===lanc.id)
+
+              return(
+                <div key={lanc.id} style={{border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,0.05)'}}>
+
+                  {/* Cabeçalho do card */}
+                  <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:'var(--muted)',cursor:'pointer'}} onClick={()=>setExpandidos(p=>{const n=new Set(p);exp?n.delete(lanc.id):n.add(lanc.id);return n})}>
+                    {exp?<ChevronDown size={15}/>:<ChevronRight size={15}/>}
+                    <Building2 size={14} style={{color:'var(--primary)',flexShrink:0}}/>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,fontSize:14}}>{lanc.obra_nome}
+                        <span style={{marginLeft:8,fontSize:11,background:'var(--primary)',color:'#fff',borderRadius:4,padding:'1px 6px'}}>{lanc.numero_lancamento}º lançamento</span>
+                      </div>
+                      <div style={{fontSize:11,color:'var(--muted-foreground)',fontFamily:'monospace'}}>
+                        {lanc.data_inicio.slice(8)}/{lanc.data_inicio.slice(5,7)} → {lanc.data_fim.slice(8)}/{lanc.data_fim.slice(5,7)}
+                        <span style={{marginLeft:10}}>· {tot.presentes} dias · {fmtHHMM(tot.total)}h</span>
+                        {tot.atestados>0&&<span style={{color:'#1d4ed8',marginLeft:8}}>🩺 {tot.atestados} afastamento{tot.atestados!==1?'s':''}</span>}
+                        {tot.suspensoes>0&&<span style={{color:'#dc2626',marginLeft:8}}>⛔ {tot.suspensoes} suspensão</span>}
+                      </div>
+                    </div>
+                    {/* Mini totais */}
+                    {valorHora>0&&<div style={{fontSize:12,fontWeight:700,color:'#15803d',textAlign:'right'}}>
+                      {formatCurrency((fmtDecimal(tot.normais)*valorHora)+(fmtDecimal(tot.extras50)*valorHora*1.5))}
+                    </div>}
+                    {/* Ações */}
+                    <div style={{display:'flex',gap:4}} onClick={e=>e.stopPropagation()}>
+                      {pb.length>0&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:3,borderColor:'#f59e0b',color:'#b45309'}} onClick={()=>abrirModalProd(lanc.id)}><Factory size={11}/> Produção</Button>}
+                      <Button size="sm" onClick={()=>salvarLanc(lanc.id)} disabled={saving} style={{height:26,fontSize:11}}>💾 Salvar</Button>
+                      <Button size="sm" variant="ghost" style={{height:26,width:26,padding:0,color:'var(--destructive)'}} onClick={()=>excluirLancamento(lanc.id)}><Trash2 size={12}/></Button>
+                    </div>
                   </div>
-                ) : (
-                  <div style={{ display:'flex', gap:24, flexWrap:'wrap', alignItems:'center' }}>
-                    <span style={{ fontSize:11, opacity:0.7 }}>CLT</span>
-                    <span>🕐 Horas base: <strong style={{ color:'#86efac' }}>{formatCurrency(resumoFinanceiro.valorHoraTotal)}</strong></span>
-                    <span>🏗️ Produção apurada: <strong style={{ color:'#fcd34d' }}>{formatCurrency(resumoFinanceiro.totalProd)}</strong></span>
-                    {resumoFinanceiro.premio > 0 && (
-                      <span>🏆 Prêmio (excedente): <strong style={{ color:'#f59e0b' }}>+{formatCurrency(resumoFinanceiro.premio)}</strong></span>
-                    )}
-                    <span style={{ marginLeft:'auto', fontSize:16, fontWeight:800, color:'#fbbf24' }}>
-                      💰 TOTAL: {formatCurrency(resumoFinanceiro.totalPagar)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
+
+                  {/* Produções do lançamento */}
+                  {prodLanc.length>0&&(
+                    <div style={{background:'#fffbeb',borderBottom:'1px solid #fde68a',padding:'6px 14px'}}>
+                      <div style={{fontSize:11,fontWeight:700,color:'#92400e',marginBottom:4}}>🏗️ Produção lançada</div>
+                      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                        {prodLanc.map(p=>(
+                          <div key={p.id} style={{display:'flex',alignItems:'center',gap:6,background:'#fef3c7',borderRadius:6,padding:'3px 8px',fontSize:11}}>
+                            <span style={{fontWeight:600}}>{p.playbook_item?.descricao}</span>
+                            <span style={{color:'#92400e'}}>{p.quantidade} {p.playbook_item?.unidade} = <strong>{formatCurrency(p.valor_total)}</strong></span>
+                            <span style={{color:'#9ca3af',fontSize:10}}>{p.dias.map(d=>d.slice(8)).join(',')}  </span>
+                            <button onClick={()=>p.id&&deletarProducao(p.id)} style={{border:'none',background:'none',cursor:'pointer',color:'#ef4444',padding:0,lineHeight:1}}><X size={11}/></button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tabela de ponto */}
+                  {exp&&(
+                    <div style={{overflowX:'auto'}}>
+                      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                        <thead>
+                          <tr style={{background:'#1e3a5f',color:'#fff',position:'sticky',top:0}}>
+                            <th style={TH}>Dia</th><th style={TH}>Data</th>
+                            <th style={{...TH,width:64}}>Presente</th><th style={{...TH,width:52}}>Falta</th>
+                            <th style={TH}>Entrada</th><th style={TH}>Saída Alm.</th><th style={TH}>Ret. Alm.</th><th style={TH}>Saída</th>
+                            <th style={{...TH,background:'#2d5a9e'}}>H.E.In</th><th style={{...TH,background:'#2d5a9e'}}>H.E.Out</th>
+                            <th style={{...TH,background:'#1a4a1a'}}>Norm</th><th style={{...TH,background:'#2d5a1a'}}>Ext</th><th style={{...TH,background:'#0f3320'}}>Total</th>
+                            <th style={{...TH,width:80}}>Obs.</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {diasLanc.map((d,idx)=>{
+                            const fds=isFDS(d.data); const calc=calcDia(d)
+                            const bg=d.evento==='suspensao'?'rgba(239,68,68,0.09)':d.evento==='atestado'?'rgba(59,130,246,0.09)':fds?'rgba(100,100,100,0.04)':d.falta?'rgba(239,68,68,0.05)':d.presente?'rgba(22,163,74,0.03)':'transparent'
+                            return(
+                              <tr key={d.data} style={{borderBottom:'1px solid var(--border)',background:bg}}>
+                                <td style={{...TD,fontWeight:700,textAlign:'center',color:fds?'#9ca3af':undefined}}>{diaSemana(d.data)}</td>
+                                <td style={{...TD,textAlign:'center',fontFamily:'monospace',fontWeight:600}}>{d.data.slice(8)}/{d.data.slice(5,7)}</td>
+                                <td style={{...TD,textAlign:'center'}}>
+                                  {fds?<span style={{fontSize:10,color:'#9ca3af'}}>FDS</span>
+                                  :d.evento==='atestado'?<span title="Afastamento">🩺</span>
+                                  :d.evento==='suspensao'?<span title="Suspensão">⛔</span>
+                                  :<button onClick={()=>togglePresente(lanc.id,idx,colabSel!)} style={{border:'none',background:'none',cursor:'pointer',padding:2,color:d.presente?'#16a34a':'#9ca3af'}}>
+                                    {d.presente?<CheckCircle2 size={16}/>:<span style={{fontSize:16,opacity:0.3}}>○</span>}
+                                  </button>}
+                                </td>
+                                <td style={{...TD,textAlign:'center'}}>
+                                  {!fds&&!d.bloqueado&&<button onClick={()=>toggleFalta(lanc.id,idx)} style={{border:'none',background:'none',cursor:'pointer',padding:2,color:d.falta?'#dc2626':'#9ca3af'}}><span style={{fontSize:15,opacity:d.falta?1:0.3}}>✗</span></button>}
+                                </td>
+                                <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.hora_entrada} onChange={v=>updDia(lanc.id,idx,'hora_entrada',v)}/></td>
+                                <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.saida_almoco} onChange={v=>updDia(lanc.id,idx,'saida_almoco',v)}/></td>
+                                <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.retorno_almoco} onChange={v=>updDia(lanc.id,idx,'retorno_almoco',v)}/></td>
+                                <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.hora_saida} onChange={v=>updDia(lanc.id,idx,'hora_saida',v)}/></td>
+                                <td style={{...TD,background:'rgba(45,90,158,0.04)'}}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.he_entrada} onChange={v=>updDia(lanc.id,idx,'he_entrada',v)}/></td>
+                                <td style={{...TD,background:'rgba(45,90,158,0.04)'}}><TI disabled={!d.presente||d.falta||d.bloqueado} value={d.he_saida} onChange={v=>updDia(lanc.id,idx,'he_saida',v)}/></td>
+                                <td style={{...TD,textAlign:'center',fontWeight:600,color:calc.normais>0?'#15803d':'#9ca3af',background:'rgba(22,163,74,0.05)'}}>{calc.normais>0?fmtHHMM(calc.normais):'—'}</td>
+                                <td style={{...TD,textAlign:'center',fontWeight:600,color:calc.extras50>0?'#1d4ed8':'#9ca3af',background:'rgba(45,90,158,0.05)'}}>{calc.extras50>0?fmtHHMM(calc.extras50)+'*':'—'}</td>
+                                <td style={{...TD,textAlign:'center',fontWeight:700,background:'rgba(0,0,0,0.03)'}}>{calc.total>0?fmtHHMM(calc.total):'—'}</td>
+                                <td style={{...TD,fontSize:10}}>
+                                  {d.evento==='atestado'&&<span style={{color:'#1d4ed8',fontWeight:600}}>Afastamento</span>}
+                                  {d.evento==='suspensao'&&<span style={{color:'#b91c1c',fontWeight:600}}>Suspensão</span>}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{background:'#1e3a5f',color:'#fff',fontWeight:700}}>
+                            <td colSpan={4} style={{padding:'7px 12px',fontSize:11}}>
+                              {tot.presentes} dia{tot.presentes!==1?'s':''} trabalhado{tot.presentes!==1?'s':''}
+                              {tot.faltas>0&&<span style={{color:'#fca5a5',marginLeft:8}}>· {tot.faltas} falta{tot.faltas!==1?'s':''}</span>}
+                            </td>
+                            <td colSpan={6} style={{padding:'7px 12px',textAlign:'right',fontSize:10,opacity:0.7}}>{valorHora>0&&`R$ ${valorHora.toFixed(4)}/h`}</td>
+                            <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(22,163,74,0.3)'}}>{fmtHHMM(tot.normais)}</td>
+                            <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(45,90,158,0.4)'}}>{fmtHHMM(tot.extras50)}</td>
+                            <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(0,0,0,0.2)'}}>{fmtHHMM(tot.total)}</td>
+                            <td/>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
           </>
         )}
       </div>
     </div>
-  {/* ═══════ MODAL DE LANÇAMENTO DE PRODUÇÃO ════════════════════════════════ */}
-  {modalProd && colabSel && (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:60, display:'flex', alignItems:'center', justifyContent:'center' }}>
-      <div style={{ background:'var(--background)', borderRadius:14, width:680, maxHeight:'85vh', overflow:'auto', boxShadow:'0 24px 80px rgba(0,0,0,0.4)' }}>
 
-        {/* Header */}
-        <div style={{ padding:'18px 24px 14px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:10 }}>
-          <Factory size={18} style={{ color:'#b45309' }}/>
-          <div style={{ flex:1 }}>
-            <div style={{ fontWeight:800, fontSize:16 }}>Lançar Produção</div>
-            <div style={{ fontSize:12, color:'var(--muted-foreground)' }}>{colabSel.nome} · {MESES[mes-1]}/{ano}</div>
+    {/* ═══ MODAL NOVO LANÇAMENTO ═══ */}
+    {modalLanc&&colabSel&&(
+      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:60,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div style={{background:'var(--background)',borderRadius:12,width:460,padding:28,boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+            <h3 style={{fontWeight:800,fontSize:16,margin:0}}>Novo Lançamento de Ponto</h3>
+            <button onClick={()=>setModalLanc(false)} style={{border:'none',background:'none',cursor:'pointer'}}><X size={18}/></button>
           </div>
-          <button onClick={()=>setModalProd(false)} style={{ border:'none', background:'none', cursor:'pointer' }}><X size={18}/></button>
-        </div>
-
-        <div style={{ padding:'20px 24px', display:'flex', flexDirection:'column', gap:20 }}>
-
-          {/* Seleção de dias */}
-          <div>
-            <div style={{ fontWeight:700, fontSize:13, marginBottom:8 }}>
-              1. Selecione os dias de produção
-              <span style={{ fontWeight:400, fontSize:11, color:'var(--muted-foreground)', marginLeft:8 }}>
-                (dias com atestado ou suspensão não estão disponíveis)
-              </span>
-            </div>
-            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
-              {dias.filter(d => !isFDS(d.data) && d.evento !== 'atestado' && d.evento !== 'suspensao' && d.presente).map(d => {
-                const sel = diasSel.has(d.data)
-                return (
-                  <button key={d.data} onClick={() => {
-                    setDiasSel(prev => {
-                      const next = new Set(prev)
-                      sel ? next.delete(d.data) : next.add(d.data)
-                      return next
-                    })
-                  }} style={{
-                    padding:'4px 10px', borderRadius:6, fontSize:12, fontWeight:600, cursor:'pointer', border:'2px solid',
-                    borderColor: sel ? '#b45309' : 'var(--border)',
-                    background:  sel ? '#fef3c7' : 'transparent',
-                    color:       sel ? '#92400e' : 'var(--foreground)',
-                  }}>
-                    {d.data.slice(8)}/{d.data.slice(5,7)} {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date(d.data+'T12:00:00').getDay()]}
-                  </button>
-                )
-              })}
-              {dias.filter(d => !isFDS(d.data) && d.evento !== 'atestado' && d.evento !== 'suspensao' && d.presente).length === 0 && (
-                <span style={{ fontSize:12, color:'var(--muted-foreground)' }}>Nenhum dia com presença disponível para produção</span>
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <div>
+              <label style={LBL}>Obra *</label>
+              <select value={novoLancObraId} onChange={e=>setNovoLancObraId(e.target.value)} style={SEL}>
+                <option value="">— Selecionar obra —</option>
+                {obras.map(o=>{
+                  const lancObra=lancamentos.filter(l=>l.obra_id===o.id)
+                  const disabled=lancObra.length>=2
+                  return<option key={o.id} value={o.id} disabled={disabled}>{o.nome}{disabled?' (limite atingido)':lancObra.length===1?` (${lancObra.length}/2)`:''}</option>
+                })}
+              </select>
+              {novoLancObraId&&lancamentos.filter(l=>l.obra_id===novoLancObraId).length===1&&(
+                <div style={{fontSize:11,color:'#b45309',marginTop:4,padding:'4px 8px',background:'#fef3c7',borderRadius:4}}>
+                  ⚠️ Já existe 1 lançamento para esta obra. O 2º lançamento deve cobrir o restante do mês.
+                  {' '}Período já usado: {lancamentos.filter(l=>l.obra_id===novoLancObraId)[0]?.data_inicio?.slice(8)}/{lancamentos.filter(l=>l.obra_id===novoLancObraId)[0]?.data_inicio?.slice(5,7)} a {lancamentos.filter(l=>l.obra_id===novoLancObraId)[0]?.data_fim?.slice(8)}/{lancamentos.filter(l=>l.obra_id===novoLancObraId)[0]?.data_fim?.slice(5,7)}
+                </div>
               )}
             </div>
-          </div>
-
-          {/* Itens de produção */}
-          <div>
-            <div style={{ fontWeight:700, fontSize:13, marginBottom:8 }}>2. Informe os serviços produzidos</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              {itensProd.map((item, idx) => {
-                const pb = playbookItens.find(p => p.id === item.playbook_item_id)
-                const valorCalc = pb ? pb.preco_unitario * item.quantidade : 0
-                return (
-                  <div key={idx} style={{ display:'grid', gridTemplateColumns:'1fr 130px 120px 32px', gap:8, alignItems:'center' }}>
-                    <select value={item.playbook_item_id} onChange={e => setItensProd(prev => prev.map((it,i) => i===idx ? {...it, playbook_item_id:e.target.value} : it))}
-                      style={{ padding:'7px 10px', fontSize:13, border:'1px solid var(--border)', borderRadius:6, background:'var(--background)', color:'var(--foreground)' }}>
-                      <option value="">— Selecionar serviço —</option>
-                      {playbookItens.map(p => <option key={p.id} value={p.id}>{p.descricao} ({p.unidade})</option>)}
-                    </select>
-                    <div style={{ display:'flex', flexDirection:'column' }}>
-                      <input type="number" min="0" step="0.01" placeholder={`Qtd (${pb?.unidade??'un'})`}
-                        value={item.quantidade || ''}
-                        onChange={e => setItensProd(prev => prev.map((it,i) => i===idx ? {...it, quantidade:parseFloat(e.target.value)||0} : it))}
-                        style={{ padding:'7px 10px', fontSize:13, border:'1px solid var(--border)', borderRadius:6, background:'var(--background)', color:'var(--foreground)', textAlign:'right' }}
-                      />
-                    </div>
-                    <div style={{ textAlign:'right', fontWeight:700, color:'#b45309', fontSize:13 }}>
-                      {valorCalc > 0 ? formatCurrency(valorCalc) : '—'}
-                    </div>
-                    <button onClick={() => setItensProd(prev => prev.filter((_,i) => i!==idx))}
-                      disabled={itensProd.length<=1}
-                      style={{ border:'none', background:'none', cursor:'pointer', color:'#ef4444', opacity: itensProd.length<=1?0.3:1 }}>
-                      <X size={14}/>
-                    </button>
-                  </div>
-                )
-              })}
-              <Button variant="outline" size="sm" onClick={() => setItensProd(prev => [...prev, { playbook_item_id: playbookItens[0]?.id??'', quantidade:0 }])} style={{ width:'fit-content', gap:4, fontSize:12 }}>
-                <Plus size={12}/> Adicionar serviço
-              </Button>
-            </div>
-          </div>
-
-          {/* Resumo do modal */}
-          {diasSel.size > 0 && itensProd.some(i=>i.quantidade>0) && (() => {
-            const totalProd = itensProd.reduce((s,i) => {
-              const pb = playbookItens.find(p=>p.id===i.playbook_item_id)
-              return s + (pb ? pb.preco_unitario * i.quantidade : 0)
-            }, 0)
-            return (
-              <div style={{ background:'#fef3c7', borderRadius:8, padding:'12px 16px', border:'1px solid #fde68a' }}>
-                <div style={{ fontSize:12, color:'#92400e', marginBottom:4 }}>
-                  <strong>{diasSel.size}</strong> dias selecionados · <strong>{itensProd.filter(i=>i.quantidade>0).length}</strong> serviço(s)
-                </div>
-                <div style={{ fontSize:16, fontWeight:800, color:'#b45309' }}>
-                  Total de produção: {formatCurrency(totalProd)}
-                </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              <div>
+                <label style={LBL}>Data de Início *</label>
+                <input type="date" value={novoLancInicio} onChange={e=>setNovoLancInicio(e.target.value)}
+                  min={`${mesRef}-01`} max={`${mesRef}-${new Date(ano,mes,0).getDate()}`}
+                  style={{width:'100%',padding:'8px 10px',fontSize:13,border:'1px solid var(--border)',borderRadius:6,background:'var(--background)',color:'var(--foreground)'}}/>
               </div>
-            )
-          })()}
-        </div>
-
-        {/* Footer modal */}
-        <div style={{ padding:'14px 24px', borderTop:'1px solid var(--border)', display:'flex', gap:10, justifyContent:'flex-end' }}>
-          <Button variant="outline" onClick={()=>setModalProd(false)}>Cancelar</Button>
-          <Button onClick={salvarProducao} disabled={savingProd} style={{ background:'#b45309', color:'#fff' }}>
-            {savingProd ? '⏳ Salvando…' : '🏗️ Salvar Produção'}
-          </Button>
+              <div>
+                <label style={LBL}>Data de Fim *</label>
+                <input type="date" value={novoLancFim} onChange={e=>setNovoLancFim(e.target.value)}
+                  min={novoLancInicio||`${mesRef}-01`} max={`${mesRef}-${new Date(ano,mes,0).getDate()}`}
+                  style={{width:'100%',padding:'8px 10px',fontSize:13,border:'1px solid var(--border)',borderRadius:6,background:'var(--background)',color:'var(--foreground)'}}/>
+              </div>
+            </div>
+            {novoLancInicio&&novoLancFim&&(
+              <div style={{fontSize:12,color:'var(--muted-foreground)',padding:'6px 10px',background:'var(--muted)',borderRadius:6}}>
+                Período: {expandRange(novoLancInicio,novoLancFim).length} dias ({expandRange(novoLancInicio,novoLancFim).filter(d=>!isFDS(d)).length} úteis)
+              </div>
+            )}
+          </div>
+          <div style={{display:'flex',gap:10,marginTop:20,justifyContent:'flex-end'}}>
+            <Button variant="outline" onClick={()=>setModalLanc(false)}>Cancelar</Button>
+            <Button onClick={criarLancamento} disabled={savingLanc}>{savingLanc?'Criando…':'✅ Criar Lançamento'}</Button>
+          </div>
         </div>
       </div>
-    </div>
-  )}
-  </>
+    )}
+
+    {/* ═══ MODAL PRODUÇÃO ═══ */}
+    {modalProd&&colabSel&&(()=>{
+      const lanc=lancamentos.find(l=>l.id===prodLancId)
+      const pb=lanc?playbookMap[lanc.obra_id]??[]:[]
+      const diasDisp=(diasMap[prodLancId]??[]).filter(d=>!isFDS(d.data)&&d.evento!=='atestado'&&d.evento!=='suspensao'&&d.presente)
+      const totalCalc=itensProd.reduce((s,i)=>{const p=pb.find(x=>x.id===i.playbook_item_id);return s+(p?p.preco_unitario*i.quantidade:0)},0)
+      return(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:60,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{background:'var(--background)',borderRadius:14,width:660,maxHeight:'85vh',overflow:'auto',boxShadow:'0 24px 80px rgba(0,0,0,0.4)'}}>
+            <div style={{padding:'16px 22px 12px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:10}}>
+              <Factory size={16} style={{color:'#b45309'}}/>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:800,fontSize:15}}>Lançar Produção</div>
+                <div style={{fontSize:11,color:'var(--muted-foreground)'}}>{lanc?.obra_nome} · {lanc?.data_inicio?.slice(8)}/{lanc?.data_inicio?.slice(5,7)} a {lanc?.data_fim?.slice(8)}/{lanc?.data_fim?.slice(5,7)}</div>
+              </div>
+              <button onClick={()=>setModalProd(false)} style={{border:'none',background:'none',cursor:'pointer'}}><X size={16}/></button>
+            </div>
+            <div style={{padding:'18px 22px',display:'flex',flexDirection:'column',gap:18}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>1. Selecione os dias de produção</div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+                  {diasDisp.length===0&&<span style={{fontSize:12,color:'var(--muted-foreground)'}}>Nenhum dia com presença disponível</span>}
+                  {diasDisp.map(d=>{
+                    const sel=diasSelProd.has(d.data)
+                    return<button key={d.data} onClick={()=>setDiasSelProd(p=>{const n=new Set(p);sel?n.delete(d.data):n.add(d.data);return n})} style={{padding:'4px 9px',borderRadius:5,fontSize:12,fontWeight:600,cursor:'pointer',border:'2px solid',borderColor:sel?'#b45309':'var(--border)',background:sel?'#fef3c7':'transparent',color:sel?'#92400e':'var(--foreground)'}}>
+                      {d.data.slice(8)}/{d.data.slice(5,7)} {diaSemana(d.data)}
+                    </button>
+                  })}
+                </div>
+              </div>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>2. Serviços produzidos</div>
+                <div style={{display:'flex',flexDirection:'column',gap:7}}>
+                  {itensProd.map((item,idx)=>{
+                    const p=pb.find(x=>x.id===item.playbook_item_id)
+                    return<div key={idx} style={{display:'grid',gridTemplateColumns:'1fr 120px 110px 28px',gap:7,alignItems:'center'}}>
+                      <select value={item.playbook_item_id} onChange={e=>setItensProd(prev=>prev.map((it,i)=>i===idx?{...it,playbook_item_id:e.target.value}:it))} style={{padding:'6px 9px',fontSize:12,border:'1px solid var(--border)',borderRadius:6,background:'var(--background)',color:'var(--foreground)'}}>
+                        <option value="">— Serviço —</option>
+                        {pb.map(p=><option key={p.id} value={p.id}>{p.descricao} ({p.unidade})</option>)}
+                      </select>
+                      <input type="number" min="0" step="0.01" placeholder={`Qtd ${p?.unidade??''}`} value={item.quantidade||''}
+                        onChange={e=>setItensProd(prev=>prev.map((it,i)=>i===idx?{...it,quantidade:parseFloat(e.target.value)||0}:it))}
+                        style={{padding:'6px 9px',fontSize:12,border:'1px solid var(--border)',borderRadius:6,background:'var(--background)',color:'var(--foreground)',textAlign:'right'}}/>
+                      <div style={{textAlign:'right',fontWeight:700,color:'#b45309',fontSize:12}}>{p&&item.quantidade>0?formatCurrency(p.preco_unitario*item.quantidade):'—'}</div>
+                      <button onClick={()=>setItensProd(p=>p.filter((_,i)=>i!==idx))} disabled={itensProd.length<=1} style={{border:'none',background:'none',cursor:'pointer',color:'#ef4444',opacity:itensProd.length<=1?0.3:1}}><X size={13}/></button>
+                    </div>
+                  })}
+                  <Button variant="outline" size="sm" onClick={()=>setItensProd(p=>[...p,{playbook_item_id:pb[0]?.id??'',quantidade:0}])} style={{width:'fit-content',gap:4,fontSize:11}}><Plus size={11}/> Adicionar</Button>
+                </div>
+              </div>
+              {diasSelProd.size>0&&totalCalc>0&&(
+                <div style={{background:'#fef3c7',borderRadius:8,padding:'10px 14px',border:'1px solid #fde68a'}}>
+                  <span style={{fontSize:12,color:'#92400e'}}><strong>{diasSelProd.size}</strong> dias · </span>
+                  <span style={{fontSize:15,fontWeight:800,color:'#b45309'}}>Total: {formatCurrency(totalCalc)}</span>
+                </div>
+              )}
+            </div>
+            <div style={{padding:'12px 22px',borderTop:'1px solid var(--border)',display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <Button variant="outline" onClick={()=>setModalProd(false)}>Cancelar</Button>
+              <Button onClick={salvarProducao} disabled={savingProd} style={{background:'#b45309',color:'#fff'}}>{savingProd?'⏳…':'🏗️ Salvar Produção'}</Button>
+            </div>
+          </div>
+        </div>
+      )
+    })()}
+    </>
   )
 }
 
 // ─── Estilos ──────────────────────────────────────────────────────────────────
-const TH: React.CSSProperties = { padding:'8px 5px', fontWeight:700, fontSize:11, textTransform:'uppercase', letterSpacing:'0.04em', textAlign:'center', whiteSpace:'nowrap' }
-const TD: React.CSSProperties = { padding:'3px 4px' }
+const TH:React.CSSProperties={padding:'7px 4px',fontWeight:700,fontSize:10,textTransform:'uppercase',letterSpacing:'0.04em',textAlign:'center',whiteSpace:'nowrap'}
+const TD:React.CSSProperties={padding:'2px 3px'}
+const LBL:React.CSSProperties={display:'block',fontSize:12,fontWeight:600,marginBottom:4,color:'var(--muted-foreground)'}
+const SEL:React.CSSProperties={width:'100%',padding:'8px 10px',fontSize:13,border:'1px solid var(--border)',borderRadius:6,background:'var(--background)',color:'var(--foreground)'}
 
-function TI({ value, onChange, disabled }: { value: string; onChange:(v:string)=>void; disabled:boolean }) {
-  return (
-    <input type="time" value={value} onChange={e=>onChange(e.target.value)} disabled={disabled}
-      style={{
-        width:78, padding:'3px 4px', fontSize:12,
-        border:'1px solid var(--border)', borderRadius:4,
-        background: disabled?'transparent':'var(--background)',
-        color: disabled?'#9ca3af':'var(--foreground)',
-        fontFamily:'monospace', textAlign:'center',
-        cursor: disabled?'not-allowed':'text', outline:'none',
-      }}
-    />
-  )
+function TI({value,onChange,disabled}:{value:string;onChange:(v:string)=>void;disabled:boolean}){
+  return<input type="time" value={value} onChange={e=>onChange(e.target.value)} disabled={disabled} style={{width:74,padding:'2px 3px',fontSize:11,border:'1px solid var(--border)',borderRadius:4,background:disabled?'transparent':'var(--background)',color:disabled?'#9ca3af':'var(--foreground)',fontFamily:'monospace',textAlign:'center',cursor:disabled?'not-allowed':'text',outline:'none'}}/>
 }

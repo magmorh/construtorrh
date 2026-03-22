@@ -585,3 +585,40 @@ CREATE POLICY "ocorr_delete"    ON storage.objects FOR DELETE TO authenticated
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- FIM DO SCRIPT — todas as 18 tabelas criadas/atualizadas com segurança
 -- ═══════════════════════════════════════════════════════════════════════════════
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- PLAYBOOK_ITENS: Tabela de preços por produção por obra
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.playbook_itens (
+  id               UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  obra_id          UUID NOT NULL REFERENCES public.obras(id) ON DELETE CASCADE,
+  descricao        TEXT NOT NULL,
+  unidade          TEXT NOT NULL DEFAULT 'm²',
+  preco_unitario   NUMERIC(12,2) NOT NULL DEFAULT 0,
+  categoria        TEXT,
+  ativo            BOOLEAN DEFAULT TRUE
+);
+ALTER TABLE public.playbook_itens ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "playbook_itens_auth" ON public.playbook_itens;
+CREATE POLICY "playbook_itens_auth" ON public.playbook_itens
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- PONTO_PRODUCAO: Lançamentos de produção vinculados ao ponto
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.ponto_producao (
+  id                UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  created_at        TIMESTAMPTZ DEFAULT NOW(),
+  colaborador_id    UUID NOT NULL REFERENCES public.colaboradores(id) ON DELETE CASCADE,
+  mes_referencia    TEXT NOT NULL,          -- formato YYYY-MM
+  playbook_item_id  UUID NOT NULL REFERENCES public.playbook_itens(id) ON DELETE RESTRICT,
+  dias              TEXT[] NOT NULL,        -- array de datas YYYY-MM-DD
+  quantidade        NUMERIC(12,4) NOT NULL DEFAULT 0,
+  valor_total       NUMERIC(12,2) NOT NULL DEFAULT 0,
+  observacoes       TEXT
+);
+ALTER TABLE public.ponto_producao ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "ponto_producao_auth" ON public.ponto_producao;
+CREATE POLICY "ponto_producao_auth" ON public.ponto_producao
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);

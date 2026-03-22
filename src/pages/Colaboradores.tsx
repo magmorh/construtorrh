@@ -629,7 +629,8 @@ export default function Colaboradores() {
     setMotivoTroca('')
     setTrocandoFuncao(false)
     setEpiList(epis)
-    setSection('pessoal')
+    // Se já tem EPIs vinculados, abrir direto na aba EPIs para o usuário configurar tamanhos
+    setSection(epis.length > 0 ? 'epis' : 'pessoal')
     setModalOpen(true)
   }
 
@@ -1014,14 +1015,26 @@ export default function Colaboradores() {
           <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', margin: '12px 24px 0', flexShrink: 0 }}>
             {(['pessoal', 'funcao', 'bancario', 'vt', 'epis'] as const).map(s => {
               const labels: Record<string, string> = { pessoal: 'Dados Pessoais', funcao: 'Função & Contrato', bancario: 'Dados Bancários', vt: 'Vale Transporte', epis: '🦺 EPIs' }
+              const isEpisTab = s === 'epis'
+              const hasEpis   = isEpisTab && epiList.length > 0
               return (
                 <button key={s} onClick={() => setSection(s)} style={{
-                  padding: '8px 16px', fontSize: 13, fontWeight: 500, border: 'none', background: 'none', cursor: 'pointer',
+                  padding: '8px 16px', fontSize: 13, fontWeight: 500, border: 'none', background: 'none',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
                   borderBottom: section === s ? '2px solid var(--primary)' : '2px solid transparent',
                   color: section === s ? 'var(--primary)' : 'var(--muted-foreground)',
                   marginBottom: -1,
                 }}>
                   {labels[s]}
+                  {hasEpis && (
+                    <span style={{
+                      background: section === s ? 'var(--primary)' : '#16a34a',
+                      color: '#fff', fontSize: 10, fontWeight: 700,
+                      borderRadius: 10, padding: '1px 6px', lineHeight: '16px',
+                    }}>
+                      {epiList.length}
+                    </span>
+                  )}
                 </button>
               )
             })}
@@ -1227,7 +1240,28 @@ export default function Colaboradores() {
 
             {/* ── SEÇÃO EPIs DO COLABORADOR ─────────────────────────────── */}
             {section === 'epis' && (
-              <EpiColabSection epiList={epiList} setEpiList={setEpiList} funcaoNome={funcoes.find(f => f.id === form.funcao_id)?.nome} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* Banner informativo para novo colaborador */}
+                {!editId && epiList.length > 0 && (
+                  <div style={{
+                    background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                    border: '1px solid #93c5fd', borderRadius: 8, padding: '10px 14px',
+                    display: 'flex', alignItems: 'flex-start', gap: 10,
+                  }}>
+                    <span style={{ fontSize: 20 }}>🦺</span>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1d4ed8' }}>
+                        {epiList.length} EPI{epiList.length !== 1 ? 's' : ''} carregado{epiList.length !== 1 ? 's' : ''} automaticamente
+                      </div>
+                      <div style={{ fontSize: 12, color: '#3b82f6', marginTop: 2 }}>
+                        EPIs vinculados à função <strong>{funcoes.find(f => f.id === form.funcao_id)?.nome}</strong>.
+                        Preencha os tamanhos/números necessários, depois clique em <strong>Dados Pessoais</strong> para completar o cadastro.
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <EpiColabSection epiList={epiList} setEpiList={setEpiList} funcaoNome={funcoes.find(f => f.id === form.funcao_id)?.nome} />
+              </div>
             )}
           </div>
 

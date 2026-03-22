@@ -68,6 +68,7 @@ interface ColabEpiItem {
   documento_url?: string | null
   documento_nome?: string | null
   uploadingDoc?: boolean
+  _foraFuncao?: boolean  // marcado após atualização: EPI não pertence mais à função atual
 }
 
 type FormData = {
@@ -469,6 +470,10 @@ export default function Colaboradores() {
   // delete
   const [deleteId, setDeleteId] = useState<string | null>(null)
 
+  // atualizar EPIs da função
+  const [atualizandoEpis, setAtualizandoEpis] = useState(false)
+  const [confirmarAtualizEpis, setConfirmarAtualizEpis] = useState(false)
+
   // ── fetch ─────────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -632,6 +637,67 @@ export default function Colaboradores() {
     // Se já tem EPIs vinculados, abrir direto na aba EPIs para o usuário configurar tamanhos
     setSection(epis.length > 0 ? 'epis' : 'pessoal')
     setModalOpen(true)
+  }
+
+  // ── atualizar EPIs conforme a função atual ──────────────────────────────
+  const atualizarEpisPorFuncao = async () => {
+    if (!form.funcao_id) { return }
+    setAtualizandoEpis(true)
+    setConfirmarAtualizEpis(false)
+
+    const { data: feData } = await supabase
+      .from('funcao_epi')
+      .select('*, epi_catalogo(id, nome, categoria, requer_tamanho, requer_numero)')
+      .eq('funcao_id', form.funcao_id)
+
+    const episDaFuncao = (feData ?? []).map((fe: any) => fe.epi_id as string)
+
+    // Mantém EPIs que já existem no colaborador (preserva tamanho/número já preenchidos)
+    // Adiciona novos EPIs da função que ainda não estão na lista
+    // Remove EPIs que não pertencem mais à função E ainda não foram entregues (status pendente)
+    setEpiList(prev => {
+      const novos: ColabEpiItem[] = []
+
+      // Adicionar EPIs da função que ainda não existem
+      ;(feData ?? []).forEach((fe: any) => {
+        const jaExiste = prev.find(e => e.epi_id === fe.epi_id)
+        if (!jaExiste) {
+          novos.push({
+            epi_id: fe.epi_id as string,
+            epi_nome: (fe.epi_catalogo?.nome ?? '') as string,
+            epi_categoria: (fe.epi_catalogo?.categoria ?? null) as string | null,
+            requer_tamanho: (fe.epi_catalogo?.requer_tamanho ?? false) as boolean,
+            requer_numero: (fe.epi_catalogo?.requer_numero ?? false) as boolean,
+            obrigatorio: (fe.obrigatorio ?? true) as boolean,
+            quantidade: (fe.quantidade ?? 1) as number,
+            tamanho: '',
+            numero: '',
+            status: 'pendente',
+            documento_url: null as string | null | undefined,
+            documento_nome: null as string | null | undefined,
+          })
+        }
+      })
+
+      // Manter EPIs já existentes (mesmo fora da função - podem ter sido entregues)
+      // Apenas marca os que NÃO estão mais na função para identificação visual
+      const mantidos = prev.map(e => ({
+        ...e,
+        _foraFuncao: !episDaFuncao.includes(e.epi_id),
+      }))
+
+      return [...mantidos, ...novos]
+    })
+
+    setAtualizandoEpis(false)
+    const qtdNovos = episDaFuncao.filter(
+      id => !epiList.find(e => e.epi_id === id)
+    ).length
+    if (qtdNovos > 0) {
+      toast.success(`${qtdNovos} novo(s) EPI(s) adicionado(s) da função`)
+    } else {
+      toast.info('EPIs já estão atualizados com a função atual')
+    }
   }
 
   // ── abrir modal editar ───────────────────────────────────────────────────
@@ -925,6 +991,33 @@ export default function Colaboradores() {
           )}
         </>
       )}
+
+      {/* ═══════════ CONFIRMAR ATUALIZAÇÃO DE EPIs ════════════════════════ */}
+      <AlertDialog open={confirmarAtualizEpis} onOpenChange={setConfirmarAtualizEpis}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>🔄 Atualizar EPIs da função?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <span>
+                Isso irá adicionar todos os EPIs vinculados à função{' '}
+                <strong>{funcoes.find(f => f.id === form.funcao_id)?.nome}</strong> que ainda não estão na lista do colaborador.
+              </span>
+              <br /><br />
+              <span>
+                ✅ EPIs já entregues <strong>serão mantidos</strong>.<br />
+                ➕ Novos EPIs da função <strong>serão adicionados</strong>.<br />
+                ⚠️ EPIs fora da função <strong>serão marcados</strong> para revisão, mas não removidos.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={atualizarEpisPorFuncao}>
+              Sim, atualizar EPIs
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ═══════════ PRÉ-MODAL: ETAPA 1 — FUNÇÃO + ADMISSÃO ═════════════════ */}
       <Dialog open={preModal} onOpenChange={v => { if (!preLoading) setPreModal(v) }}>
@@ -1241,7 +1334,8 @@ export default function Colaboradores() {
             {/* ── SEÇÃO EPIs DO COLABORADOR ─────────────────────────────── */}
             {section === 'epis' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {/* Banner informativo para novo colaborador */}
+
+                {/* Banner: novo colaborador */}
                 {!editId && epiList.length > 0 && (
                   <div style={{
                     background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
@@ -1260,6 +1354,42 @@ export default function Colaboradores() {
                     </div>
                   </div>
                 )}
+
+                {/* Botão de atualização de EPIs — apenas na edição */}
+                {editId && form.funcao_id && (
+                  <div style={{
+                    background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+                    border: '1px solid #86efac', borderRadius: 8, padding: '10px 14px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 20 }}>🔄</span>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#15803d' }}>
+                          Sincronizar EPIs com a função atual
+                        </div>
+                        <div style={{ fontSize: 11, color: '#16a34a', marginTop: 1 }}>
+                          Função: <strong>{funcoes.find(f => f.id === form.funcao_id)?.nome}</strong>
+                          {' · '}Adiciona novos EPIs vinculados à função sem remover os já entregues
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setConfirmarAtualizEpis(true)}
+                      disabled={atualizandoEpis}
+                      style={{
+                        padding: '6px 14px', borderRadius: 6, border: '1px solid #16a34a',
+                        background: '#16a34a', color: '#fff', fontSize: 12, fontWeight: 600,
+                        cursor: atualizandoEpis ? 'not-allowed' : 'pointer',
+                        opacity: atualizandoEpis ? 0.6 : 1,
+                        display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {atualizandoEpis ? '⏳ Atualizando…' : '⟳ Atualizar EPIs'}
+                    </button>
+                  </div>
+                )}
+
                 <EpiColabSection epiList={epiList} setEpiList={setEpiList} funcaoNome={funcoes.find(f => f.id === form.funcao_id)?.nome} />
               </div>
             )}
@@ -1864,9 +1994,20 @@ function EpiColabSection({ epiList, setEpiList, funcaoNome }: EpiColabSectionPro
           <tbody>
             {epiList.map((epi, idx) => (
               <tr key={epi.epi_id}
-                style={{ borderBottom: idx < epiList.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                style={{
+                  borderBottom: idx < epiList.length - 1 ? '1px solid var(--border)' : 'none',
+                  background: epi._foraFuncao ? 'rgba(239,68,68,0.04)' : 'transparent',
+                }}>
                 <td style={{ padding: '10px 14px' }}>
-                  <div style={{ fontWeight: 500 }}>{epi.epi_nome}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontWeight: 500 }}>{epi.epi_nome}</span>
+                    {epi._foraFuncao && (
+                      <span style={{
+                        fontSize: 10, background: '#fef2f2', color: '#dc2626',
+                        border: '1px solid #fecaca', borderRadius: 4, padding: '1px 5px', fontWeight: 600,
+                      }}>fora da função</span>
+                    )}
+                  </div>
                 </td>
                 <td style={{ padding: '10px 14px', fontSize: 11, color: 'var(--muted-foreground)' }}>
                   {epi.epi_categoria ?? '—'}

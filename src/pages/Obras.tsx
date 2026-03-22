@@ -19,7 +19,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Building2, Plus, Search, Pencil, Trash2, MapPin, Clock,
+  Building2, Plus, Search, Pencil, Trash2, MapPin, Clock, AlertTriangle,
   Calendar, Users, X, ChevronRight,
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -341,7 +341,16 @@ export default function Obras() {
                   <TableCell>
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                       <Button variant="ghost" size="icon" style={{ width: 30, height: 30 }} onClick={() => openEdit(o)} title="Editar"><Pencil size={13} /></Button>
-                      <Button variant="ghost" size="icon" style={{ width: 30, height: 30 }} onClick={() => { openEdit(o); setTimeout(() => setModalTab('horarios'), 100) }} title="Horários"><Clock size={13} /></Button>
+                      {/* Indicador de horários — apenas visual, não é botão */}
+                      <span
+                        title={o.has_horarios ? 'Horários configurados' : 'Sem horários cadastrados — edite a obra para configurar'}
+                        style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:30, height:30 }}
+                      >
+                        {o.has_horarios
+                          ? <Clock size={14} style={{ color:'#16a34a' }} />
+                          : <AlertTriangle size={14} style={{ color:'#f59e0b' }} />
+                        }
+                      </span>
                       {(o.colaboradores_count ?? 0) > 0
                         ? <Button variant="ghost" size="icon" style={{ width: 30, height: 30, color: 'var(--muted-foreground)', opacity: 0.35, cursor: 'not-allowed' }} title={`Não é possível excluir: ${o.colaboradores_count} colaborador(es) vinculado(s)`} disabled><Trash2 size={13} /></Button>
                         : <Button variant="ghost" size="icon" style={{ width: 30, height: 30, color: 'var(--destructive)' }} onClick={() => setDeleteId(o.id)} title="Excluir"><Trash2 size={13} /></Button>

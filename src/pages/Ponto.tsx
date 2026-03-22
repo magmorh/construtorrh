@@ -127,6 +127,12 @@ function isFDS(data: string): boolean {
   return d === 0 || d === 6
 }
 
+// Normaliza campo TIME do Supabase (HH:MM:SS ou HH:MM) → HH:MM
+function normTime(t: string | null | undefined): string {
+  if (!t) return ''
+  return t.slice(0, 5) // pega apenas HH:MM
+}
+
 function emptyDia(colaborador_id: string, data: string): DiaRegistro {
   return {
     colaborador_id, data,
@@ -286,6 +292,27 @@ export default function Ponto() {
         return { ...base, evento, bloqueado: false }
       }
 
+      // Dia com registro já salvo
+      // Se for atestado: garante que os horários da obra estejam preenchidos (seg-sex)
+      if (isAtestado) {
+        const diaSem = DIAS_KEY[new Date(d + 'T12:00:00').getDay()]
+        const hor = horarioObraMap[diaSem]
+        return {
+          id: r.id, colaborador_id: colab.id, data: d,
+          presente:       true,
+          falta:          false,
+          hora_entrada:   hor?.hora_entrada   || r.hora_entrada   || '',
+          saida_almoco:   hor?.saida_almoco   || r.saida_almoco   || '',
+          retorno_almoco: hor?.retorno_almoco || r.retorno_almoco || '',
+          hora_saida:     hor?.hora_saida     || r.hora_saida     || '',
+          he_entrada:     '',
+          he_saida:       '',
+          justificativa:  r.justificativa ?? '',
+          evento,
+          bloqueado: true,
+        } as DiaRegistro
+      }
+
       return {
         id: r.id, colaborador_id: colab.id, data: d,
         presente:       !!(r.hora_entrada || r.hora_saida),
@@ -298,7 +325,7 @@ export default function Ponto() {
         he_saida:       r.he_saida       ?? '',
         justificativa:  r.justificativa  ?? '',
         evento,
-        bloqueado: isAtestado || isSuspensao,
+        bloqueado: isSuspensao,
       } as DiaRegistro
     }))
     setLoadingDias(false)
@@ -311,7 +338,15 @@ export default function Ponto() {
       let horMap: Record<string, HorarioDia> = {}
       if (colabSel.obra_id) {
         const { data } = await supabase.from('obra_horarios').select('*').eq('obra_id', colabSel.obra_id)
-        ;(data ?? []).forEach((h: any) => { horMap[h.dia_semana] = h })
+        ;(data ?? []).forEach((h: any) => {
+          horMap[h.dia_semana] = {
+            ...h,
+            hora_entrada:   normTime(h.hora_entrada),
+            saida_almoco:   normTime(h.saida_almoco),
+            retorno_almoco: normTime(h.retorno_almoco),
+            hora_saida:     normTime(h.hora_saida),
+          }
+        })
         setHorarioObra(horMap)
       } else {
         setHorarioObra({})

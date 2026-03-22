@@ -27,7 +27,7 @@ import { useProfile } from '@/hooks/useProfile'
 type Colaborador = { id: string; nome: string; chapa: string }
 type Obra        = { id: string; nome: string }
 
-type AcidenteRef = { id: string; data_acidente: string; tipo: string | null; descricao: string }
+type AcidenteRef = { id: string; data_ocorrencia: string; tipo: string | null; descricao: string }
 
 type Atestado = {
   id: string; colaborador_id: string
@@ -38,7 +38,7 @@ type Atestado = {
   acidente_id: string | null
   documento_url: string | null; documento_nome: string | null
   colaboradores: { id: string; nome: string; chapa: string } | null
-  acidentes?: { id: string; data_acidente: string; tipo: string | null } | null
+  acidentes?: { id: string; data_ocorrencia: string; tipo: string | null } | null
 }
 type AtestadoForm = {
   colaborador_id: string; data: string; tipo: string; dias_afastamento: string
@@ -53,7 +53,7 @@ const ATEST_EMPTY: AtestadoForm = {
 
 type Acidente = {
   id: string; colaborador_id: string; obra_id: string | null
-  data_acidente: string; hora_acidente: string | null
+  data_ocorrencia: string; hora_acidente: string | null
   tipo: string | null; gravidade: string | null; descricao: string
   local_acidente: string | null; cat_emitida: boolean | null
   status: string | null; observacoes: string | null
@@ -62,13 +62,13 @@ type Acidente = {
   obras: { id: string; nome: string } | null
 }
 type AcidenteForm = {
-  colaborador_id: string; obra_id: string; data_acidente: string; hora_acidente: string
+  colaborador_id: string; obra_id: string; data_ocorrencia: string; hora_acidente: string
   tipo: string; gravidade: string; descricao: string; local_acidente: string
   cat_emitida: boolean; observacoes: string
   documento_url: string; documento_nome: string
 }
 const ACID_EMPTY: AcidenteForm = {
-  colaborador_id: '', obra_id: '', data_acidente: '', hora_acidente: '',
+  colaborador_id: '', obra_id: '', data_ocorrencia: '', hora_acidente: '',
   tipo: '', gravidade: '', descricao: '', local_acidente: '',
   cat_emitida: false, observacoes: '',
   documento_url: '', documento_nome: '',
@@ -267,7 +267,7 @@ export default function Ocorrencias() {
     setLoadingAtest(true)
     const { data, error } = await supabase
       .from('atestados')
-      .select('id, colaborador_id, data, tipo, dias_afastamento, com_afastamento, cid, medico, descricao, observacoes, acidente_id, documento_url, documento_nome, colaboradores(id, nome, chapa), acidentes(id, data_acidente, tipo)')
+      .select('id, colaborador_id, data, tipo, dias_afastamento, com_afastamento, cid, medico, descricao, observacoes, acidente_id, documento_url, documento_nome, colaboradores(id, nome, chapa), acidentes(id, data_ocorrencia, tipo)')
       .order('data', { ascending: false })
     if (error) toast.error('Erro atestados: ' + error.message)
     else setAtestados((data as unknown as Atestado[]) ?? [])
@@ -280,13 +280,13 @@ export default function Ocorrencias() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let res: any = await supabase
       .from('acidentes')
-      .select('id, colaborador_id, obra_id, data_acidente, hora_acidente, tipo, gravidade, descricao, local_acidente, cat_emitida, status, observacoes, documento_url, documento_nome, colaboradores(id, nome, chapa), obras(id, nome)')
-      .order('data_acidente', { ascending: false })
+      .select('id, colaborador_id, obra_id, data_ocorrencia, hora_acidente, tipo, gravidade, descricao, local_acidente, cat_emitida, status, observacoes, documento_url, documento_nome, colaboradores(id, nome, chapa), obras(id, nome)')
+      .order('data_ocorrencia', { ascending: false })
     if (res.error && res.error.message.includes('documento_')) {
       res = await supabase
         .from('acidentes')
-        .select('id, colaborador_id, obra_id, data_acidente, hora_acidente, tipo, gravidade, descricao, local_acidente, cat_emitida, status, observacoes, colaboradores(id, nome, chapa), obras(id, nome)')
-        .order('data_acidente', { ascending: false })
+        .select('id, colaborador_id, obra_id, data_ocorrencia, hora_acidente, tipo, gravidade, descricao, local_acidente, cat_emitida, status, observacoes, colaboradores(id, nome, chapa), obras(id, nome)')
+        .order('data_ocorrencia', { ascending: false })
     }
     if (res.error) toast.error('Erro acidentes: ' + res.error.message)
     else setAcidentes((res.data as unknown as Acidente[]) ?? [])
@@ -312,9 +312,9 @@ export default function Ocorrencias() {
     if (!colabId) { setAcidDoColaborador([]); return }
     const { data } = await supabase
       .from('acidentes')
-      .select('id, data_acidente, tipo, descricao')
+      .select('id, data_ocorrencia, tipo, descricao')
       .eq('colaborador_id', colabId)
-      .order('data_acidente', { ascending: false })
+      .order('data_ocorrencia', { ascending: false })
     setAcidDoColaborador((data as AcidenteRef[]) ?? [])
   }
 
@@ -373,7 +373,7 @@ export default function Ocorrencias() {
     setAcidEditId(a.id)
     setAcidForm({
       colaborador_id: a.colaborador_id ?? '', obra_id: a.obra_id ?? '',
-      data_acidente: a.data_acidente ?? '', hora_acidente: a.hora_acidente ?? '',
+      data_ocorrencia: a.data_ocorrencia ?? '', hora_acidente: a.hora_acidente ?? '',
       tipo: a.tipo ?? '', gravidade: a.gravidade ?? '', descricao: a.descricao ?? '',
       local_acidente: a.local_acidente ?? '', cat_emitida: a.cat_emitida ?? false,
       observacoes: a.observacoes ?? '',
@@ -383,7 +383,7 @@ export default function Ocorrencias() {
   }
   async function saveAcidente() {
     if (!acidForm.colaborador_id)   { toast.error('Selecione um colaborador'); return }
-    if (!acidForm.data_acidente)    { toast.error('Data é obrigatória'); return }
+    if (!acidForm.data_ocorrencia)    { toast.error('Data é obrigatória'); return }
     if (!acidForm.descricao.trim()) { toast.error('Descrição é obrigatória'); return }
     if (acidForm.cat_emitida && !acidForm.documento_url) {
       toast.error('CAT emitida: anexe o documento da CAT para salvar'); return
@@ -391,7 +391,7 @@ export default function Ocorrencias() {
     setSavingAcid(true)
     const payload: Record<string, unknown> = {
       colaborador_id: acidForm.colaborador_id, obra_id: acidForm.obra_id || null,
-      data_acidente: acidForm.data_acidente, hora_acidente: acidForm.hora_acidente || null,
+      data_ocorrencia: acidForm.data_ocorrencia, hora_acidente: acidForm.hora_acidente || null,
       tipo: acidForm.tipo || null, gravidade: acidForm.gravidade || null,
       descricao: acidForm.descricao, local_acidente: acidForm.local_acidente || null,
       cat_emitida: acidForm.cat_emitida, observacoes: acidForm.observacoes || null,
@@ -530,7 +530,7 @@ export default function Ocorrencias() {
                       {a.obras && <div style={{ fontSize: 11, color: '#6366f1' }}>{a.obras.nome}</div>}
                     </TableCell>
                     <TableCell style={{ fontSize: 13 }}>
-                      {formatDate(a.data_acidente)}
+                      {formatDate(a.data_ocorrencia)}
                       {a.hora_acidente && <div style={{ fontSize: 11, color: '#94a3b8' }}>{a.hora_acidente}</div>}
                     </TableCell>
                     <TableCell style={{ fontSize: 13 }}>{labelTipo(a.tipo, TIPOS_ACIDENTE)}</TableCell>
@@ -606,7 +606,7 @@ export default function Ocorrencias() {
                         {a.acidentes
                           ? <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                               <Link2 size={12} color="#6366f1" />
-                              <span style={{ fontSize: 12, color: '#6366f1' }}>{formatDate((a.acidentes as any).data_acidente)}</span>
+                              <span style={{ fontSize: 12, color: '#6366f1' }}>{formatDate((a.acidentes as any).data_ocorrencia)}</span>
                             </div>
                           : <span style={{ color: '#d1d5db', fontSize: 12 }}>—</span>}
                       </TableCell>
@@ -714,7 +714,7 @@ export default function Ocorrencias() {
               </div>
             </div>
             <div style={g2}>
-              <div style={fRow}><Label>Data *</Label><Input type="date" value={acidForm.data_acidente} onChange={e => setAcidForm(p => ({ ...p, data_acidente: e.target.value }))} /></div>
+              <div style={fRow}><Label>Data *</Label><Input type="date" value={acidForm.data_ocorrencia} onChange={e => setAcidForm(p => ({ ...p, data_ocorrencia: e.target.value }))} /></div>
               <div style={fRow}><Label>Hora</Label><Input type="time" value={acidForm.hora_acidente} onChange={e => setAcidForm(p => ({ ...p, hora_acidente: e.target.value }))} /></div>
             </div>
             <div style={g2}>
@@ -789,7 +789,7 @@ export default function Ocorrencias() {
                     <SelectItem value="nenhum">— Nenhum —</SelectItem>
                     {acidDoColaborador.map(a => (
                       <SelectItem key={a.id} value={a.id}>
-                        {formatDate(a.data_acidente)} · {labelTipo(a.tipo, TIPOS_ACIDENTE)} · {a.descricao?.slice(0, 40) ?? ''}
+                        {formatDate(a.data_ocorrencia)} · {labelTipo(a.tipo, TIPOS_ACIDENTE)} · {a.descricao?.slice(0, 40) ?? ''}
                       </SelectItem>
                     ))}
                   </SelectContent>

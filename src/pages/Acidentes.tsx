@@ -54,7 +54,7 @@ type AcidenteRow = Acidente & {
 type FormData = {
   colaborador_id: string
   obra_id: string
-  data_acidente: string
+  data_ocorrencia: string
   hora_acidente: string
   tipo: Acidente['tipo'] | ''
   gravidade: Acidente['gravidade'] | ''
@@ -69,7 +69,7 @@ type FormData = {
 const EMPTY_FORM: FormData = {
   colaborador_id: '',
   obra_id: '',
-  data_acidente: '',
+  data_ocorrencia: '',
   hora_acidente: '',
   tipo: '',
   gravidade: '',
@@ -148,7 +148,7 @@ export default function Acidentes() {
       supabase
         .from('acidentes')
         .select('*, colaboradores(nome,chapa), obras(nome)')
-        .order('data_acidente', { ascending: false }),
+        .order('data_ocorrencia', { ascending: false }),
       supabase.from('colaboradores').select('*').eq('status', 'ativo').order('nome'),
       supabase.from('obras').select('*').order('nome'),
     ])
@@ -187,7 +187,7 @@ export default function Acidentes() {
     setForm({
       colaborador_id: a.colaborador_id ?? '',
       obra_id: a.obra_id ?? '',
-      data_acidente: a.data_acidente,
+      data_ocorrencia: a.data_ocorrencia,
       hora_acidente: a.hora_acidente ?? '',
       tipo: a.tipo ?? '',
       gravidade: a.gravidade ?? '',
@@ -208,7 +208,7 @@ export default function Acidentes() {
   // ── salvar ──────────────────────────────────────────────────────────────────
 
   async function handleSave() {
-    if (!form.data_acidente || !form.descricao) {
+    if (!form.data_ocorrencia || !form.descricao) {
       toast.error('Preencha os campos obrigatórios (data e descrição).')
       return
     }
@@ -217,7 +217,7 @@ export default function Acidentes() {
     const payload: Partial<Acidente> = {
       colaborador_id: form.colaborador_id || null,
       obra_id: form.obra_id || null,
-      data_acidente: form.data_acidente,
+      data_ocorrencia: form.data_ocorrencia,
       hora_acidente: form.hora_acidente || null,
       tipo: (form.tipo as Acidente['tipo']) || null,
       gravidade: (form.gravidade as Acidente['gravidade']) || null,
@@ -353,7 +353,7 @@ export default function Acidentes() {
                     )}
                   </TableCell>
                   <TableCell className="text-sm">{a.obras?.nome ?? '—'}</TableCell>
-                  <TableCell className="text-sm whitespace-nowrap">{formatDate(a.data_acidente)}</TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">{formatDate(a.data_ocorrencia)}</TableCell>
                   <TableCell className="text-sm">{a.tipo ? TIPO_LABELS[a.tipo] : '—'}</TableCell>
                   <TableCell><GravBadge gravidade={a.gravidade} /></TableCell>
                   <TableCell className="text-center">
@@ -432,8 +432,8 @@ export default function Acidentes() {
               <Label>Data do Acidente <span className="text-destructive">*</span></Label>
               <Input
                 type="date"
-                value={form.data_acidente}
-                onChange={(e) => setF('data_acidente', e.target.value)}
+                value={form.data_ocorrencia}
+                onChange={(e) => setF('data_ocorrencia', e.target.value)}
               />
             </div>
 

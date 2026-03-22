@@ -31,7 +31,7 @@ interface ObraRecente {
 
 interface AcidenteRecente {
   id: string
-  data_acidente: string | null
+  data_ocorrencia: string | null
   tipo: string | null
   gravidade: string | null
   colaborador_nome: string | null
@@ -121,8 +121,8 @@ export default function Dashboard() {
           supabase
             .from('acidentes')
             .select('id', { count: 'exact', head: true })
-            .gte('data_acidente', start)
-            .lte('data_acidente', end),
+            .gte('data_ocorrencia', start)
+            .lte('data_ocorrencia', end),
 
           // 4. Atestados do mês
           supabase
@@ -147,8 +147,8 @@ export default function Dashboard() {
           // 7. 5 últimos acidentes
           supabase
             .from('acidentes')
-            .select('id, data_acidente, tipo, gravidade, colaboradores(nome)')
-            .order('data_acidente', { ascending: false })
+            .select('id, data_ocorrencia, tipo, gravidade, colaboradores(nome)')
+            .order('data_ocorrencia', { ascending: false })
             .limit(5),
 
           // 8. Colaboradores por obra (top 5)
@@ -184,13 +184,13 @@ export default function Dashboard() {
         ).map(
           (a: {
             id: string
-            data_acidente: string | null
+            data_ocorrencia: string | null
             tipo: string | null
             gravidade: string | null
             colaboradores: { nome: string }[] | { nome: string } | null
           }) => ({
             id: a.id,
-            data_acidente: a.data_acidente,
+            data_ocorrencia: a.data_ocorrencia,
             tipo: a.tipo,
             gravidade: a.gravidade,
             colaborador_nome: (Array.isArray(a.colaboradores) ? a.colaboradores[0]?.nome : (a.colaboradores as { nome: string } | null)?.nome) ?? null,
@@ -414,7 +414,7 @@ export default function Dashboard() {
                       className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors"
                     >
                       <td className="py-2.5 pr-4 text-muted-foreground whitespace-nowrap">
-                        {formatDate(ac.data_acidente)}
+                        {formatDate(ac.data_ocorrencia)}
                       </td>
                       <td className="py-2.5 pr-4 font-medium text-foreground">
                         {ac.colaborador_nome ?? '—'}

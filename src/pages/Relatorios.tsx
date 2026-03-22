@@ -37,7 +37,7 @@ interface ResumoFolhaRow {
 
 interface AcidenteRow {
   id: string
-  data_acidente: string
+  data_ocorrencia: string
   colaborador: string
   obra: string
   gravidade: string
@@ -208,21 +208,21 @@ export default function Relatorios() {
       else if (rel.id === 'acidentes') {
         let query = supabase
           .from('acidentes')
-          .select('id, data_acidente, gravidade, tipo, colaboradores(nome), obras(nome)')
-          .order('data_acidente', { ascending: false })
-        if (filtroDataInicio) query = query.gte('data_acidente', filtroDataInicio)
-        if (filtroDataFim) query = query.lte('data_acidente', filtroDataFim)
+          .select('id, data_ocorrencia, gravidade, tipo, colaboradores(nome), obras(nome)')
+          .order('data_ocorrencia', { ascending: false })
+        if (filtroDataInicio) query = query.gte('data_ocorrencia', filtroDataInicio)
+        if (filtroDataFim) query = query.lte('data_ocorrencia', filtroDataFim)
         if (filtroGravidade !== 'todas') query = query.eq('gravidade', filtroGravidade)
         const { data, error } = await query
         if (error) throw error
         type AcRow = {
-          id: string; data_acidente: string; gravidade: string | null; tipo: string | null
+          id: string; data_ocorrencia: string; gravidade: string | null; tipo: string | null
           colaboradores: { nome: string }[] | { nome: string } | null
           obras: { nome: string }[] | { nome: string } | null
         }
         setAcidenData((data as unknown as AcRow[]).map((r) => ({
           id: r.id,
-          data_acidente: r.data_acidente,
+          data_ocorrencia: r.data_ocorrencia,
           colaborador: (Array.isArray(r.colaboradores) ? r.colaboradores[0]?.nome : (r.colaboradores as { nome: string } | null)?.nome) ?? '—',
           obra: (Array.isArray(r.obras) ? r.obras[0]?.nome : (r.obras as { nome: string } | null)?.nome) ?? '—',
           gravidade: r.gravidade ?? '—',
@@ -412,7 +412,7 @@ export default function Relatorios() {
             <TableBody>
               {acidenData.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell>{formatDate(r.data_acidente)}</TableCell>
+                  <TableCell>{formatDate(r.data_ocorrencia)}</TableCell>
                   <TableCell>{r.colaborador}</TableCell>
                   <TableCell>{r.obra}</TableCell>
                   <TableCell className="capitalize">{r.tipo.replace('_', ' ')}</TableCell>

@@ -158,7 +158,7 @@ export interface Acidente {
   created_at: string
   colaborador_id: string | null
   obra_id: string | null
-  data_acidente: string
+  data_ocorrencia: string
   hora_acidente: string | null
   tipo: 'tipico' | 'trajeto' | 'doenca_ocupacional' | null
   gravidade: 'leve' | 'moderado' | 'grave' | 'fatal' | null
@@ -189,7 +189,7 @@ export interface Atestado {
   documento_url: string
   documento_nome: string | null
   colaboradores?: Pick<Colaborador, 'id' | 'nome' | 'chapa'>
-  acidentes?: Pick<Acidente, 'id' | 'data_acidente' | 'tipo'>
+  acidentes?: Pick<Acidente, 'id' | 'data_ocorrencia' | 'tipo'>
 }
 
 export interface Advertencia {

@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
 import { useProfile, ROLE_PERMISSIONS } from '@/hooks/useProfile'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import {
   LayoutDashboard, Users, Building2, Shield,
   AlertTriangle, FileText, Clock, DollarSign, Award,
@@ -232,7 +233,9 @@ export function Layout({ children }: LayoutProps) {
         </header>
 
         <main style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
-          {children}
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
         </main>
       </div>
 

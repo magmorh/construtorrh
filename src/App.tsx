@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Layout } from '@/components/Layout'
 
 // ─── Lazy pages ──────────────────────────────────────────────────────────────
@@ -65,6 +66,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <HashRouter>
+          <ErrorBoundary>
           <Suspense fallback={<FullPageSpinner />}>
             <Routes>
               {/* Public */}
@@ -237,6 +239,7 @@ export default function App() {
               />
             </Routes>
           </Suspense>
+          </ErrorBoundary>
         </HashRouter>
 
         {/* Sonner toast notifications */}

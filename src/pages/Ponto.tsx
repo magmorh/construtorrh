@@ -130,6 +130,9 @@ export default function Ponto() {
   const [valorHora, setValorHora] = useState(0)
   const [loadingDias, setLoadingDias] = useState(false)
 
+  // Modal recusa
+  const [modalRecusa, setModalRecusa] = useState<{lancId:string;motivo:string}|null>(null)
+
   const mesRef = `${ano}-${String(mes).padStart(2,'0')}`
 
   // ── Carregar colaboradores + obras ──────────────────────────────────────
@@ -678,7 +681,7 @@ export default function Ponto() {
                       {lanc.status==='rascunho'&&<Button size="sm" onClick={()=>salvarLanc(lanc.id)} disabled={saving} style={{height:26,fontSize:11}}>💾 Salvar</Button>}
                       {lanc.status==='rascunho'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#16a34a',color:'#15803d'}} onClick={()=>mudarStatus(lanc.id,'aguardando_aprovacao')}>✔ Aprovar</Button>}
                       {lanc.status==='aguardando_aprovacao'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#16a34a',color:'#15803d'}} onClick={()=>mudarStatus(lanc.id,'aprovado')}>✅ Confirmar</Button>}
-                      {lanc.status==='aguardando_aprovacao'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#dc2626',color:'#dc2626'}} onClick={()=>mudarStatus(lanc.id,'recusado','Recusado pelo gestor')}>❌ Recusar</Button>}
+                      {lanc.status==='aguardando_aprovacao'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#dc2626',color:'#dc2626'}} onClick={()=>setModalRecusa({lancId:lanc.id,motivo:''})}>❌ Recusar</Button>}
                       {lanc.status==='recusado'&&<Button size="sm" onClick={()=>salvarLanc(lanc.id)} disabled={saving} style={{height:26,fontSize:11}}>💾 Salvar</Button>}
                       {lanc.status==='recusado'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#16a34a',color:'#15803d'}} onClick={()=>mudarStatus(lanc.id,'aguardando_aprovacao')}>↩ Reenviar</Button>}
                       {(lanc.status==='rascunho'||lanc.status==='recusado')&&<Button size="sm" variant="ghost" style={{height:26,width:26,padding:0,color:'var(--destructive)'}} onClick={()=>excluirLancamento(lanc.id)}><Trash2 size={12}/></Button>}
@@ -781,6 +784,41 @@ export default function Ponto() {
         )}
       </div>
     </div>
+
+    {/* ═══ MODAL RECUSA ═══ */}
+    {modalRecusa&&(
+      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:70,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div style={{background:'var(--background)',borderRadius:12,width:420,padding:28,boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+            <h3 style={{fontWeight:800,fontSize:15,margin:0,color:'#b91c1c'}}>❌ Recusar Lançamento</h3>
+            <button onClick={()=>setModalRecusa(null)} style={{border:'none',background:'none',cursor:'pointer'}}><X size={16}/></button>
+          </div>
+          <div style={{marginBottom:16}}>
+            <label style={{...LBL,color:'#b91c1c'}}>Motivo da recusa *</label>
+            <textarea
+              value={modalRecusa.motivo}
+              onChange={e=>setModalRecusa(r=>r?{...r,motivo:e.target.value}:null)}
+              placeholder="Descreva o motivo da recusa para orientar o colaborador…"
+              rows={4}
+              style={{width:'100%',padding:'8px 10px',fontSize:13,border:'2px solid #fecaca',borderRadius:6,background:'var(--background)',color:'var(--foreground)',resize:'vertical',fontFamily:'inherit',boxSizing:'border-box'}}
+            />
+            {modalRecusa.motivo.trim()===''&&<div style={{fontSize:11,color:'#b91c1c',marginTop:4}}>⚠️ O motivo é obrigatório</div>}
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+            <Button variant="outline" onClick={()=>setModalRecusa(null)}>Cancelar</Button>
+            <Button
+              disabled={modalRecusa.motivo.trim()===''}
+              style={{background:'#dc2626',color:'#fff',opacity:modalRecusa.motivo.trim()===''?0.5:1}}
+              onClick={async()=>{
+                if(!modalRecusa.motivo.trim()){toast.error('Informe o motivo');return}
+                await mudarStatus(modalRecusa.lancId,'recusado',modalRecusa.motivo.trim())
+                setModalRecusa(null)
+              }}
+            >❌ Confirmar Recusa</Button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* ═══ MODAL NOVO LANÇAMENTO ═══ */}
     {modalLanc&&colabSel&&(

@@ -126,6 +126,9 @@ export interface FuncaoEpi {
   created_at: string
   funcao_id: string
   epi_id: string
+  obrigatorio: boolean
+  quantidade: number
+  epi_catalogo?: EpiCatalogo
 }
 
 export interface ColaboradorEpi {
@@ -138,7 +141,10 @@ export interface ColaboradorEpi {
   numero: string | null
   data_entrega: string | null
   data_validade: string | null
-  status: 'ativo' | 'devolvido' | 'vencido'
+  status: 'ativo' | 'devolvido' | 'vencido' | 'pendente' | 'entregue' | 'substituido'
+  obrigatorio: boolean
+  quantidade: number
+  quantidade_entregue: number
   documento_url: string | null
   documento_nome: string | null
   observacoes: string | null

@@ -231,12 +231,16 @@ CREATE POLICY "epi_cat_auth" ON public.epi_catalogo
 -- 8. EPI — FUNÇÃO × EPI
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.funcao_epi (
-  id         UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  funcao_id  UUID REFERENCES public.funcoes(id) ON DELETE CASCADE,
-  epi_id     UUID REFERENCES public.epi_catalogo(id) ON DELETE CASCADE,
+  id          UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  funcao_id   UUID REFERENCES public.funcoes(id) ON DELETE CASCADE,
+  epi_id      UUID REFERENCES public.epi_catalogo(id) ON DELETE CASCADE,
+  obrigatorio BOOLEAN DEFAULT TRUE,
+  quantidade  INTEGER DEFAULT 1,
   UNIQUE(funcao_id, epi_id)
 );
+ALTER TABLE public.funcao_epi ADD COLUMN IF NOT EXISTS obrigatorio BOOLEAN DEFAULT TRUE;
+ALTER TABLE public.funcao_epi ADD COLUMN IF NOT EXISTS quantidade  INTEGER DEFAULT 1;
 ALTER TABLE public.funcao_epi ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "funcao_epi_auth" ON public.funcao_epi;
 CREATE POLICY "funcao_epi_auth" ON public.funcao_epi
@@ -246,26 +250,30 @@ CREATE POLICY "funcao_epi_auth" ON public.funcao_epi
 -- 9. EPI — COLABORADOR × EPI
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.colaborador_epi (
-  id             UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  created_at     TIMESTAMPTZ DEFAULT NOW(),
-  colaborador_id UUID REFERENCES public.colaboradores(id) ON DELETE CASCADE,
-  epi_id         UUID REFERENCES public.epi_catalogo(id) ON DELETE CASCADE,
-  funcao_id      UUID REFERENCES public.funcoes(id),
-  tamanho        TEXT,
-  numero         TEXT,
-  data_entrega   DATE,
-  data_validade  DATE,
-  status         TEXT DEFAULT 'ativo' CHECK (status IN ('ativo','devolvido','vencido')),
-  documento_url  TEXT,
-  documento_nome TEXT,
-  observacoes    TEXT
+  id                 UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  created_at         TIMESTAMPTZ DEFAULT NOW(),
+  colaborador_id     UUID REFERENCES public.colaboradores(id) ON DELETE CASCADE,
+  epi_id             UUID REFERENCES public.epi_catalogo(id) ON DELETE CASCADE,
+  funcao_id          UUID REFERENCES public.funcoes(id),
+  tamanho            TEXT,
+  numero             TEXT,
+  data_entrega       DATE,
+  data_validade      DATE,
+  status             TEXT DEFAULT 'ativo'
+                     CHECK (status IN ('ativo','devolvido','vencido','pendente','entregue','substituido')),
+  obrigatorio        BOOLEAN DEFAULT TRUE,
+  quantidade         INTEGER DEFAULT 1,
+  quantidade_entregue INTEGER DEFAULT 0,
+  documento_url      TEXT,
+  documento_nome     TEXT,
+  observacoes        TEXT
 );
-ALTER TABLE public.colaborador_epi ADD COLUMN IF NOT EXISTS data_validade  DATE;
-ALTER TABLE public.colaborador_epi ADD COLUMN IF NOT EXISTS documento_url  TEXT;
-ALTER TABLE public.colaborador_epi ADD COLUMN IF NOT EXISTS documento_nome TEXT;
--- Normaliza status: valores legados → 'ativo'
-UPDATE public.colaborador_epi SET status = 'ativo'
-WHERE status NOT IN ('ativo','devolvido','vencido');
+ALTER TABLE public.colaborador_epi ADD COLUMN IF NOT EXISTS data_validade       DATE;
+ALTER TABLE public.colaborador_epi ADD COLUMN IF NOT EXISTS documento_url       TEXT;
+ALTER TABLE public.colaborador_epi ADD COLUMN IF NOT EXISTS documento_nome      TEXT;
+ALTER TABLE public.colaborador_epi ADD COLUMN IF NOT EXISTS obrigatorio         BOOLEAN DEFAULT TRUE;
+ALTER TABLE public.colaborador_epi ADD COLUMN IF NOT EXISTS quantidade          INTEGER DEFAULT 1;
+ALTER TABLE public.colaborador_epi ADD COLUMN IF NOT EXISTS quantidade_entregue INTEGER DEFAULT 0;
 ALTER TABLE public.colaborador_epi ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "colab_epi_auth" ON public.colaborador_epi;
 CREATE POLICY "colab_epi_auth" ON public.colaborador_epi

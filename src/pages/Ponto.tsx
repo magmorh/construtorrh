@@ -105,8 +105,8 @@ export default function Ponto() {
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
   // Dias por lançamento: { lancId → DiaRegistro[] }
   const [diasMap, setDiasMap] = useState<Record<string,DiaRegistro[]>>({})
-  // Lançamentos expandidos
-  const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
+  // Lançamento expandido (accordion: apenas 1 por vez)
+  const [expandido, setExpandido] = useState<string | null>(null)
   // Horários por obra: { obraId → { diaSemana → HorarioDia } }
   const [horariosObra, setHorariosObra] = useState<Record<string,Record<string,HorarioDia>>>({})
 
@@ -303,7 +303,8 @@ export default function Ponto() {
       newDiasMap[lanc.id]=await fetchDiasLanc(lanc,colab,horMapFull,diasAtestado,diasSuspensao)
     }))
     setDiasMap(newDiasMap)
-    setExpandidos(new Set(list.map(l=>l.id)))
+    // Abre automaticamente o primeiro lançamento
+    setExpandido(list[0]?.id ?? null)
     setLoadingDias(false)
   },[fetchLancamentos,fetchProducoes,fetchPlaybooks,fetchHorariosObras,fetchDiasLanc])
 
@@ -637,7 +638,7 @@ export default function Ponto() {
             {lancamentos.map(lanc=>{
               const tot=totaisLanc(lanc.id)
               const diasLanc=diasMap[lanc.id]??[]
-              const exp=expandidos.has(lanc.id)
+              const exp=expandido===lanc.id
               const pb=playbookMap[lanc.obra_id]??[]
               const prodLanc=producoes.filter(p=>p.lancamento_id===lanc.id)
 
@@ -645,7 +646,7 @@ export default function Ponto() {
                 <div key={lanc.id} style={{border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,0.05)'}}>
 
                   {/* Cabeçalho do card */}
-                  <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:'var(--muted)',cursor:'pointer'}} onClick={()=>setExpandidos(p=>{const n=new Set(p);exp?n.delete(lanc.id):n.add(lanc.id);return n})}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:'var(--muted)',cursor:'pointer'}} onClick={()=>setExpandido(exp ? null : lanc.id)}>
                     {exp?<ChevronDown size={15}/>:<ChevronRight size={15}/>}
                     <Building2 size={14} style={{color:'var(--primary)',flexShrink:0}}/>
                     <div style={{flex:1}}>

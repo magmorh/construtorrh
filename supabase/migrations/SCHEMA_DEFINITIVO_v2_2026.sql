@@ -159,9 +159,27 @@ CREATE TABLE IF NOT EXISTS public.colaboradores (
   observacoes     TEXT
 );
 -- Colunas adicionadas em versões anteriores (seguro rodar novamente)
-ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS data_demissao DATE;
-ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS pix_tipo      TEXT;
-ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS vt_dados      JSONB;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS data_demissao    DATE;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS pix_tipo         TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS pix_chave        TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS vale_transporte  BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS vt_dados         JSONB;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS ctps_numero      TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS ctps_serie       TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS banco            TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS agencia          TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS conta            TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS tipo_conta       TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS genero           TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS estado_civil     TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS rg               TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS pis_nit          TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS data_nascimento  DATE;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS telefone         TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS endereco         TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS cidade           TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS estado           TEXT;
+ALTER TABLE public.colaboradores ADD COLUMN IF NOT EXISTS cep              TEXT;
 -- Remove colunas legadas (se existirem) que foram substituídas por vt_dados
 ALTER TABLE public.colaboradores DROP COLUMN IF EXISTS vt_tipo;
 ALTER TABLE public.colaboradores DROP COLUMN IF EXISTS vt_trechos_ida;

@@ -714,32 +714,55 @@ export default function Ponto() {
             </div>
 
             {/* Linha 2: cards de totais */}
-            <div style={{display:'flex',gap:1,borderTop:'1px solid var(--border)',background:'var(--muted)'}}>
+            <div style={{display:'flex',gap:1,borderTop:'1px solid var(--border)',background:'var(--muted)',flexWrap:'wrap'}}>
               {(()=>{
-                const ehAuto=colabSel.tipo_contrato==='autonomo'||colabSel.tipo_contrato==='pj'
-                const subReceber=ehAuto
-                  ? (totalProd>0||horasAutonomoSemProd>0
-                      ? `Horas: ${formatCurrency(horasAutonomoSemProd)} + Prod: ${formatCurrency(totalProd)}`
-                      : 'Autônomo: horas + produção')
-                  : premioCLT>0
-                    ? `Salário: ${formatCurrency(totalHoras)} + Prêmio: ${formatCurrency(premioCLT)}`
-                    : totalHoras>0?'CLT: valor das horas':'Sem valor/hora cadastrado'
-                const subProd=totalProd>0&&diasComProd.size>0
-                  ? `≈ ${formatCurrency(totalProd/diasComProd.size)}/dia (${diasComProd.size} dia${diasComProd.size!==1?'s':''})`
+                // Média produção por dia trabalhado (total presentes, não só dias de prod)
+                const diasTrab=totaisGlobais.presentes
+                const subProd=totalProd>0&&diasTrab>0
+                  ? `≈ ${formatCurrency(totalProd/diasTrab)}/dia (${diasTrab} dia${diasTrab!==1?'s':''})`
                   : producoes.length>0?`${producoes.length} lançamento${producoes.length!==1?'s':''}`:'Nenhuma produção'
-                return[
+                // Sub do total a receber
+                const subReceber=premioCLT>0
+                  ? `Salário: ${formatCurrency(totalHoras)} + Prêmio: ${formatCurrency(premioCLT)}`
+                  : totalHoras>0?`${colabSel.tipo_contrato==='clt'?'CLT':'Autônomo'}: R$ ${valorHora.toFixed(2)}/h`:'Sem valor/hora'
+                const cards=[
                   {label:'⏱ Total de Horas',value:fmtHHMM(totaisGlobais.total),sub:`${fmtHHMM(totaisGlobais.normais)} norm + ${fmtHHMM(totaisGlobais.extras50)} extras`,color:'#1d4ed8'},
                   {label:'💰 Valor das Horas',value:valorHora>0?`R$ ${valorHora.toFixed(2)}/h`:'Sem tabela',sub:valorHora>0?formatCurrency(totalHoras)+' no período':'Cadastre em Funções → valor/hora',color:valorHora>0?'#15803d':'#9ca3af'},
                   {label:'🏗️ Produção',value:totalProd>0?formatCurrency(totalProd):'—',sub:subProd,color:'#b45309'},
                   {label:'💵 Total a Receber',value:formatCurrency(totalReceber),sub:subReceber,color:'#7c3aed'},
                 ]
+                return cards
               })().map(card=>(
-                <div key={card.label} style={{flex:1,padding:'8px 12px',textAlign:'center',borderRight:'1px solid var(--border)'}}>
+                <div key={card.label} style={{flex:1,minWidth:120,padding:'8px 12px',textAlign:'center',borderRight:'1px solid var(--border)'}}>
                   <div style={{fontSize:10,color:'var(--muted-foreground)',fontWeight:600,marginBottom:2}}>{card.label}</div>
                   <div style={{fontSize:15,fontWeight:800,color:card.color}}>{card.value}</div>
                   <div style={{fontSize:10,color:'var(--muted-foreground)'}}>{card.sub}</div>
                 </div>
               ))}
+              {/* Card de performance — só aparece quando há produção e valor/hora */}
+              {totalProd>0&&valorHora>0&&(()=>{
+                const diff=totalProd-totalHoras
+                const bom=diff>=0
+                const pct=totalHoras>0?Math.abs(diff)/totalHoras*100:0
+                return(
+                  <div style={{flex:1,minWidth:140,padding:'8px 12px',textAlign:'center',borderRight:'1px solid var(--border)',background:bom?'rgba(22,163,74,0.06)':'rgba(220,38,38,0.06)'}}>
+                    <div style={{fontSize:10,fontWeight:700,marginBottom:2,color:bom?'#15803d':'#dc2626'}}>
+                      {bom?'📈 Produção Compensa':'📉 Produção Abaixo'}
+                    </div>
+                    <div style={{fontSize:15,fontWeight:800,color:bom?'#15803d':'#dc2626'}}>
+                      {bom?'+':''}{formatCurrency(diff)}
+                    </div>
+                    <div style={{fontSize:10,color:bom?'#16a34a':'#b91c1c'}}>
+                      {bom
+                        ? `${pct.toFixed(0)}% acima do valor hora`
+                        : `${pct.toFixed(0)}% abaixo do valor hora`}
+                    </div>
+                    <div style={{fontSize:9,color:'var(--muted-foreground)',marginTop:1}}>
+                      Hora: {formatCurrency(totalHoras)} · Prod: {formatCurrency(totalProd)}
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           </div>
 

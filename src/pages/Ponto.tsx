@@ -15,8 +15,7 @@ interface ColabRow {
   chapa: string
   funcao_id: string | null
   tipo_contrato: string | null
-  valor_hora_clt: number | null
-  valor_hora_autonomo: number | null
+  salario: number | null
   contratos_valores: Record<string, { ativo?: boolean; valor_hora?: number }> | null
   funcoes: { nome: string; sigla: string } | null
 }
@@ -136,7 +135,7 @@ export default function Ponto() {
       // Tenta com join funcoes
       let { data, error } = await supabase
         .from('colaboradores')
-        .select('id, nome, chapa, funcao_id, tipo_contrato, valor_hora_clt, valor_hora_autonomo, contratos_valores, funcoes(nome, sigla)')
+        .select('id, nome, chapa, funcao_id, tipo_contrato, salario, contratos_valores, funcoes(nome, sigla)')
         .in('status', ['ativo', 'Ativo', 'ATIVO'])
         .order('nome')
 
@@ -144,7 +143,7 @@ export default function Ponto() {
       if (!error && (!data || data.length === 0)) {
         const res = await supabase
           .from('colaboradores')
-          .select('id, nome, chapa, funcao_id, tipo_contrato, valor_hora_clt, valor_hora_autonomo, contratos_valores, funcoes(nome, sigla)')
+          .select('id, nome, chapa, funcao_id, tipo_contrato, salario, contratos_valores, funcoes(nome, sigla)')
           .order('nome')
         data = res.data
         error = res.error
@@ -236,15 +235,12 @@ export default function Ponto() {
   // ── valor hora do colaborador selecionado ─────────────────────────────────
   const valorHora = useMemo(() => {
     if (!colabSel) return 0
-    // Tenta valor_hora_clt / valor_hora_autonomo primeiro
+    // Tenta contratos_valores primeiro, depois calcula pelo salário
     const tipo = (colabSel.tipo_contrato ?? 'clt').toLowerCase()
-    if (tipo === 'autonomo' || tipo === 'autônomo' || tipo === 'pj') {
-      if (colabSel.valor_hora_autonomo) return colabSel.valor_hora_autonomo
-    }
-    if (colabSel.valor_hora_clt) return colabSel.valor_hora_clt
-    // Fallback: contratos_valores
     const cv = colabSel.contratos_valores
     if (cv && cv[tipo]?.valor_hora) return cv[tipo].valor_hora!
+    // Fallback: salário mensal ÷ 220h (padrão CLT)
+    if (colabSel.salario && colabSel.salario > 0) return parseFloat((colabSel.salario / 220).toFixed(4))
     return 0
   }, [colabSel])
 

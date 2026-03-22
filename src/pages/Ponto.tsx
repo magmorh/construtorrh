@@ -351,9 +351,12 @@ export default function Ponto() {
 
   // ── Totais globais ────────────────────────────────────────────────────────
   const totaisGlobais = useMemo(()=>{
-    let normais=0,extras50=0
-    Object.values(diasMap).forEach(dias=>dias.forEach(d=>{const c=calcDia(d);normais+=c.normais;extras50+=c.extras50}))
-    return{normais,extras50,total:normais+extras50}
+    let normais=0,extras50=0,presentes=0
+    Object.values(diasMap).forEach(dias=>dias.forEach(d=>{
+      const c=calcDia(d);normais+=c.normais;extras50+=c.extras50
+      if(d.presente&&!d.falta&&d.evento!=='atestado'&&d.evento!=='suspensao')presentes++
+    }))
+    return{normais,extras50,total:normais+extras50,presentes}
   },[diasMap])
 
   const totalHoras = valorHora>0?(fmtDecimal(totaisGlobais.normais)*valorHora + fmtDecimal(totaisGlobais.extras50)*valorHora*1.5):0
@@ -695,8 +698,8 @@ export default function Ponto() {
             <div style={{display:'flex',gap:1,borderTop:'1px solid var(--border)',background:'var(--muted)'}}>
               {[
                 {label:'⏱ Total de Horas',value:fmtHHMM(totaisGlobais.total),sub:`${fmtHHMM(totaisGlobais.normais)} norm + ${fmtHHMM(totaisGlobais.extras50)} extras`,color:'#1d4ed8'},
-                {label:'💰 Valor das Horas',value:valorHora>0?formatCurrency(totalHoras):'—',sub:valorHora>0?`R$ ${valorHora.toFixed(4)}/h`:'Sem tabela de valor/hora',color:'#15803d'},
-                {label:'🏗️ Produção',value:totalProd>0?formatCurrency(totalProd):`${producoes.length} lançamento${producoes.length!==1?'s':''}`,sub:`${producoes.length} item${producoes.length!==1?'ns':''}`,color:'#b45309'},
+                {label:'💰 Valor das Horas',value:valorHora>0?`R$ ${valorHora.toFixed(2)}/h`:'Sem tabela',sub:valorHora>0?formatCurrency(totalHoras)+' no período':'Cadastre em Funções → valor/hora',color:valorHora>0?'#15803d':'#9ca3af'},
+                {label:'🏗️ Produção',value:totalProd>0?formatCurrency(totalProd):'—',sub:totalProd>0&&totaisGlobais.presentes>0?`≈ ${formatCurrency(totalProd/totaisGlobais.presentes)}/dia (${totaisGlobais.presentes} dias)`:`${producoes.length} item${producoes.length!==1?'ns':''}`,color:'#b45309'},
                 {label:'💵 Total a Receber',value:formatCurrency(totalReceber),sub:colabSel.tipo_contrato==='clt'?'CLT: base + prêmio':'Autônomo: horas + prod.',color:'#7c3aed'},
               ].map(card=>(
                 <div key={card.label} style={{flex:1,padding:'8px 12px',textAlign:'center',borderRight:'1px solid var(--border)'}}>
@@ -728,6 +731,10 @@ export default function Ponto() {
               const exp=expandido===lanc.id
               const pb=playbookMap[lanc.obra_id]??[]
               const prodLanc=producoes.filter(p=>p.lancamento_id===lanc.id)
+              // Produção proporcional por dia trabalhado neste lançamento
+              const totalProdLancamento=prodLanc.reduce((s,p)=>s+p.valor_total,0)
+              const diasTrabLanc=tot.presentes
+              const prodPorDia=diasTrabLanc>0&&totalProdLancamento>0?totalProdLancamento/diasTrabLanc:0
 
               return(
                 <div key={lanc.id} style={{border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,0.05)'}}>
@@ -762,7 +769,7 @@ export default function Ponto() {
                     })()}
                     {/* Ações */}
                     <div style={{display:'flex',gap:4}} onClick={e=>e.stopPropagation()}>
-                      {pb.length>0&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:3,borderColor:'#f59e0b',color:'#b45309'}} onClick={()=>abrirModalProd(lanc.id)}><Factory size={11}/> Produção</Button>}
+                      <Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:3,borderColor:'#f59e0b',color:pb.length===0?'#d97706':'#b45309',opacity:pb.length===0?0.6:1}} title={pb.length===0?'Nenhum item cadastrado no Playbook desta obra':'Lançar produção'} onClick={()=>abrirModalProd(lanc.id)}><Factory size={11}/> Produção{pb.length===0&&<span style={{fontSize:9,marginLeft:2}}>⚠</span>}</Button>
                       {lanc.status==='rascunho'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#16a34a',color:'#15803d',background:'#f0fdf4'}} disabled={saving} onClick={async()=>{await salvarLanc(lanc.id);await mudarStatus(lanc.id,'aguardando_aprovacao')}}>✔ Salvar e Aprovar</Button>}
                       {lanc.status==='aguardando_aprovacao'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#16a34a',color:'#15803d'}} onClick={()=>mudarStatus(lanc.id,'aprovado')}>✅ Confirmar</Button>}
                       {lanc.status==='aguardando_aprovacao'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#dc2626',color:'#dc2626'}} onClick={()=>setModalRecusa({lancId:lanc.id,motivo:''})}>❌ Recusar</Button>}
@@ -858,12 +865,20 @@ export default function Ponto() {
                                 <td style={{...TD,textAlign:'center',fontWeight:600,color:calc.extras50>0?'#1d4ed8':'#9ca3af',background:'rgba(45,90,158,0.05)'}}>{calc.extras50>0?fmtHHMM(calc.extras50)+'*':'—'}</td>
                                 <td style={{...TD,textAlign:'center',fontWeight:700,background:'rgba(0,0,0,0.03)'}}>{calc.total>0?fmtHHMM(calc.total):'—'}</td>
                                 <td style={{...TD,textAlign:'right',fontWeight:700,background:'rgba(74,26,122,0.05)',color:'#6d28d9',fontSize:11}}>
-                                  {calc.total>0&&valorHora>0
-                                    ? <span title={`R$ ${valorHora.toFixed(4)}/h`}>{formatCurrency(calc.normais*valorHora + calc.extras50*valorHora*1.5)}</span>
-                                    : d.evento==='atestado'||d.falta?<span style={{color:'#9ca3af'}}>—</span>
-                                    : d.evento==='outro_lancamento'?null
-                                    : calc.total===0&&valorHora===0?<span style={{color:'#d1d5db',fontSize:9}}>s/val</span>
-                                    : '—'
+                                  {d.evento==='atestado'||d.evento==='suspensao'||d.falta
+                                    ? <span style={{color:'#9ca3af'}}>—</span>
+                                    : d.evento==='outro_lancamento'
+                                    ? null
+                                    : d.presente&&(calc.total>0||prodPorDia>0)
+                                    ? (() => {
+                                        const vHoras=calc.normais*valorHora + calc.extras50*valorHora*1.5
+                                        const vTotal=vHoras+prodPorDia
+                                        return <span title={`Horas: ${formatCurrency(vHoras)}${prodPorDia>0?' + Prod: '+formatCurrency(prodPorDia):''}`} style={{cursor:'default'}}>
+                                          {formatCurrency(vTotal)}
+                                          {prodPorDia>0&&<span style={{display:'block',fontSize:9,color:'#b45309',fontWeight:400}}>+{formatCurrency(prodPorDia)} prod</span>}
+                                        </span>
+                                      })()
+                                    : <span style={{color:'#d1d5db',fontSize:9}}>{valorHora===0?'s/val':'—'}</span>
                                   }
                                 </td>
                                 <td style={{...TD,fontSize:10}}>
@@ -886,9 +901,15 @@ export default function Ponto() {
                             <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(45,90,158,0.4)'}}>{fmtHHMM(tot.extras50)}</td>
                             <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(0,0,0,0.2)'}}>{fmtHHMM(tot.total)}</td>
                             <td style={{padding:'7px 8px',textAlign:'right',background:'rgba(74,26,122,0.4)',color:'#e9d5ff',fontWeight:700,fontSize:11}}>
-                              {valorHora>0
-                                ? formatCurrency(fmtDecimal(tot.normais)*valorHora + fmtDecimal(tot.extras50)*valorHora*1.5)
-                                : '—'}
+                              {(() => {
+                                const vHoras=fmtDecimal(tot.normais)*valorHora + fmtDecimal(tot.extras50)*valorHora*1.5
+                                const vTotal=vHoras+totalProdLancamento
+                                if(vTotal===0)return '—'
+                                return <span title={`Horas: ${formatCurrency(vHoras)}${totalProdLancamento>0?' + Prod: '+formatCurrency(totalProdLancamento):''}`}>
+                                  {formatCurrency(vTotal)}
+                                  {totalProdLancamento>0&&<span style={{display:'block',fontSize:9,opacity:0.8}}>+{formatCurrency(totalProdLancamento)} prod</span>}
+                                </span>
+                              })()}
                             </td>
                             <td/>
                           </tr>

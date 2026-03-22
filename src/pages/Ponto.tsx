@@ -33,7 +33,7 @@ interface Lancamento {
   status: 'rascunho'|'aguardando_aprovacao'|'aprovado'|'recusado'
   motivo_recusa: string | null
 }
-type TipoEvento = 'atestado' | 'suspensao' | null
+type TipoEvento = 'atestado' | 'suspensao' | 'outro_lancamento' | null
 interface DiaRegistro {
   id?: string; lancamento_id: string; colaborador_id: string
   data: string; obra_id: string
@@ -117,6 +117,8 @@ export default function Ponto() {
   // Modal novo lançamento
   const [modalLanc, setModalLanc] = useState(false)
   const [novoLancObraId, setNovoLancObraId] = useState('')
+  const [novoLancInicio, setNovoLancInicio] = useState('')
+  const [novoLancFim, setNovoLancFim]       = useState('')
   const [savingLanc, setSavingLanc] = useState(false)
 
   // Modal produção
@@ -198,7 +200,8 @@ export default function Ponto() {
   const fetchDiasLanc = useCallback(async(
     lanc:Lancamento,colab:ColabSimples,
     horMapa:Record<string,Record<string,HorarioDia>>,
-    diasAtestado:Set<string>,diasSuspensao:Set<string>
+    diasAtestado:Set<string>,diasSuspensao:Set<string>,
+    diasUsados:Set<string>
   ):Promise<DiaRegistro[]>=>{
     const{data:pontosRaw}=await supabase.from('registro_ponto').select('*')
       .eq('lancamento_id',lanc.id)
@@ -210,12 +213,14 @@ export default function Ponto() {
       const r=mapaP[d]
       const isAtestado=diasAtestado.has(d)
       const isSuspensao=diasSuspensao.has(d)
+      const bloqOutroLanc=diasUsados.has(d)
       const evento:TipoEvento=isSuspensao?'suspensao':isAtestado?'atestado':null
       const diaSem=DIAS_KEY[new Date(d+'T12:00:00').getDay()]
       const hor=horObra[diaSem]
 
       if(!r){
         const base=emptyDia(colab.id,lanc.id,lanc.obra_id,d)
+        if(bloqOutroLanc)return{...base,evento:'outro_lancamento',bloqueado:true}
         if(isAtestado)return{...base,presente:true,evento,bloqueado:true,
           hora_entrada:hor?.hora_entrada??'',saida_almoco:hor?.saida_almoco??'',
           retorno_almoco:hor?.retorno_almoco??'',hora_saida:hor?.hora_saida??''}
@@ -237,7 +242,7 @@ export default function Ponto() {
         hora_entrada:r.hora_entrada??'',saida_almoco:r.saida_almoco??'',
         retorno_almoco:r.retorno_almoco??'',hora_saida:r.hora_saida??'',
         he_entrada:r.he_entrada??'',he_saida:r.he_saida??'',
-        justificativa:r.justificativa??'',evento,bloqueado:isSuspensao,
+        justificativa:r.justificativa??'',evento,bloqueado:isSuspensao||bloqOutroLanc,
       }
     })
   },[])
@@ -298,11 +303,16 @@ export default function Ponto() {
       fetchPlaybooks(obraIds),
     ])
 
-    // Dias de cada lançamento
+    // Dias de cada lançamento — sequencial p/ calcular bloqueios entre lançamentos
     const newDiasMap:Record<string,DiaRegistro[]>={}
-    await Promise.all(list.map(async lanc=>{
-      newDiasMap[lanc.id]=await fetchDiasLanc(lanc,colab,horMapFull,diasAtestado,diasSuspensao)
-    }))
+    for(const lanc of list){
+      const diasUsados=new Set<string>()
+      for(const [outroId,outroDias] of Object.entries(newDiasMap)){
+        if(outroId===lanc.id)continue
+        outroDias.forEach(d=>{ if(!d.bloqueado||d.evento==='atestado'||d.evento==='suspensao')diasUsados.add(d.data) })
+      }
+      newDiasMap[lanc.id]=await fetchDiasLanc(lanc,colab,horMapFull,diasAtestado,diasSuspensao,diasUsados)
+    }
     setDiasMap(newDiasMap)
     // Abre automaticamente o primeiro lançamento
     setExpandido(list[0]?.id ?? null)
@@ -424,14 +434,16 @@ export default function Ponto() {
 
   // ── Criar novo lançamento ─────────────────────────────────────────────────
   async function criarLancamento(){
-    if(!colabSel||!novoLancObraId){toast.error('Selecione uma obra');return}
-    // Início = dia 1, Fim = último dia do mês
-    const dataInicio=`${mesRef}-01`
-    const dataFim=`${mesRef}-${String(new Date(ano,mes,0).getDate()).padStart(2,'0')}`
+    if(!colabSel||!novoLancObraId||!novoLancInicio||!novoLancFim){toast.error('Preencha todos os campos');return}
+    if(novoLancInicio>novoLancFim){toast.error('Data de início deve ser anterior à data de fim');return}
+    if(lancamentos.length>=3){toast.error('Limite de 3 lançamentos por mês atingido');return}
+    const diasNovos=new Set(expandRange(novoLancInicio,novoLancFim))
+    const conflitos=lancamentos.flatMap(l=>expandRange(l.data_inicio,l.data_fim)).filter(d=>diasNovos.has(d))
+    if(conflitos.length>0){toast.error(`${conflitos.length} dia(s) já pertencem a outro lançamento`);return}
     setSavingLanc(true)
     const{error}=await supabase.from('ponto_lancamentos').insert({
       colaborador_id:colabSel.id,obra_id:novoLancObraId,mes_referencia:mesRef,
-      data_inicio:dataInicio,data_fim:dataFim,
+      data_inicio:novoLancInicio,data_fim:novoLancFim,
       status:'rascunho',
     }).select('*,obras(nome)').single()
     setSavingLanc(false)
@@ -601,7 +613,7 @@ export default function Ponto() {
                 <button onClick={mesSeguinte} style={{border:'1px solid var(--border)',borderRadius:5,background:'none',cursor:'pointer',padding:'3px 7px',display:'flex'}}><ChevronRight size={13}/></button>
               </div>
               <Button variant="outline" size="sm" onClick={()=>window.print()} style={{gap:4,height:30,fontSize:12}}><Printer size={12}/></Button>
-              <Button size="sm" onClick={()=>{setNovoLancObraId('');setModalLanc(true)}} style={{gap:4,height:30,fontSize:12}}>
+              <Button size="sm" onClick={()=>{setNovoLancObraId('');setNovoLancInicio('');setNovoLancFim('');setModalLanc(true)}} disabled={lancamentos.length>=3} title={lancamentos.length>=3?'Limite de 3 lançamentos/mês':''} style={{gap:4,height:30,fontSize:12}}>
                 <Plus size={12}/> Novo Lançamento
               </Button>
             </div>
@@ -654,7 +666,7 @@ export default function Ponto() {
                     <div style={{flex:1}}>
                       <div style={{fontWeight:700,fontSize:14}}>{lanc.obra_nome}</div>
                       <div style={{fontSize:11,color:'var(--muted-foreground)',fontFamily:'monospace'}}>
-                        {MESES[mes-1]}/{ano}
+                        {lanc.data_inicio.slice(8)}/{lanc.data_inicio.slice(5,7)} → {lanc.data_fim.slice(8)}/{lanc.data_fim.slice(5,7)}
                         <span style={{marginLeft:10}}>· {tot.presentes} dias · {fmtHHMM(tot.total)}h</span>
                         {tot.atestados>0&&<span style={{color:'#1d4ed8',marginLeft:8}}>🩺 {tot.atestados} afastamento{tot.atestados!==1?'s':''}</span>}
                         {tot.suspensoes>0&&<span style={{color:'#dc2626',marginLeft:8}}>⛔ {tot.suspensoes} suspensão</span>}
@@ -736,6 +748,7 @@ export default function Ponto() {
                                 <td style={{...TD,textAlign:'center'}}>
                                   {d.evento==='atestado'?<span title="Afastamento">🩺</span>
                                   :d.evento==='suspensao'?<span title="Suspensão">⛔</span>
+                                  :d.evento==='outro_lancamento'?<span title="Pertence a outro lançamento">🔒</span>
                                   :<button onClick={()=>!lancBloq&&togglePresente(lanc.id,idx,colabSel!)} style={{border:'none',background:'none',cursor:lancBloq?'not-allowed':'pointer',padding:2,color:d.presente?'#16a34a':'#9ca3af',opacity:lancBloq?0.5:1}}>
                                     {d.presente?<CheckCircle2 size={16}/>:<span style={{fontSize:16,opacity:0.3}}>○</span>}
                                   </button>}
@@ -755,6 +768,7 @@ export default function Ponto() {
                                 <td style={{...TD,fontSize:10}}>
                                   {d.evento==='atestado'&&<span style={{color:'#1d4ed8',fontWeight:600}}>Afastamento</span>}
                                   {d.evento==='suspensao'&&<span style={{color:'#b91c1c',fontWeight:600}}>Suspensão</span>}
+                                  {d.evento==='outro_lancamento'&&<span style={{color:'#6b7280',fontSize:10}}>🔒 outro lanç.</span>}
                                 </td>
                               </tr>
                             )

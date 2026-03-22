@@ -25,7 +25,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
-type ObraWithCount = Obra & { colaboradores_count?: number }
+type ObraWithCount = Obra & { colaboradores_count?: number; has_horarios?: boolean }
 
 type FormData = {
   nome: string; codigo: string; endereco: string; cidade: string
@@ -111,7 +111,19 @@ export default function Obras() {
     const countMap: Record<string, number> = {}
     counts?.forEach(c => { if (c.obra_id) countMap[c.obra_id] = (countMap[c.obra_id] ?? 0) + 1 })
 
-    setObras(obrasData.map(o => ({ ...o, colaboradores_count: countMap[o.id] ?? 0 })) as ObraWithCount[])
+    // Buscar quais obras têm horários cadastrados
+    const { data: horCounts } = await supabase
+      .from('obra_horarios')
+      .select('obra_id')
+      .eq('ativo', true)
+
+    const horSet = new Set<string>((horCounts ?? []).map((h: any) => h.obra_id))
+
+    setObras(obrasData.map(o => ({
+      ...o,
+      colaboradores_count: countMap[o.id] ?? 0,
+      has_horarios: horSet.has(o.id),
+    })) as ObraWithCount[])
     setLoading(false)
   }, [])
 
@@ -288,7 +300,13 @@ export default function Obras() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <div style={{ width: 4, height: 36, borderRadius: 2, flexShrink: 0, background: STATUS_BORDER_COLOR[o.status] ?? '#e2e8f0' }} />
                       <div>
-                        <div style={{ fontWeight: 600, fontSize: 14 }}>{o.nome}</div>
+                        <div style={{ fontWeight: 600, fontSize: 14, display:'flex', alignItems:'center', gap:6 }}>
+                          {o.nome}
+                          {o.has_horarios
+                            ? <span title="Horários configurados" style={{ color:'#16a34a', fontSize:11, display:'flex', alignItems:'center', gap:2, background:'#dcfce7', borderRadius:4, padding:'1px 5px', fontWeight:600 }}>🕐 Horários</span>
+                            : <span title="Sem horários cadastrados" style={{ color:'#92400e', fontSize:11, background:'#fef3c7', borderRadius:4, padding:'1px 5px', fontWeight:600 }}>⚠️ Sem horários</span>
+                          }
+                        </div>
                         {o.codigo && <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--muted-foreground)', marginTop: 2 }}>#{o.codigo}</div>}
                       </div>
                     </div>

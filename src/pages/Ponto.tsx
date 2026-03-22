@@ -195,20 +195,8 @@ export default function Ponto() {
     return lista
   }, [colaboradores, busca, obraFiltro])
 
-  // ── Carregar horários da obra do colaborador ──────────────────────────────
-  const fetchHorarioObra = useCallback(async (obraId: string | null) => {
-    if (!obraId) { setHorarioObra({}); return }
-    const { data } = await supabase
-      .from('obra_horarios')
-      .select('*')
-      .eq('obra_id', obraId)
-    const mapa: Record<string, HorarioDia> = {}
-    ;(data ?? []).forEach((h: any) => { mapa[h.dia_semana] = h })
-    setHorarioObra(mapa)
-  }, [])
-
   // ── Carregar registros do mês + atestados + advertências ──────────────────
-  const fetchDias = useCallback(async (colab: ColabSimples, a: number, m: number) => {
+  const fetchDias = useCallback(async (colab: ColabSimples, a: number, m: number, horarioObraMap: Record<string, HorarioDia> = {}) => {
     setLoadingDias(true)
     const inicio = `${a}-${String(m).padStart(2,'0')}-01`
     const fim    = `${a}-${String(m).padStart(2,'0')}-${new Date(a, m, 0).getDate()}`
@@ -220,14 +208,14 @@ export default function Ponto() {
     ] = await Promise.all([
       supabase.from('registro_ponto').select('*').eq('colaborador_id', colab.id).gte('data', inicio).lte('data', fim),
       supabase.from('atestados').select('data, dias_afastamento').eq('colaborador_id', colab.id),
-      supabase.from('advertencias').select('data, tipo, dias_suspensao').eq('colaborador_id', colab.id).eq('tipo', 'suspensao'),
+      supabase.from('advertencias').select('data_advertencia, tipo, dias_suspensao').eq('colaborador_id', colab.id).eq('tipo', 'suspensao'),
     ])
 
     // Montar mapa de pontos existentes
     const mapaPonto: Record<string, any> = {}
     ;(pontosRaw ?? []).forEach((r: any) => { mapaPonto[r.data] = r })
 
-    // Montar set de dias de atestado
+    // Montar set de dias de atestado (apenas seg-sex)
     const diasAtestado = new Set<string>()
     ;(atestadosRaw ?? []).forEach((at: any) => {
       if (!at.data) return
@@ -235,19 +223,25 @@ export default function Ponto() {
       if (diasAfast > 0) {
         const fim2 = new Date(at.data + 'T12:00:00')
         fim2.setDate(fim2.getDate() + diasAfast - 1)
-        expandRange(at.data, fim2.toISOString().slice(0,10)).forEach(d => diasAtestado.add(d))
+        expandRange(at.data, fim2.toISOString().slice(0,10)).forEach(d => {
+          // apenas dias úteis (seg-sex)
+          const dow = new Date(d + 'T12:00:00').getDay()
+          if (dow !== 0 && dow !== 6) diasAtestado.add(d)
+        })
       } else {
-        diasAtestado.add(at.data)
+        const dow = new Date(at.data + 'T12:00:00').getDay()
+        if (dow !== 0 && dow !== 6) diasAtestado.add(at.data)
       }
     })
 
     // Montar set de dias de suspensão
     const diasSuspensao = new Set<string>()
     ;(advertenciasRaw ?? []).forEach((adv: any) => {
-      if (!adv.data || !adv.dias_suspensao) return
-      const fim2 = new Date(adv.data + 'T12:00:00')
+      const dataAdv = adv.data_advertencia
+      if (!dataAdv || !adv.dias_suspensao || adv.dias_suspensao <= 0) return
+      const fim2 = new Date(dataAdv + 'T12:00:00')
       fim2.setDate(fim2.getDate() + (adv.dias_suspensao - 1))
-      expandRange(adv.data, fim2.toISOString().slice(0,10)).forEach(d => diasSuspensao.add(d))
+      expandRange(dataAdv, fim2.toISOString().slice(0,10)).forEach(d => diasSuspensao.add(d))
     })
 
     setDias(diasDoMes(a, m).map(d => {
@@ -258,10 +252,23 @@ export default function Ponto() {
 
       if (!r) {
         const base = emptyDia(colab.id, d)
-        // Atestado: marca como presente automaticamente
-        if (isAtestado && !isFDS(d)) return { ...base, presente: true, evento, bloqueado: true }
+        // Atestado: marca como presente + preenche horários da obra + bloqueia edição
+        if (isAtestado) {
+          const diaSem = DIAS_KEY[new Date(d + 'T12:00:00').getDay()]
+          const hor = horarioObraMap[diaSem]
+          return {
+            ...base,
+            presente:       true,
+            evento,
+            bloqueado:      true,
+            hora_entrada:   hor?.hora_entrada   ?? '',
+            saida_almoco:   hor?.saida_almoco   ?? '',
+            retorno_almoco: hor?.retorno_almoco ?? '',
+            hora_saida:     hor?.hora_saida     ?? '',
+          }
+        }
         // Suspensão: bloqueia presença
-        if (isSuspensao) return { ...base, presente: false, evento, bloqueado: true }
+        if (isSuspensao) return { ...base, presente: false, falta: false, evento, bloqueado: true }
         return { ...base, evento, bloqueado: false }
       }
 
@@ -284,11 +291,21 @@ export default function Ponto() {
   }, [])
 
   useEffect(() => {
-    if (colabSel) {
-      fetchHorarioObra(colabSel.obra_id)
-      fetchDias(colabSel, ano, mes)
+    if (!colabSel) return
+    const load = async () => {
+      // Carrega horários da obra primeiro, depois usa no fetchDias
+      let horMap: Record<string, HorarioDia> = {}
+      if (colabSel.obra_id) {
+        const { data } = await supabase.from('obra_horarios').select('*').eq('obra_id', colabSel.obra_id)
+        ;(data ?? []).forEach((h: any) => { horMap[h.dia_semana] = h })
+        setHorarioObra(horMap)
+      } else {
+        setHorarioObra({})
+      }
+      fetchDias(colabSel, ano, mes, horMap)
     }
-  }, [colabSel, ano, mes, fetchDias, fetchHorarioObra])
+    load()
+  }, [colabSel, ano, mes, fetchDias])
 
   // ── Toggle presença (preenche horários da obra automaticamente) ───────────
   function togglePresente(idx: number) {

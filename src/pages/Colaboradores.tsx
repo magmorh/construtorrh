@@ -443,6 +443,12 @@ export default function Colaboradores() {
   const [editId, setEditId]       = useState<string | null>(null)
   const [form, setForm]           = useState<FormData>(EMPTY)
   const [section, setSection]     = useState<'pessoal' | 'funcao' | 'bancario' | 'vt' | 'epis'>('pessoal')
+
+  // ── modal pré-cadastro (etapa 1) ─────────────────────────────────────────
+  const [preModal, setPreModal]           = useState(false)
+  const [preFuncaoId, setPreFuncaoId]     = useState('')
+  const [preAdmissao, setPreAdmissao]     = useState('')
+  const [preLoading, setPreLoading]       = useState(false)
   const [epiList, setEpiList]         = useState<ColabEpiItem[]>([])
   const [saving, setSaving]       = useState(false)
 
@@ -572,14 +578,57 @@ export default function Colaboradores() {
   }
 
   // ── abrir modal criar ────────────────────────────────────────────────────
+  // ── abrir pré-modal (etapa 1 — só para novo colaborador) ───────────────────
   const openNew = () => {
+    setPreFuncaoId('')
+    setPreAdmissao(new Date().toISOString().slice(0,10))
+    setPreModal(true)
+  }
+
+  // ── avançar do pré-modal para o formulário completo ──────────────────────
+  const handlePreAvançar = async () => {
+    if (!preFuncaoId) { toast.error('Selecione a função'); return }
+    if (!preAdmissao) { toast.error('Informe a data de admissão'); return }
+    setPreLoading(true)
+
+    // Gera chapa com função + data já definidos
+    const fn = funcoes.find(f => f.id === preFuncaoId)
+    if (!fn?.sigla) { toast.error('Função sem sigla cadastrada'); setPreLoading(false); return }
+    const chapa = await gerarChapa(fn.sigla, preAdmissao)
+
+    // Carrega EPIs da função selecionada
+    const { data: feData } = await supabase
+      .from('funcao_epi')
+      .select('*, epi_catalogo(id, nome, categoria, requer_tamanho, requer_numero)')
+      .eq('funcao_id', preFuncaoId)
+
+    const epis: ColabEpiItem[] = (feData ?? []).map((fe: any) => ({
+      epi_id: fe.epi_id as string,
+      epi_nome: (fe.epi_catalogo?.nome ?? '') as string,
+      epi_categoria: (fe.epi_catalogo?.categoria ?? null) as string | null,
+      requer_tamanho: (fe.epi_catalogo?.requer_tamanho ?? false) as boolean,
+      requer_numero: (fe.epi_catalogo?.requer_numero ?? false) as boolean,
+      obrigatorio: (fe.obrigatorio ?? true) as boolean,
+      quantidade: (fe.quantidade ?? 1) as number,
+      tamanho: '',
+      numero: '',
+      status: 'pendente',
+      documento_url: null as string | null | undefined,
+      documento_nome: null as string | null | undefined,
+    }))
+
+    setPreLoading(false)
+    setPreModal(false)
+
+    // Abre formulário completo já preenchido
     setEditId(null)
-    setForm(EMPTY)
-    setChapaGerada('')
+    setForm({ ...EMPTY, funcao_id: preFuncaoId, data_admissao: preAdmissao, chapa })
+    setChapaGerada(chapa)
     setFuncaoOriginal('')
     setChapaOriginal('')
     setMotivoTroca('')
     setTrocandoFuncao(false)
+    setEpiList(epis)
     setSection('pessoal')
     setModalOpen(true)
   }
@@ -875,6 +924,77 @@ export default function Colaboradores() {
           )}
         </>
       )}
+
+      {/* ═══════════ PRÉ-MODAL: ETAPA 1 — FUNÇÃO + ADMISSÃO ═════════════════ */}
+      <Dialog open={preModal} onOpenChange={v => { if (!preLoading) setPreModal(v) }}>
+        <DialogContent style={{ maxWidth: 480 }}>
+          <DialogHeader>
+            <DialogTitle style={{ fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 22 }}>👷</span> Novo Colaborador
+            </DialogTitle>
+            <p style={{ fontSize: 13, color: 'var(--muted-foreground)', marginTop: 4 }}>
+              Selecione a função e a data de admissão para gerar o código e carregar os EPIs automaticamente.
+            </p>
+          </DialogHeader>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
+            {/* Função */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <Label style={{ fontSize: 12, fontWeight: 600 }}>Função *</Label>
+              <Select value={preFuncaoId} onValueChange={setPreFuncaoId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a função…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {funcoes.filter(f => f.ativo).map(f => (
+                    <SelectItem key={f.id} value={f.id}>
+                      <span style={{ fontWeight: 600 }}>{f.sigla}</span>
+                      <span style={{ color: 'var(--muted-foreground)', marginLeft: 8 }}>{f.nome}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Data de Admissão */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <Label style={{ fontSize: 12, fontWeight: 600 }}>Data de Admissão *</Label>
+              <Input
+                type="date"
+                value={preAdmissao}
+                onChange={e => setPreAdmissao(e.target.value)}
+              />
+            </div>
+
+            {/* Preview do código gerado */}
+            {preFuncaoId && preAdmissao && (() => {
+              const fn = funcoes.find(f => f.id === preFuncaoId)
+              if (!fn?.sigla) return null
+              const base = new Date(preAdmissao + 'T12:00:00')
+              const yy = String(base.getFullYear()).slice(-2)
+              const mm = String(base.getMonth() + 1).padStart(2, '0')
+              return (
+                <div style={{ background: 'var(--muted)', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>🪪</span>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>Código gerado automaticamente</div>
+                    <div style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: 15, letterSpacing: '0.05em' }}>
+                      {fn.sigla.toUpperCase()}{yy}{mm}-<span style={{ color: 'var(--primary)' }}>XXX</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreModal(false)} disabled={preLoading}>Cancelar</Button>
+            <Button onClick={handlePreAvançar} disabled={preLoading || !preFuncaoId || !preAdmissao}>
+              {preLoading ? 'Carregando…' : 'Avançar →'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ═══════════ MODAL COLABORADOR ═══════════════════════════════════════ */}
       <Dialog open={modalOpen} onOpenChange={() => {}}>
@@ -1884,33 +2004,44 @@ function FuncaoSection({
 
           {/* Select função — value nunca é string vazia (usa undefined) */}
           <Field label="Função *" span={2}>
-            <Select
-              value={form.funcao_id || undefined}
-              onValueChange={onFuncaoChange}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione a função…" />
-              </SelectTrigger>
-              <SelectContent>
+            {!editId ? (
+              /* novo colaborador: função já definida na etapa 1 */
+              <div style={{ background: 'var(--muted)', borderRadius: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600, border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>🏷️</span>
+                {(() => { const fn = funcoes.find(f => f.id === form.funcao_id); return fn ? `[${fn.sigla}] ${fn.nome}` : form.funcao_id })()}
+                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--muted-foreground)', fontWeight: 400 }}>definido na etapa anterior</span>
+              </div>
+            ) : (
+              <>
+                <Select
+                  value={form.funcao_id || undefined}
+                  onValueChange={onFuncaoChange}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a função…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {funcoes.length === 0 && (
+                      <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--muted-foreground)' }}>
+                        Nenhuma função ativa.
+                      </div>
+                    )}
+                    {funcoes.map(f => (
+                      <SelectItem key={f.id} value={f.id}>
+                        {f.sigla ? `[${f.sigla}]  ` : ''}{f.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {funcoes.length === 0 && (
-                  <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--muted-foreground)' }}>
-                    Nenhuma função ativa.
-                  </div>
+                  <button
+                    onClick={onGotoFuncoes}
+                    style={{ marginTop: 4, fontSize: 11, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', textAlign: 'left' }}
+                  >
+                    → Cadastre uma função primeiro
+                  </button>
                 )}
-                {funcoes.map(f => (
-                  <SelectItem key={f.id} value={f.id}>
-                    {f.sigla ? `[${f.sigla}]  ` : ''}{f.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {funcoes.length === 0 && (
-              <button
-                onClick={onGotoFuncoes}
-                style={{ marginTop: 4, fontSize: 11, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', textAlign: 'left' }}
-              >
-                → Cadastre uma função primeiro
-              </button>
+              </>
             )}
           </Field>
 
@@ -1987,11 +2118,19 @@ function FuncaoSection({
           </Field>
 
           <Field label="Data de admissão">
-            <Input
-              type="date"
-              value={form.data_admissao}
-              onChange={e => onDataAdmissao(e.target.value)}
-            />
+            {!editId ? (
+              <div style={{ background: 'var(--muted)', borderRadius: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600, border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>📅</span>
+                {form.data_admissao ? new Date(form.data_admissao + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}
+                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--muted-foreground)', fontWeight: 400 }}>definido na etapa anterior</span>
+              </div>
+            ) : (
+              <Input
+                type="date"
+                value={form.data_admissao}
+                onChange={e => onDataAdmissao(e.target.value)}
+              />
+            )}
           </Field>
 
         </Grid>

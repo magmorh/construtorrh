@@ -165,6 +165,17 @@ export default function Funcoes() {
   const handleDelete = async () => {
     if (!deleteId) return
     setDeleting(true)
+    // Verificar colaboradores vinculados antes de excluir
+    const { count } = await supabase
+      .from('colaboradores')
+      .select('id', { count: 'exact', head: true })
+      .eq('funcao_id', deleteId)
+    if ((count ?? 0) > 0) {
+      setDeleting(false)
+      setDeleteId(null)
+      toast.error(`Não é possível excluir: ${count} colaborador${count !== 1 ? 'es vinculados' : ' vinculado'} a esta função. Altere a função deles primeiro.`)
+      return
+    }
     const { error } = await supabase.from('funcoes').delete().eq('id', deleteId)
     setDeleting(false)
     setDeleteId(null)

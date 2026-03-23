@@ -633,7 +633,7 @@ export default function Epis() {
     // Buscar EPIs da função de origem
     const { data: origem, error: errOrigem } = await supabase
       .from('funcao_epi')
-      .select('epi_id, obrigatorio, observacoes')
+      .select('epi_id, obrigatorio, quantidade')
       .eq('funcao_id', copiarFuncaoId)
     if (errOrigem || !origem || origem.length === 0) {
       toast.error(errOrigem?.message ?? 'Nenhum EPI encontrado na função de origem')
@@ -645,7 +645,7 @@ export default function Epis() {
       funcao_id: funcaoSelecionada.id,
       epi_id: o.epi_id,
       obrigatorio: o.obrigatorio,
-      observacoes: o.observacoes ?? null,
+      quantidade: o.quantidade ?? 1,
     }))
     if (novos.length === 0) {
       toast.info('Todos os EPIs da função de origem já estão vinculados aqui')

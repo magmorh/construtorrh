@@ -68,15 +68,29 @@ function expandRange(inicio:string,fim:string):string[] {
 }
 
 // DSR helpers ──────────────────────────────────────────────────────────────
-// Dias úteis = Seg-Sex do período (independente de presença)
-function diasUteisPeriodo(inicio:string,fim:string):number {
+// Dias úteis = Seg-Sex do período que NÃO sejam feriados
+function diasUteisPeriodo(inicio:string,fim:string,feriadosSet?:Set<string>):number {
   const dias=expandRange(inicio,fim)
-  return dias.filter(d=>{ const dow=new Date(d+'T12:00:00').getDay(); return dow>=1&&dow<=5 }).length
+  return dias.filter(d=>{
+    const dow=new Date(d+'T12:00:00').getDay()
+    if(dow<1||dow>5) return false        // só Seg-Sex
+    if(feriadosSet?.has(d)) return false // exclui feriados
+    return true
+  }).length
 }
-// Domingos do período (feriados precisariam de tabela; usando Domingos por ora)
-function domingosPeriodo(inicio:string,fim:string):number {
+// Domingos + feriados do período (base DSR)
+function domingosFeriadosPeriodo(inicio:string,fim:string,feriadosSet?:Set<string>):number {
   const dias=expandRange(inicio,fim)
-  return dias.filter(d=>new Date(d+'T12:00:00').getDay()===0).length
+  const domingos=dias.filter(d=>new Date(d+'T12:00:00').getDay()===0).length
+  // Feriados em dias úteis (Seg-Sex) que não sejam domingo
+  const feriadosUteis=feriadosSet
+    ? dias.filter(d=>{
+        if(!feriadosSet.has(d)) return false
+        const dow=new Date(d+'T12:00:00').getDay()
+        return dow>=1&&dow<=5
+      }).length
+    : 0
+  return domingos+feriadosUteis
 }
 
 function calcDia(d:DiaRegistro):{normais:number;extras50:number;total:number} {
@@ -128,6 +142,7 @@ export default function Ponto() {
 
   // Modal novo lançamento
   const [modalLanc, setModalLanc] = useState(false)
+  const [feriados, setFeriados] = useState<Set<string>>(new Set()) // 'YYYY-MM-DD'
   const [prodExpandida, setProdExpandida] = useState<string|null>(null) // lancId com prod visível
   const [novoLancObraId, setNovoLancObraId] = useState('')
   const [novoLancInicio, setNovoLancInicio] = useState('')
@@ -371,6 +386,18 @@ export default function Ponto() {
 
   useEffect(()=>{ if(colabSel)fetchTudo(colabSel,ano,mes) },[colabSel,ano,mes,fetchTudo])
 
+  // Buscar feriados do ano/mês selecionado
+  useEffect(()=>{
+    supabase.from('feriados')
+      .select('data')
+      .eq('ativo',true)
+      .gte('data',`${ano}-01-01`)
+      .lte('data',`${ano}-12-31`)
+      .then(({data})=>{
+        if(data) setFeriados(new Set(data.map((f:any)=>f.data as string)))
+      })
+  },[ano])
+
   // ── Totais globais ────────────────────────────────────────────────────────
   const totaisGlobais = useMemo(()=>{
     let normais=0,extras50=0,presentes=0
@@ -413,15 +440,15 @@ export default function Ponto() {
     }
     let totalDiasUteis=0,totalDomingos=0
     lancamentos.forEach(lanc=>{
-      totalDiasUteis+=diasUteisPeriodo(lanc.data_inicio,lanc.data_fim)
-      totalDomingos+=domingosPeriodo(lanc.data_inicio,lanc.data_fim)
+      totalDiasUteis+=diasUteisPeriodo(lanc.data_inicio,lanc.data_fim,feriados)
+      totalDomingos+=domingosFeriadosPeriodo(lanc.data_inicio,lanc.data_fim,feriados)
     })
     const valorExtras=fmtDecimal(totaisGlobais.extras50)*valorHora*1.5
     const dsr=totalDiasUteis>0&&totalDomingos>0
       ? (valorExtras/totalDiasUteis)*totalDomingos
       : 0
     return{valor:dsr,diasUteis:totalDiasUteis,domingos:totalDomingos,valorExtras}
-  },[colabSel,valorHora,lancamentos,totaisGlobais.extras50])
+  },[colabSel,valorHora,lancamentos,totaisGlobais.extras50,feriados])
 
   const totalReceber = useMemo(()=>{
     if(!colabSel)return totalProd
@@ -1040,8 +1067,8 @@ export default function Ponto() {
                                   </span>
                                 }
                                 // CLT: horas + DSR proporcional do lançamento
-                                const duLanc=diasUteisPeriodo(lanc.data_inicio,lanc.data_fim)
-                                const domLanc=domingosPeriodo(lanc.data_inicio,lanc.data_fim)
+                                const duLanc=diasUteisPeriodo(lanc.data_inicio,lanc.data_fim,feriados)
+                                const domLanc=domingosFeriadosPeriodo(lanc.data_inicio,lanc.data_fim,feriados)
                                 const extrasLanc=fmtDecimal(tot.extras50)*valorHora*1.5
                                 const dsrLanc=duLanc>0&&domLanc>0&&extrasLanc>0?(extrasLanc/duLanc)*domLanc:0
                                 const totalLanc=vHoras+dsrLanc

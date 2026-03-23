@@ -964,10 +964,10 @@ export default function Ponto() {
 
                   {/* Tabela de ponto */}
                   {exp&&(
-                    <div style={{overflowX:'auto'}}>
+                    <div style={{overflowX:'auto',overflowY:'auto',maxHeight:'60vh'}}>
                       <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
                         <thead>
-                          <tr style={{background:'#1e3a5f',color:'#fff',position:'sticky',top:0}}>
+                          <tr style={{background:'#1e3a5f',color:'#fff',position:'sticky',top:0,zIndex:2}}>
                             <th style={TH}>Dia</th><th style={TH}>Data</th>
                             <th style={{...TH,width:64}}>Presente</th><th style={{...TH,width:52}}>Falta</th>
                             <th style={TH}>Entrada</th><th style={TH}>Saída Alm.</th><th style={TH}>Ret. Alm.</th><th style={TH}>Saída</th>

@@ -177,6 +177,23 @@ export default function Funcoes() {
   const handleDelete = async () => {
     if (!deleteId) return
     setDeleting(true)
+
+    // Dupla verificação server-side antes de excluir
+    const [{ count: qtdColabs }, { count: qtdEpis }] = await Promise.all([
+      supabase.from('colaboradores').select('id', { count: 'exact', head: true }).eq('funcao_id', deleteId),
+      supabase.from('funcao_epi').select('id',   { count: 'exact', head: true }).eq('funcao_id', deleteId),
+    ])
+    if ((qtdColabs ?? 0) > 0 || (qtdEpis ?? 0) > 0) {
+      const partes: string[] = []
+      if ((qtdColabs ?? 0) > 0) partes.push(`${qtdColabs} colaborador${qtdColabs !== 1 ? 'es' : ''} vinculado${qtdColabs !== 1 ? 's' : ''}`)
+      if ((qtdEpis   ?? 0) > 0) partes.push(`${qtdEpis} EPI${qtdEpis !== 1 ? 's' : ''} vinculado${qtdEpis !== 1 ? 's' : ''}`)
+      toast.error(`Não é possível excluir: ${partes.join(' e ')}. Desvincule primeiro.`)
+      setDeleting(false)
+      setDeleteId(null)
+      fetchData() // atualiza contagens na UI
+      return
+    }
+
     const { error } = await supabase.from('funcoes').delete().eq('id', deleteId)
     setDeleting(false)
     setDeleteId(null)

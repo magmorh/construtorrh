@@ -340,19 +340,35 @@ export default function Funcoes() {
                       </Button>
                       {(()=>{
                         const v = vinculos[f.id]
-                        const temVinculo = (v?.colabs ?? 0) > 0 || (v?.epis ?? 0) > 0
+                        const qtdColabs = v?.colabs ?? 0
+                        const qtdEpis   = v?.epis   ?? 0
+                        const temVinculo = qtdColabs > 0 || qtdEpis > 0
                         const tooltipParts: string[] = []
-                        if ((v?.colabs ?? 0) > 0) tooltipParts.push(`${v.colabs} colaborador${v.colabs !== 1 ? 'es' : ''} vinculado${v.colabs !== 1 ? 's' : ''}`)
-                        if ((v?.epis ?? 0) > 0)   tooltipParts.push(`${v.epis} EPI${v.epis !== 1 ? 's' : ''} vinculado${v.epis !== 1 ? 's' : ''}`)
+                        if (qtdColabs > 0) tooltipParts.push(`${qtdColabs} colaborador${qtdColabs !== 1 ? 'es' : ''} vinculado${qtdColabs !== 1 ? 's' : ''}`)
+                        if (qtdEpis   > 0) tooltipParts.push(`${qtdEpis} EPI${qtdEpis !== 1 ? 's' : ''} vinculado${qtdEpis !== 1 ? 's' : ''}`)
                         const tooltip = temVinculo ? `Não pode excluir: ${tooltipParts.join(' e ')}` : 'Excluir função'
+
+                        if (temVinculo) {
+                          return (
+                            <span title={tooltip} style={{ display: 'inline-flex', cursor: 'not-allowed' }}>
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-8 w-8"
+                                disabled
+                                tabIndex={-1}
+                                style={{ opacity: 0.25, pointerEvents: 'none', color: '#9ca3af' }}
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </span>
+                          )
+                        }
                         return (
                           <Button
                             variant="ghost" size="icon"
                             className="h-8 w-8 text-destructive hover:text-destructive"
-                            disabled={temVinculo}
                             title={tooltip}
                             onClick={() => setDeleteId(f.id)}
-                            style={temVinculo ? { opacity: 0.3, cursor: 'not-allowed' } : undefined}
                           >
                             <Trash2 size={14} />
                           </Button>

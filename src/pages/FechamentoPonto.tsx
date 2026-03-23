@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
+import { calcINSS, calcIR, fetchTabelasEncargos, type FaixaINSS, type FaixaIR } from '@/lib/encargos'
 import { PageHeader, EmptyState, LoadingSkeleton } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -72,6 +73,8 @@ export default function FechamentoPonto() {
   const [modalRecusar, setModalRecusar] = useState<string | null>(null)
   const [motivoRecusa, setMotivoRecusa] = useState('')
   const [saving, setSaving] = useState(false)
+  const [tabelaInss, setTabelaInss] = useState<FaixaINSS[]>([])
+  const [tabelaIR, setTabelaIR]     = useState<FaixaIR[]>([])
 
   // Modal confirmar pagamento
   const [modalPagar, setModalPagar] = useState<string | null>(null)
@@ -155,22 +158,7 @@ export default function FechamentoPonto() {
       return doms + ferDiasUteis
     }
 
-    // ── Funções de cálculo de encargos ──────────────────────────────────────
-    function calcINSS(salario: number): number {
-      const base = Math.min(salario, 8475.55)
-      if (base <= 1621.00) return base * 0.075
-      if (base <= 2902.84) return base * 0.09  - 24.32
-      if (base <= 4354.27) return base * 0.12  - 111.40
-      return base * 0.14 - 198.49
-    }
-    function calcIR(salario: number, inss: number): number {
-      const base = salario - inss
-      if (base <= 2372.27) return 0
-      if (base <= 2826.65) return base * 0.075 - 177.92
-      if (base <= 3751.05) return base * 0.15  - 389.92
-      if (base <= 4664.68) return base * 0.225 - 671.25
-      return base * 0.275 - 904.48
-    }
+    // ── Função VT (INSS e IR vêm do lib/encargos) ───────────────────────────
     function vtDia(vtDados: any): number {
       if (!vtDados) return 0
       const ida   = (vtDados.trechos_ida   ?? []).reduce((s: number, t: any) => s + (parseFloat(t.valor) || 0), 0)
@@ -221,8 +209,8 @@ export default function FechamentoPonto() {
 
       // ── INSS e IR (somente CLT, base = salário horas + DSR) ──────────────
       const salarioCLT = valorHoras + dsr   // salário base CLT para encargos
-      const inss = tipo === 'clt' ? Math.max(0, calcINSS(salarioCLT)) : 0
-      const ir   = tipo === 'clt' ? Math.max(0, calcIR(salarioCLT, inss))  : 0
+      const inss = tipo === 'clt' ? calcINSS(salarioCLT, tabelaInss.length ? tabelaInss : undefined) : 0
+      const ir   = tipo === 'clt' ? calcIR(salarioCLT, inss, tabelaIR.length ? tabelaIR : undefined)  : 0
 
       // Líquido = total a receber - desconto VT - INSS - IR
       const liquido = valorTotal - descontoVT - inss - ir
@@ -259,6 +247,13 @@ export default function FechamentoPonto() {
     })
     setLancamentos(lista)
     setLoading(false)
+  }, [])
+
+  // Carregar tabelas de encargos uma vez
+  useEffect(() => {
+    fetchTabelasEncargos(supabase).then(({ tabelaInss: ti, tabelaIR: tir }) => {
+      setTabelaInss(ti); setTabelaIR(tir)
+    })
   }, [])
 
   useEffect(() => { fetchLancamentos(mesRef) }, [mesRef, fetchLancamentos])

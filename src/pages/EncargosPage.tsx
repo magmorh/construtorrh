@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
+import { calcINSS, calcIR, fetchTabelasEncargos, type FaixaINSS, type FaixaIR } from '@/lib/encargos'
 import { PageHeader, LoadingSkeleton, EmptyState } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -58,26 +59,7 @@ const FAIXAS_IR = [
   { acima: true,   aliq: 0.275, deducao: 904.48 },
 ]
 
-// ─── Funções de cálculo ───────────────────────────────────────────────────────
-
-function calcINSS(salario: number): number {
-  const base = Math.min(salario, INSS_TETO)
-  let faixa = FAIXAS_INSS[FAIXAS_INSS.length - 1]
-  for (const f of FAIXAS_INSS) {
-    if (base <= f.ate) { faixa = f; break }
-  }
-  return Math.max(0, base * faixa.aliq - faixa.deducao)
-}
-
-function calcIR(salario: number, inss: number): number {
-  const base = Math.max(0, salario - inss)
-  let faixa = FAIXAS_IR[FAIXAS_IR.length - 1]
-  for (const f of FAIXAS_IR) {
-    if ('acima' in f && f.acima) break
-    if (base <= f.ate) { faixa = f; break }
-  }
-  return Math.max(0, base * faixa.aliq - faixa.deducao)
-}
+// ─── Helpers de cálculo (via lib/encargos) ───────────────────────────────────
 
 // ─── Helpers de período ───────────────────────────────────────────────────────
 

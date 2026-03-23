@@ -36,6 +36,8 @@ interface LancItem {
   horas_extras: number
   valor_horas: number
   valor_producao: number
+  valor_dsr: number
+  valor_premio: number
   valor_total: number
   dias_trabalhados: number
 }
@@ -87,9 +89,10 @@ export default function FechamentoPonto() {
     if (!lancsRaw) { setLoading(false); return }
 
     const ids = lancsRaw.map((l: any) => l.id)
-    const [{ data: pontosRaw }, { data: prodRaw }] = await Promise.all([
-      ids.length ? supabase.from('registro_ponto').select('lancamento_id,horas_trabalhadas,horas_extras').in('lancamento_id', ids) : Promise.resolve({ data: [] }),
-      ids.length ? supabase.from('ponto_producao').select('lancamento_id,valor_total').in('lancamento_id', ids) : Promise.resolve({ data: [] }),
+    const [{ data: pontosRaw }, { data: prodRaw }, { data: feriadosRaw }] = await Promise.all([
+      ids.length ? supabase.from('registro_ponto').select('lancamento_id,horas_trabalhadas,horas_extras,data').in('lancamento_id', ids) : Promise.resolve({ data: [] }),
+      ids.length ? supabase.from('ponto_producao').select('lancamento_id,valor_total,dias').in('lancamento_id', ids) : Promise.resolve({ data: [] }),
+      supabase.from('feriados').select('data').gte('data', mr+'-01').lte('data', mr+'-31'),
     ])
 
     const funcaoIds = [...new Set(lancsRaw.map((l: any) => l.colaboradores?.funcao_id).filter(Boolean))]
@@ -100,22 +103,86 @@ export default function FechamentoPonto() {
     const mapaValorH: Record<string, number> = {}
     ;(valorHoraRaw ?? []).forEach((v: any) => { mapaValorH[`${v.funcao_id}_${v.tipo_contrato}`] = v.valor_hora })
 
-    const mapaHoras: Record<string, { norm: number; extra: number; dias: number }> = {}
+    // Feriados do período
+    const feriadosSet = new Set<string>((feriadosRaw ?? []).map((f: any) => f.data as string))
+
+    // Agregar horas por lançamento
+    const mapaHoras: Record<string, { norm: number; extra: number; dias: number; diasDatas: Set<string> }> = {}
     ;(pontosRaw ?? []).forEach((p: any) => {
-      if (!mapaHoras[p.lancamento_id]) mapaHoras[p.lancamento_id] = { norm: 0, extra: 0, dias: 0 }
-      mapaHoras[p.lancamento_id].norm += (p.horas_trabalhadas ?? 0)
+      if (!mapaHoras[p.lancamento_id]) mapaHoras[p.lancamento_id] = { norm: 0, extra: 0, dias: 0, diasDatas: new Set() }
+      mapaHoras[p.lancamento_id].norm  += (p.horas_trabalhadas ?? 0)
       mapaHoras[p.lancamento_id].extra += (p.horas_extras ?? 0)
-      mapaHoras[p.lancamento_id].dias += 1
+      mapaHoras[p.lancamento_id].dias  += 1
+      if (p.data) mapaHoras[p.lancamento_id].diasDatas.add(p.data)
     })
+
+    // Agregar produção por lançamento
     const mapaProd: Record<string, number> = {}
-    ;(prodRaw ?? []).forEach((p: any) => { mapaProd[p.lancamento_id] = (mapaProd[p.lancamento_id] ?? 0) + p.valor_total })
+    const mapaProdDias: Record<string, Set<string>> = {}
+    ;(prodRaw ?? []).forEach((p: any) => {
+      mapaProd[p.lancamento_id] = (mapaProd[p.lancamento_id] ?? 0) + p.valor_total
+      if (!mapaProdDias[p.lancamento_id]) mapaProdDias[p.lancamento_id] = new Set()
+      ;(p.dias ?? []).forEach((d: string) => mapaProdDias[p.lancamento_id].add(d))
+    })
+
+    // Helpers DSR
+    function expandRange(ini: string, fim: string): string[] {
+      const dias: string[] = []
+      const d = new Date(ini + 'T12:00:00')
+      const end = new Date(fim + 'T12:00:00')
+      while (d <= end) { dias.push(d.toISOString().slice(0, 10)); d.setDate(d.getDate() + 1) }
+      return dias
+    }
+    function diasUteisPeriodo(ini: string, fim: string): number {
+      return expandRange(ini, fim).filter(d => {
+        const dow = new Date(d + 'T12:00:00').getDay()
+        return dow >= 1 && dow <= 6 && !feriadosSet.has(d)
+      }).length
+    }
+    function domingosFeriadosPeriodo(ini: string, fim: string): number {
+      const dias = expandRange(ini, fim)
+      const doms = dias.filter(d => new Date(d + 'T12:00:00').getDay() === 0).length
+      const ferDiasUteis = feriadosSet.size > 0
+        ? dias.filter(d => { const dow = new Date(d + 'T12:00:00').getDay(); return feriadosSet.has(d) && dow !== 0 }).length
+        : 0
+      return doms + ferDiasUteis
+    }
 
     const lista: LancItem[] = lancsRaw.map((l: any) => {
       const colab = l.colaboradores
-      const horasAgg = mapaHoras[l.id] ?? { norm: 0, extra: 0, dias: 0 }
+      const horasAgg = mapaHoras[l.id] ?? { norm: 0, extra: 0, dias: 0, diasDatas: new Set() }
       const vh = mapaValorH[`${colab?.funcao_id}_${colab?.tipo_contrato}`] ?? 0
       const valorHoras = horasAgg.norm * vh + horasAgg.extra * vh * 1.5
-      const valorProd = mapaProd[l.id] ?? 0
+      const valorProd  = mapaProd[l.id] ?? 0
+      const tipo = colab?.tipo_contrato ?? 'clt'
+
+      let valorTotal = 0
+      let dsr = 0
+      let premio = 0
+
+      if (tipo === 'clt') {
+        // DSR = (valorHoras / diasUteis) × domingos
+        const du  = diasUteisPeriodo(l.data_inicio, l.data_fim)
+        const dom = domingosFeriadosPeriodo(l.data_inicio, l.data_fim)
+        dsr = du > 0 && dom > 0 ? (valorHoras / du) * dom : 0
+        const salario = valorHoras + dsr
+        // Regra produção: se prod > salário → paga salário + prêmio
+        premio = valorProd > salario ? valorProd - salario : 0
+        valorTotal = salario + premio
+      } else {
+        // Autônomo/PJ: horas (dias sem prod) + produção
+        const diasComProd = mapaProdDias[l.id] ?? new Set<string>()
+        const normSemProd = horasAgg.norm  // simplificado: usa total (prod já soma separado)
+        // Para autônomo, Total = horas de dias SEM prod + produção
+        // Como não temos horas por dia aqui, usamos: valorHoras - valorHorasDiasComProd
+        // Aproximação: se tem prod, não soma horas dos dias com prod
+        const diasTotalLanc = horasAgg.dias || 1
+        const diasSemProd = Math.max(0, diasTotalLanc - diasComProd.size)
+        const horasPorDia = diasTotalLanc > 0 ? valorHoras / diasTotalLanc : 0
+        const valorHorasSemProd = horasPorDia * diasSemProd
+        valorTotal = diasComProd.size > 0 ? valorHorasSemProd + valorProd : valorHoras + valorProd
+      }
+
       return {
         id: l.id,
         colaborador_id: l.colaborador_id,
@@ -123,7 +190,7 @@ export default function FechamentoPonto() {
         colaborador_chapa: colab?.chapa ?? null,
         funcao_nome: colab?.funcoes?.nome ?? '—',
         funcao_id: colab?.funcao_id ?? null,
-        tipo_contrato: colab?.tipo_contrato ?? 'clt',
+        tipo_contrato: tipo,
         obra_id: l.obra_id,
         obra_nome: l.obras?.nome ?? '—',
         mes_referencia: l.mes_referencia,
@@ -134,7 +201,9 @@ export default function FechamentoPonto() {
         horas_extras: horasAgg.extra,
         valor_horas: valorHoras,
         valor_producao: valorProd,
-        valor_total: valorHoras + valorProd,
+        valor_dsr: dsr,
+        valor_premio: premio,
+        valor_total: valorTotal,
         dias_trabalhados: horasAgg.dias,
       }
     })
@@ -306,8 +375,10 @@ export default function FechamentoPonto() {
                         <TableHead className="text-center">Dias</TableHead>
                         <TableHead className="text-right">Horas</TableHead>
                         <TableHead className="text-right">Vl. Horas</TableHead>
+                        <TableHead className="text-right" style={{color:'#0369a1'}}>DSR</TableHead>
                         <TableHead className="text-right">Produção</TableHead>
-                        <TableHead className="text-right">Total</TableHead>
+                        <TableHead className="text-right" style={{color:'#15803d'}}>Prêmio</TableHead>
+                        <TableHead className="text-right" style={{color:'#7c3aed',fontWeight:700}}>💵 Total</TableHead>
                         <TableHead className="text-center">Status</TableHead>
                         <TableHead></TableHead>
                       </TableRow>
@@ -329,8 +400,10 @@ export default function FechamentoPonto() {
                             <TableCell className="text-center">{lanc.dias_trabalhados}</TableCell>
                             <TableCell className="text-right" style={{ fontFamily: 'monospace' }}>{fmtHHMM(lanc.horas_normais)}</TableCell>
                             <TableCell className="text-right">{lanc.valor_horas > 0 ? formatCurrency(lanc.valor_horas) : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}</TableCell>
+                            <TableCell className="text-right" style={{ color: '#0369a1' }}>{lanc.valor_dsr > 0 ? formatCurrency(lanc.valor_dsr) : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}</TableCell>
                             <TableCell className="text-right">{lanc.valor_producao > 0 ? formatCurrency(lanc.valor_producao) : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}</TableCell>
-                            <TableCell className="text-right" style={{ fontWeight: 700 }}>{formatCurrency(lanc.valor_total)}</TableCell>
+                            <TableCell className="text-right" style={{ color: '#15803d' }}>{lanc.valor_premio > 0 ? formatCurrency(lanc.valor_premio) : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}</TableCell>
+                            <TableCell className="text-right" style={{ fontWeight: 800, color: '#7c3aed', fontSize: 13 }}>{formatCurrency(lanc.valor_total)}</TableCell>
                             <TableCell className="text-center">
                               <span style={{ ...badge, borderRadius: 10, padding: '2px 8px', fontSize: 11, fontWeight: 600, display: 'inline-block' }}>
                                 {badge.label}

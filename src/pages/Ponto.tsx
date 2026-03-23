@@ -717,9 +717,9 @@ export default function Ponto() {
             <div style={{display:'flex',gap:1,borderTop:'1px solid var(--border)',background:'var(--muted)',flexWrap:'wrap'}}>
               {(()=>{
                 // Média produção por dia trabalhado (total presentes, não só dias de prod)
-                const diasTrab=totaisGlobais.presentes
-                const subProd=totalProd>0&&diasTrab>0
-                  ? `≈ ${formatCurrency(totalProd/diasTrab)}/dia (${diasTrab} dia${diasTrab!==1?'s':''})`
+                const diasProd=diasComProd.size
+                const subProd=totalProd>0&&diasProd>0
+                  ? `≈ ${formatCurrency(totalProd/diasProd)}/dia (${diasProd} dia${diasProd!==1?'s':''})`
                   : producoes.length>0?`${producoes.length} lançamento${producoes.length!==1?'s':''}`:'Nenhuma produção'
                 // Sub do total a receber
                 const subReceber=premioCLT>0
@@ -788,8 +788,8 @@ export default function Ponto() {
               const prodLanc=producoes.filter(p=>p.lancamento_id===lanc.id)
               // Produção proporcional por dia trabalhado neste lançamento
               const totalProdLancamento=prodLanc.reduce((s,p)=>s+p.valor_total,0)
-              const diasTrabLanc=tot.presentes
-              const prodPorDia=diasTrabLanc>0&&totalProdLancamento>0?totalProdLancamento/diasTrabLanc:0
+              const diasProdLanc=new Set(prodLanc.flatMap(p=>p.dias??[])).size
+              const prodPorDia=diasProdLanc>0&&totalProdLancamento>0?totalProdLancamento/diasProdLanc:0
 
               return(
                 <div key={lanc.id} style={{border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,0.05)'}}>
@@ -854,15 +854,15 @@ export default function Ponto() {
                     <div style={{background:'#fffbeb',borderBottom:'1px solid #fde68a',padding:'6px 14px'}}>
                       {(() => {
                         const totalProdLanc = prodLanc.reduce((s,p)=>s+p.valor_total,0)
-                        const diasTrab = totaisLanc(lanc.id).presentes
-                        const mediaDia = diasTrab>0 ? totalProdLanc/diasTrab : 0
+                        const diasProdPainel = new Set(prodLanc.flatMap(p=>p.dias??[])).size
+                        const mediaDia = diasProdPainel>0 ? totalProdLanc/diasProdPainel : 0
                         return (
                           <>
                             <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
                               <div style={{fontSize:11,fontWeight:700,color:'#92400e'}}>🏗️ Produção lançada</div>
                               <div style={{marginLeft:'auto',display:'flex',gap:12,fontSize:11}}>
                                 <span style={{color:'#b45309'}}>Total: <strong style={{color:'#92400e'}}>{formatCurrency(totalProdLanc)}</strong></span>
-                                {mediaDia>0&&<span style={{color:'#92400e'}}>≈ <strong>{formatCurrency(mediaDia)}</strong>/dia ({diasTrab} dia{diasTrab!==1?'s':''})</span>}
+                                {mediaDia>0&&<span style={{color:'#92400e'}}>≈ <strong>{formatCurrency(mediaDia)}</strong>/dia ({diasProdPainel} dia{diasProdPainel!==1?'s':''})</span>}
                               </div>
                             </div>
                             <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>

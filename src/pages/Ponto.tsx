@@ -801,7 +801,7 @@ export default function Ponto() {
                       if(dsrInfo.valor>0) partes.push(`DSR: ${formatCurrency(dsrInfo.valor)}`)
                       if(premioCLT>0) partes.push(`Prêmio: ${formatCurrency(premioCLT)}`)
                       return partes.length>0?partes.join(' + '):'Sem valor/hora cadastrado'
-                    })()
+                    })();
 
                 const cards=[
                   {label:'⏱ Total de Horas',value:fmtHHMM(totaisGlobais.total),sub:`${fmtHHMM(totaisGlobais.normais)} norm + ${fmtHHMM(totaisGlobais.extras50)} extras`,color:'#1d4ed8'},

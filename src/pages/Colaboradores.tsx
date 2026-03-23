@@ -22,7 +22,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Users, Plus, Search, Pencil, Trash2, History,
+  Users, Plus, Search, Pencil, Trash2, HardHat, History,
   Briefcase, Tag, Clock, AlertTriangle, CheckCircle2,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -165,12 +165,25 @@ function FuncoesTab() {
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState<FuncaoForm>(EMPTY_FN)
   const [saving, setSaving] = useState(false)
-  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [deleteId, setDeleteId]           = useState<string | null>(null)
+  const [vinculos, setVinculos]           = useState<Record<string, number>>({})
+  const [vinculosReady, setVinculosReady] = useState(false)
+  const [deleting, setDeleting]           = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase.from('funcoes').select('*').order('nome')
+    const [{ data }, { data: colabsRaw }] = await Promise.all([
+      supabase.from('funcoes').select('*').order('nome'),
+      supabase.from('colaboradores').select('funcao_id').not('funcao_id', 'is', null),
+    ])
     if (data) setRows(data as Funcao[])
+    // Montar mapa funcao_id → qtd colaboradores
+    const mapa: Record<string, number> = {}
+    ;(colabsRaw ?? []).forEach((r: any) => {
+      if (r.funcao_id) mapa[r.funcao_id] = (mapa[r.funcao_id] ?? 0) + 1
+    })
+    setVinculos(mapa)
+    setVinculosReady(true)
     setLoading(false)
   }, [])
 
@@ -239,8 +252,16 @@ function FuncoesTab() {
 
   const del = async () => {
     if (!deleteId) return
+    setDeleting(true)
+    // Verificar server-side antes de deletar
+    const { data: colabsVinc } = await supabase
+      .from('colaboradores').select('id').eq('funcao_id', deleteId).limit(1)
+    if ((colabsVinc?.length ?? 0) > 0) {
+      toast.error('Não é possível excluir: há colaboradores vinculados a esta função.')
+      setDeleting(false); setDeleteId(null); load(); return
+    }
     const { error } = await supabase.from('funcoes').delete().eq('id', deleteId)
-    setDeleteId(null)
+    setDeleting(false); setDeleteId(null)
     if (error) { toast.error(traduzirErro(error.message)); return }
     toast.success('Função excluída!'); load()
   }
@@ -314,9 +335,38 @@ function FuncoesTab() {
                     }}>{f.ativo ? 'Ativo' : 'Inativo'}</span>
                   </TableCell>
                   <TableCell style={{ textAlign: 'right' }}>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
-                      <Button variant="ghost" size="icon" style={{ width: 30, height: 30 }} onClick={() => openEdit(f)}><Pencil size={13} /></Button>
-                      <Button variant="ghost" size="icon" style={{ width: 30, height: 30, color: 'var(--destructive)' }} onClick={() => setDeleteId(f.id)}><Trash2 size={13} /></Button>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+                      <Button variant="ghost" size="icon" style={{ width: 30, height: 30 }} onClick={() => openEdit(f)}>
+                        <Pencil size={13} />
+                      </Button>
+                      {/* Badge ou botão excluir — depende de vinculos */}
+                      {!vinculosReady
+                        ? <span style={{ width: 30, display: 'inline-block' }} />
+                        : (vinculos[f.id] ?? 0) > 0
+                          ? (
+                            <span
+                              title={`${vinculos[f.id]} colaborador${vinculos[f.id] !== 1 ? 'es vinculados' : ' vinculado'} — remova-os para poder excluir`}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 3,
+                                fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999,
+                                background: 'rgba(37,99,235,0.1)', color: '#2563eb', cursor: 'default',
+                              }}
+                            >
+                              <HardHat size={13} />
+                              {vinculos[f.id]}
+                            </span>
+                          )
+                          : (
+                            <Button
+                              variant="ghost" size="icon"
+                              style={{ width: 30, height: 30, color: 'var(--destructive)' }}
+                              title="Excluir função"
+                              onClick={() => setDeleteId(f.id)}
+                            >
+                              <Trash2 size={13} />
+                            </Button>
+                          )
+                      }
                     </div>
                   </TableCell>
                 </TableRow>
@@ -418,8 +468,11 @@ function FuncoesTab() {
             <AlertDialogDescription>Colaboradores vinculados perderão o vínculo com esta função.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={del} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Excluir</AlertDialogAction>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            {/* Button normal — AlertDialogAction ignora disabled */}
+            <Button variant="destructive" disabled={deleting} onClick={del}>
+              {deleting ? 'Excluindo…' : 'Excluir'}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

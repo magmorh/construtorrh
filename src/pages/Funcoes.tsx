@@ -21,7 +21,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Briefcase, Plus, Search, Pencil, Trash2, Clock, Tag } from 'lucide-react'
+import { Briefcase, Plus, Search, Pencil, Trash2, Clock, Tag, HardHat } from 'lucide-react'
 import { toast } from 'sonner'
 import { traduzirErro } from '@/lib/erros'
 
@@ -355,12 +355,13 @@ export default function Funcoes() {
                             <span
                               title={`${qtdColabs} colaborador${qtdColabs !== 1 ? 'es vinculados' : ' vinculado'} — remova-os para poder excluir esta função`}
                               style={{
-                                display: 'inline-flex', alignItems: 'center', gap: 3,
+                                display: 'inline-flex', alignItems: 'center', gap: 4,
                                 fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999,
                                 background: 'rgba(37,99,235,0.1)', color: '#2563eb', cursor: 'default',
                               }}
                             >
-                              👷 {qtdColabs}
+                              <HardHat size={13} />
+                              {qtdColabs}
                             </span>
                           )
                         }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { Plus, Pencil, Trash2, BookOpen, Search, Tag, Building2, ChevronRight } from 'lucide-react'
+import { Plus, Pencil, Trash2, BookOpen, Search, Tag, Building2, ChevronRight, HardHat } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
 import { PageHeader, EmptyState, LoadingSkeleton } from '@/components/Shared'
@@ -399,14 +399,16 @@ export default function Playbooks() {
                                       {/* Badge contador de produções — visível quando há lançamentos */}
                                       {(prodPorItem[item.id] ?? 0) > 0 && (
                                         <span
-                                          title={`${prodPorItem[item.id]} produção${prodPorItem[item.id] !== 1 ? 'ões' : ''} lançada${prodPorItem[item.id] !== 1 ? 's' : ''} — remova os lançamentos para excluir`}
+                                          title={`${prodPorItem[item.id]} lançamento${prodPorItem[item.id] !== 1 ? 's' : ''} de produção — remova-os para excluir este serviço`}
                                           style={{
-                                            fontSize: 10, fontWeight: 700, padding: '1px 6px',
+                                            display: 'inline-flex', alignItems: 'center', gap: 3,
+                                            fontSize: 10, fontWeight: 700, padding: '1px 7px',
                                             borderRadius: 999, background: 'rgba(180,83,9,0.12)',
                                             color: '#b45309', cursor: 'default',
                                           }}
                                         >
-                                          🏗️ {prodPorItem[item.id]}
+                                          <HardHat size={12} />
+                                          {prodPorItem[item.id]}
                                         </span>
                                       )}
                                       {/* Botão excluir — OCULTO quando há produções lançadas */}

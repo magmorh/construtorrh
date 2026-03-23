@@ -207,10 +207,16 @@ export default function FechamentoPonto() {
       const vtDiario   = (colab?.vale_transporte && colab?.vt_dados) ? vtDia(colab.vt_dados) : 0
       const descontoVT = vtDiario * faltas  // desconta passagem por dia de falta
 
-      // ── INSS e IR (somente CLT, base = salário horas + DSR) ──────────────
-      const salarioCLT = valorHoras + dsr   // salário base CLT para encargos
-      const inss = tipo === 'clt' ? calcINSS(salarioCLT, tabelaInss.length ? tabelaInss : undefined) : 0
-      const ir   = tipo === 'clt' ? calcIR(salarioCLT, inss, tabelaIR.length ? tabelaIR : undefined)  : 0
+      // ── Base de desconto: CLT = horas+DSR / Autônomo = total recebido ───────
+      // CLT: desconto sobre salário (horas+DSR), NÃO sobre prêmio de produção
+      // Autônomo: desconto sobre total (horas + produção)
+      const baseDesconto = tipo === 'clt' ? (valorHoras + dsr) : valorTotal
+      const inss = tipo === 'clt'
+        ? calcINSS(baseDesconto, tabelaInss.length ? tabelaInss : undefined)
+        : 0   // autônomo não tem INSS retido (é MEI/PJ/autônomo)
+      const ir = tipo === 'clt'
+        ? calcIR(baseDesconto, inss, tabelaIR.length ? tabelaIR : undefined)
+        : 0
 
       // Líquido = total a receber - desconto VT - INSS - IR
       const liquido = valorTotal - descontoVT - inss - ir
@@ -419,51 +425,92 @@ export default function FechamentoPonto() {
                 {exp && (
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Obra</TableHead>
-                        <TableHead>Período</TableHead>
-                        <TableHead className="text-center">Dias</TableHead>
-                        <TableHead className="text-right">Horas</TableHead>
-                        <TableHead className="text-right">Vl. Horas</TableHead>
-                        <TableHead className="text-right" style={{color:'#0369a1'}}>DSR</TableHead>
-                        <TableHead className="text-right">Produção</TableHead>
-                        <TableHead className="text-right" style={{color:'#15803d'}}>Prêmio</TableHead>
-                        <TableHead className="text-right" style={{color:'#7c3aed',fontWeight:700}}>💵 Bruto</TableHead>
-                        <TableHead className="text-center" style={{color:'#dc2626'}}>Faltas</TableHead>
-                        <TableHead className="text-right" style={{color:'#dc2626'}}>− VT</TableHead>
-                        <TableHead className="text-right" style={{color:'#dc2626'}}>− INSS</TableHead>
-                        <TableHead className="text-right" style={{color:'#dc2626'}}>− IR</TableHead>
-                        <TableHead className="text-right" style={{color:'#15803d',fontWeight:700}}>✅ Líquido</TableHead>
-                        <TableHead className="text-center">Status</TableHead>
+                      <TableRow style={{ background: 'rgba(0,0,0,0.03)' }}>
+                        <TableHead style={{ fontSize: 11 }}>Obra</TableHead>
+                        <TableHead style={{ fontSize: 11 }}>Período</TableHead>
+                        <TableHead className="text-center" style={{ fontSize: 11 }}>Dias</TableHead>
+                        <TableHead className="text-right" style={{ fontSize: 11 }}>Horas</TableHead>
+                        <TableHead style={{ fontSize: 11, color: '#7c3aed', fontWeight: 700, minWidth: 260 }}>💵 Composição do Salário</TableHead>
+                        <TableHead className="text-center" style={{ fontSize: 11, color: '#dc2626' }}>Faltas</TableHead>
+                        <TableHead className="text-right" style={{ fontSize: 11, color: '#dc2626' }}>− VT</TableHead>
+                        <TableHead className="text-right" style={{ fontSize: 11, color: '#dc2626' }}>− INSS</TableHead>
+                        <TableHead className="text-right" style={{ fontSize: 11, color: '#dc2626' }}>− IR</TableHead>
+                        <TableHead className="text-right" style={{ fontSize: 11, color: '#15803d', fontWeight: 700 }}>✅ Líquido</TableHead>
+                        <TableHead className="text-center" style={{ fontSize: 11 }}>Status</TableHead>
                         <TableHead></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {colab.lancs.map(lanc => {
                         const badge = STATUS_BADGE[lanc.status] ?? { bg: '#f3f4f6', color: '#6b7280', label: lanc.status }
+                        const ehCLT = lanc.tipo_contrato === 'clt'
+
+                        // Composição do salário em texto
+                        const partesSal: string[] = []
+                        if (lanc.valor_horas > 0) partesSal.push(`Horas: ${formatCurrency(lanc.valor_horas)}`)
+                        if (ehCLT && lanc.valor_dsr > 0) partesSal.push(`DSR: ${formatCurrency(lanc.valor_dsr)}`)
+                        if (ehCLT && lanc.valor_premio > 0) partesSal.push(`Prêmio: ${formatCurrency(lanc.valor_premio)}`)
+                        if (!ehCLT && lanc.valor_producao > 0) partesSal.push(`Prod: ${formatCurrency(lanc.valor_producao)}`)
+
                         return (
                           <TableRow key={lanc.id}>
                             <TableCell>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                                 <Building2 size={12} style={{ color: 'var(--muted-foreground)' }} />
-                                <span style={{ fontSize: 13 }}>{lanc.obra_nome}</span>
+                                <span style={{ fontSize: 12 }}>{lanc.obra_nome}</span>
                               </div>
                             </TableCell>
-                            <TableCell style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                            <TableCell style={{ fontFamily: 'monospace', fontSize: 11, whiteSpace: 'nowrap' }}>
                               {lanc.data_inicio.slice(8)}/{lanc.data_inicio.slice(5,7)} → {lanc.data_fim.slice(8)}/{lanc.data_fim.slice(5,7)}
                             </TableCell>
-                            <TableCell className="text-center">{lanc.dias_trabalhados}</TableCell>
-                            <TableCell className="text-right" style={{ fontFamily: 'monospace' }}>{fmtHHMM(lanc.horas_normais)}</TableCell>
-                            <TableCell className="text-right">{lanc.valor_horas > 0 ? formatCurrency(lanc.valor_horas) : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}</TableCell>
-                            <TableCell className="text-right" style={{ color: '#0369a1' }}>{lanc.valor_dsr > 0 ? formatCurrency(lanc.valor_dsr) : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}</TableCell>
-                            <TableCell className="text-right">{lanc.valor_producao > 0 ? formatCurrency(lanc.valor_producao) : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}</TableCell>
-                            <TableCell className="text-right" style={{ color: '#15803d' }}>{lanc.valor_premio > 0 ? formatCurrency(lanc.valor_premio) : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}</TableCell>
-                            <TableCell className="text-right" style={{ fontWeight: 800, color: '#7c3aed', fontSize: 13 }}>{formatCurrency(lanc.valor_total)}</TableCell>
-                            <TableCell className="text-center" style={{ color: lanc.faltas > 0 ? '#dc2626' : 'var(--muted-foreground)' }}>{lanc.faltas > 0 ? lanc.faltas : '—'}</TableCell>
-                            <TableCell className="text-right" style={{ color: '#dc2626' }}>{lanc.desconto_vt > 0 ? <span title={`R$ ${lanc.valor_vt_dia.toFixed(2)}/dia × ${lanc.faltas} falta(s)`}>-{formatCurrency(lanc.desconto_vt)}</span> : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}</TableCell>
-                            <TableCell className="text-right" style={{ color: '#dc2626' }}>{lanc.inss > 0 ? <>-{formatCurrency(lanc.inss)}</> : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}</TableCell>
-                            <TableCell className="text-right" style={{ color: '#dc2626' }}>{lanc.ir > 0 ? <>-{formatCurrency(lanc.ir)}</> : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}</TableCell>
-                            <TableCell className="text-right" style={{ fontWeight: 800, color: '#15803d', fontSize: 13 }}>{formatCurrency(lanc.liquido)}</TableCell>
+                            <TableCell className="text-center" style={{ fontSize: 12 }}>{lanc.dias_trabalhados}</TableCell>
+                            <TableCell className="text-right" style={{ fontFamily: 'monospace', fontSize: 11 }}>{fmtHHMM(lanc.horas_normais)}</TableCell>
+
+                            {/* ── Composição do Salário ── */}
+                            <TableCell style={{ minWidth: 260 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', fontSize: 11 }}>
+                                {partesSal.map((p, i) => (
+                                  <span key={i} style={{ color: 'var(--muted-foreground)' }}>
+                                    {i > 0 && <span style={{ margin: '0 3px', color: '#9ca3af' }}>+</span>}
+                                    {p}
+                                  </span>
+                                ))}
+                                <span style={{ margin: '0 4px', color: '#9ca3af', fontWeight: 700 }}>=</span>
+                                <span style={{ fontWeight: 800, color: '#7c3aed', fontSize: 12 }}>
+                                  {formatCurrency(lanc.valor_total)}
+                                </span>
+                              </div>
+                            </TableCell>
+
+                            {/* ── Descontos ── */}
+                            <TableCell className="text-center" style={{ color: lanc.faltas > 0 ? '#dc2626' : 'var(--muted-foreground)', fontSize: 12 }}>
+                              {lanc.faltas > 0 ? lanc.faltas : '—'}
+                            </TableCell>
+                            <TableCell className="text-right" style={{ color: '#dc2626', fontSize: 12 }}>
+                              {lanc.desconto_vt > 0
+                                ? <span title={`R$ ${lanc.valor_vt_dia.toFixed(2)}/dia × ${lanc.faltas} falta(s)`}>
+                                    −{formatCurrency(lanc.desconto_vt)}
+                                  </span>
+                                : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}
+                            </TableCell>
+                            <TableCell className="text-right" style={{ color: '#dc2626', fontSize: 12 }}>
+                              {lanc.inss > 0
+                                ? <span title={ehCLT ? `Base: ${formatCurrency(lanc.valor_horas + lanc.valor_dsr)}` : ''}>
+                                    −{formatCurrency(lanc.inss)}
+                                  </span>
+                                : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}
+                            </TableCell>
+                            <TableCell className="text-right" style={{ color: '#dc2626', fontSize: 12 }}>
+                              {lanc.ir > 0
+                                ? <span title={ehCLT ? `Base IR: ${formatCurrency(lanc.valor_horas + lanc.valor_dsr - lanc.inss)}` : ''}>
+                                    −{formatCurrency(lanc.ir)}
+                                  </span>
+                                : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}
+                            </TableCell>
+                            <TableCell className="text-right" style={{ fontWeight: 800, color: '#15803d', fontSize: 13 }}>
+                              {formatCurrency(lanc.liquido)}
+                            </TableCell>
+
                             <TableCell className="text-center">
                               <span style={{ ...badge, borderRadius: 10, padding: '2px 8px', fontSize: 11, fontWeight: 600, display: 'inline-block' }}>
                                 {badge.label}

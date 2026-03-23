@@ -131,11 +131,8 @@ async function gerarChapa(sigla: string, dataAdmissao?: string): Promise<string>
 
 // ─── FUNCOES INLINE ───────────────────────────────────────────────────────────
 const TIPOS_CONTRATO = [
-  { value: 'clt',        label: 'CLT',           cor: '#2563eb' },
-  { value: 'autonomo',   label: 'Autônomo / PJ',  cor: '#ea580c' },
-  { value: 'temporario', label: 'Temporário',     cor: '#7c3aed' },
-  { value: 'aprendiz',   label: 'Aprendiz',       cor: '#0891b2' },
-  { value: 'estagiario', label: 'Estagiário',     cor: '#059669' },
+  { value: 'clt',      label: 'CLT',          cor: '#2563eb' },
+  { value: 'autonomo', label: 'Autônomo / PJ', cor: '#ea580c' },
 ]
 
 type ContratosValores = Record<string, { ativo: boolean; valor_hora: string }>

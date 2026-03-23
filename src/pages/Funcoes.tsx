@@ -9,6 +9,9 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import {
@@ -22,18 +25,27 @@ import { Briefcase, Plus, Search, Pencil, Trash2, Clock, Tag } from 'lucide-reac
 import { toast } from 'sonner'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
+const CATEGORIAS_FUNCAO = [
+  { value: 'mestre',       label: 'Mestre' },
+  { value: 'encarregado',  label: 'Encarregado' },
+  { value: 'profissional', label: 'Profissional' },
+  { value: 'meio_oficial', label: 'Meio Oficial' },
+  { value: 'ajudante',     label: 'Ajudante' },
+]
+
 type FormData = {
   nome: string
   sigla: string
   descricao: string
   cbo: string
+  categoria: string
   valor_hora_clt: string
   valor_hora_autonomo: string
   ativo: boolean
 }
 
 const EMPTY_FORM: FormData = {
-  nome: '', sigla: '', descricao: '', cbo: '',
+  nome: '', sigla: '', descricao: '', cbo: '', categoria: '',
   valor_hora_clt: '', valor_hora_autonomo: '', ativo: true,
 }
 
@@ -86,6 +98,7 @@ export default function Funcoes() {
       sigla: f.sigla ?? '',
       descricao: f.descricao ?? '',
       cbo: f.cbo ?? '',
+      categoria: (f as any).categoria ?? '',
       valor_hora_clt: f.valor_hora_clt != null ? String(f.valor_hora_clt) : '',
       valor_hora_autonomo: f.valor_hora_autonomo != null ? String(f.valor_hora_autonomo) : '',
       ativo: f.ativo,
@@ -126,11 +139,12 @@ export default function Funcoes() {
     if (!form.sigla.trim()) { toast.error('Sigla é obrigatória'); return }
     setSaving(true)
 
-    const payload: Partial<Funcao> = {
+    const payload: Partial<Funcao> & { categoria?: string|null } = {
       nome: form.nome.trim(),
       sigla: form.sigla.trim().toUpperCase(),
       descricao: form.descricao || null,
       cbo: form.cbo || null,
+      categoria: form.categoria || null,
       valor_hora_clt: form.valor_hora_clt ? parseFloat(form.valor_hora_clt) : null,
       valor_hora_autonomo: form.valor_hora_autonomo ? parseFloat(form.valor_hora_autonomo) : null,
       ativo: form.ativo,
@@ -200,6 +214,7 @@ export default function Funcoes() {
               <TableRow className="bg-muted/50">
                 <TableHead>Função</TableHead>
                 <TableHead className="w-20">Sigla</TableHead>
+                <TableHead className="w-32">Categoria</TableHead>
                 <TableHead className="w-28">CBO</TableHead>
                 <TableHead>
                   <div className="flex items-center gap-1.5">
@@ -240,6 +255,15 @@ export default function Funcoes() {
                     ) : (
                       <span className="text-muted-foreground text-xs">—</span>
                     )}
+                  </TableCell>
+
+                  {/* Categoria */}
+                  <TableCell>
+                    {(f as any).categoria
+                      ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-800">
+                          {CATEGORIAS_FUNCAO.find(c=>c.value===(f as any).categoria)?.label ?? (f as any).categoria}
+                        </span>
+                      : <span className="text-xs text-muted-foreground">—</span>}
                   </TableCell>
 
                   {/* CBO */}
@@ -337,8 +361,20 @@ export default function Funcoes() {
               </div>
             </div>
 
-            {/* CBO + Descrição */}
-            <div className="grid grid-cols-3 gap-3">
+            {/* Categoria + CBO */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <Label className="text-xs text-muted-foreground">Categoria</Label>
+                <Select value={form.categoria||'nenhuma'} onValueChange={v=>set('categoria',v==='nenhuma'?'':v)}>
+                  <SelectTrigger><SelectValue placeholder="Selecione…"/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="nenhuma">— Sem categoria —</SelectItem>
+                    {CATEGORIAS_FUNCAO.map(cat=>(
+                      <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex flex-col gap-1">
                 <Label className="text-xs text-muted-foreground">CBO</Label>
                 <Input
@@ -348,14 +384,16 @@ export default function Funcoes() {
                   className="font-mono"
                 />
               </div>
-              <div className="col-span-2 flex flex-col gap-1">
-                <Label className="text-xs text-muted-foreground">Descrição</Label>
-                <Input
-                  value={form.descricao}
-                  onChange={e => set('descricao', e.target.value)}
-                  placeholder="Breve descrição das atribuições…"
-                />
-              </div>
+            </div>
+
+            {/* Descrição */}
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs text-muted-foreground">Descrição</Label>
+              <Input
+                value={form.descricao}
+                onChange={e => set('descricao', e.target.value)}
+                placeholder="Breve descrição das atribuições…"
+              />
             </div>
 
             {/* Valores/hora */}

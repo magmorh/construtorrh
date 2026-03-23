@@ -457,8 +457,9 @@ export default function Ponto() {
     if(colabSel.tipo_contrato==='autonomo'||colabSel.tipo_contrato==='pj'){
       return horasAutonomoSemProd + totalProd
     }
-    return totalHoras + premioCLT + dsrInfo.valor
-  },[colabSel,horasAutonomoSemProd,totalProd,totalHoras,premioCLT,dsrInfo])
+    // CLT: salário base = horas trabalhadas + DSR (produção é separada)
+    return totalHoras + dsrInfo.valor
+  },[colabSel,horasAutonomoSemProd,totalProd,totalHoras,dsrInfo])
 
   // ── Toggle dia ────────────────────────────────────────────────────────────
   function togglePresente(lancId:string,idx:number,colab:ColabSimples){
@@ -790,8 +791,7 @@ export default function Ponto() {
                       : `Autônomo: R$ ${valorHora.toFixed(2)}/h`)
                   : (()=>{
                       const partes:string[]=[]
-                      if(totalHoras>0) partes.push(`Salário: ${formatCurrency(totalHoras)}`)
-                      if(premioCLT>0) partes.push(`Prêmio: ${formatCurrency(premioCLT)}`)
+                      if(totalHoras>0) partes.push(`Horas: ${formatCurrency(totalHoras)}`)
                       if(dsrInfo.valor>0) partes.push(`DSR: ${formatCurrency(dsrInfo.valor)}`)
                       return partes.length>0?partes.join(' + '):'Sem valor/hora cadastrado'
                     })()
@@ -807,7 +807,12 @@ export default function Ponto() {
                     : `${dsrInfo.diasUteis} dias úteis · ${dsrInfo.domingos} domingos`
                   cards.push({label:'📅 DSR',value:dsrInfo.valor>0?formatCurrency(dsrInfo.valor):'R$ 0,00',sub:subDsr,color:'#0369a1'})
                 }
-                cards.push({label:'💵 Total a Receber',value:formatCurrency(totalReceber),sub:subReceber,color:'#7c3aed'})
+                cards.push({
+                  label: ehAuto ? '💵 Total a Receber' : '💵 Salário',
+                  value: formatCurrency(totalReceber),
+                  sub: subReceber,
+                  color: '#7c3aed'
+                })
                 return cards
               })().map(card=>(
                 <div key={card.label} style={{flex:1,minWidth:120,padding:'8px 12px',textAlign:'center',borderRight:'1px solid var(--border)'}}>

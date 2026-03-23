@@ -65,6 +65,9 @@ export default function Playbooks() {
   const [obraSel, setObraSel]     = useState<Obra | null>(null)
   const [searchObra, setSearchObra] = useState('')
 
+  // mapa item_id → tem produção vinculada
+  const [itensComProd, setItensComProd] = useState<Set<string>>(new Set())
+
   // modal item
   const [modal, setModal]             = useState(false)
   const [editItem, setEditItem]       = useState<PlaybookItem | null>(null)
@@ -75,17 +78,23 @@ export default function Playbooks() {
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [{ data: obrasRaw }, { data: itensRaw }] = await Promise.all([
+    const [{ data: obrasRaw }, { data: itensRaw }, { data: prodRaw }] = await Promise.all([
       supabase.from('obras').select('id, nome, codigo, status').order('nome'),
       supabase.from('playbook_itens').select('*').order('categoria').order('descricao'),
+      supabase.from('ponto_producao').select('playbook_item_id'),
     ])
     const mapa: Record<string, PlaybookItem[]> = {}
     ;(itensRaw ?? []).forEach((i: any) => {
       if (!mapa[i.obra_id]) mapa[i.obra_id] = []
       mapa[i.obra_id].push(i as PlaybookItem)
     })
+    // Itens que já têm produção lançada — não podem ser excluídos
+    const comProd = new Set<string>(
+      (prodRaw ?? []).map((p: any) => p.playbook_item_id as string).filter(Boolean)
+    )
     setObras((obrasRaw ?? []) as Obra[])
     setItensMap(mapa)
+    setItensComProd(comProd)
     setLoading(false)
   }, [])
 
@@ -133,6 +142,17 @@ export default function Playbooks() {
   // ── Excluir ────────────────────────────────────────────────────────────────
   async function handleDelete() {
     if (!deleteTarget) return
+    // Verificação server-side: produção lançada vinculada?
+    const { data: prodVinc } = await supabase
+      .from('ponto_producao')
+      .select('id')
+      .eq('playbook_item_id', deleteTarget.id)
+      .limit(1)
+    if ((prodVinc?.length ?? 0) > 0) {
+      toast.error('Não é possível excluir: há produção lançada vinculada a este serviço.')
+      setDeleteTarget(null)
+      return
+    }
     const { error } = await supabase.from('playbook_itens').delete().eq('id', deleteTarget.id)
     if (error) { toast.error('Erro: ' + error.message); return }
     toast.success('Serviço excluído!')
@@ -366,9 +386,20 @@ export default function Playbooks() {
                                     </Button>
                                   )}
                                   {canDelete && (
-                                    <Button variant="ghost" size="icon" style={{ width: 30, height: 30, color: '#dc2626' }} onClick={() => setDeleteTarget(item)}>
-                                      <Trash2 size={13} />
-                                    </Button>
+                                    itensComProd.has(item.id) ? (
+                                      <span title="Não pode excluir: há produção lançada vinculada a este serviço" style={{ display: 'inline-flex', cursor: 'not-allowed' }}>
+                                        <Button variant="ghost" size="icon" disabled tabIndex={-1}
+                                          style={{ width: 30, height: 30, opacity: 0.25, pointerEvents: 'none', color: '#9ca3af' }}>
+                                          <Trash2 size={13} />
+                                        </Button>
+                                      </span>
+                                    ) : (
+                                      <Button variant="ghost" size="icon" style={{ width: 30, height: 30, color: '#dc2626' }}
+                                        title="Excluir serviço"
+                                        onClick={() => setDeleteTarget(item)}>
+                                        <Trash2 size={13} />
+                                      </Button>
+                                    )
                                   )}
                                 </div>
                               </TableCell>

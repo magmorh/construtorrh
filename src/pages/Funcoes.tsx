@@ -71,16 +71,16 @@ export default function Funcoes() {
     setLoading(true)
     const [{ data }, { data: colabsRaw }, { data: episRaw }] = await Promise.all([
       supabase.from('funcoes').select('*').order('nome'),
-      supabase.from('colaboradores').select('funcao_id'),
-      supabase.from('funcao_epi').select('funcao_id'),
+      supabase.from('colaboradores').select('funcao_id').not('funcao_id','is',null),
+      supabase.from('funcao_epi').select('funcao_id').not('funcao_id','is',null),
     ])
     if (data) setRows(data as Funcao[])
 
     // montar mapa de vínculos
     const mapa: Record<string, { colabs: number; epis: number }> = {}
     const ensure = (id: string) => { if (!mapa[id]) mapa[id] = { colabs: 0, epis: 0 } }
-    ;(colabsRaw ?? []).forEach((r: any) => { if (r.funcao_id) { ensure(r.funcao_id); mapa[r.funcao_id].colabs++ } })
-    ;(episRaw   ?? []).forEach((r: any) => { if (r.funcao_id) { ensure(r.funcao_id); mapa[r.funcao_id].epis++   } })
+    ;(colabsRaw ?? []).forEach((r: any) => { ensure(r.funcao_id); mapa[r.funcao_id].colabs++ })
+    ;(episRaw   ?? []).forEach((r: any) => { ensure(r.funcao_id); mapa[r.funcao_id].epis++   })
     setVinculos(mapa)
 
     setLoading(false)
@@ -178,18 +178,18 @@ export default function Funcoes() {
     if (!deleteId) return
     setDeleting(true)
 
-    // Verificação server-side robusta (select real, não count)
+    // Verificação server-side completa antes de excluir
     const [{ data: colabsVinc }, { data: episVinc }] = await Promise.all([
       supabase.from('colaboradores').select('id').eq('funcao_id', deleteId).limit(1),
       supabase.from('funcao_epi').select('id').eq('funcao_id', deleteId).limit(1),
     ])
-    const qtdColabs = colabsVinc?.length ?? 0
-    const qtdEpis   = episVinc?.length   ?? 0
+    const temColabs = (colabsVinc?.length ?? 0) > 0
+    const temEpis   = (episVinc?.length   ?? 0) > 0
 
-    if (qtdColabs > 0 || qtdEpis > 0) {
+    if (temColabs || temEpis) {
       const partes: string[] = []
-      if (qtdColabs > 0) partes.push('colaboradores vinculados')
-      if (qtdEpis   > 0) partes.push('EPIs vinculados')
+      if (temColabs) partes.push('colaboradores vinculados')
+      if (temEpis)   partes.push('EPIs vinculados')
       toast.error(`Não é possível excluir: há ${partes.join(' e ')}. Desvincule primeiro.`)
       setDeleting(false)
       setDeleteId(null)
@@ -201,12 +201,7 @@ export default function Funcoes() {
     setDeleting(false)
     setDeleteId(null)
     if (error) {
-      // FK como último recurso — mensagem amigável
-      if (error.message.includes('foreign key') || error.message.includes('fkey')) {
-        toast.error('Não é possível excluir: esta função está vinculada a colaboradores ou EPIs.')
-      } else {
-        toast.error(error.message)
-      }
+      toast.error('Não é possível excluir: esta função ainda está vinculada a registros do sistema.')
       fetchData()
       return
     }
@@ -554,14 +549,24 @@ export default function Funcoes() {
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir função?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta ação não pode ser desfeita. Colaboradores vinculados perderão o vínculo com esta função.
+              {(()=>{
+                if (!deleteId) return 'Esta ação não pode ser desfeita.'
+                const v = vinculos[deleteId]
+                const parts: string[] = []
+                if ((v?.colabs ?? 0) > 0) parts.push(`${v.colabs} colaborador${v.colabs !== 1 ? 'es' : ''} vinculado${v.colabs !== 1 ? 's' : ''}`)
+                if ((v?.epis   ?? 0) > 0) parts.push(`${v.epis} EPI${v.epis !== 1 ? 's' : ''} vinculado${v.epis !== 1 ? 's' : ''}`)
+                if (parts.length > 0) {
+                  return `⛔ Não é possível excluir: há ${parts.join(' e ')}. Desvincule primeiro.`
+                }
+                return 'Esta ação não pode ser desfeita.'
+              })()}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              disabled={deleting}
+              disabled={deleting || (deleteId ? ((vinculos[deleteId]?.colabs ?? 0) > 0 || (vinculos[deleteId]?.epis ?? 0) > 0) : false)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleting ? 'Excluindo…' : 'Excluir'}

@@ -288,6 +288,10 @@ export default function Epis() {
   const [copiarFuncaoId, setCopiarFuncaoId] = useState('')
   const [copiando, setCopiando] = useState(false)
 
+  // ── Excluir todos os EPIs da função ──────────────────────────────────────────
+  const [excluirTodosOpen, setExcluirTodosOpen] = useState(false)
+  const [excluindoTodos, setExcluindoTodos] = useState(false)
+
   // ── Aba 3: solicitações ─────────────────────────────────────────────────────
   const [modoSolicitacao, setModoSolicitacao] = useState<'colaborador' | 'obra'>('colaborador')
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([])
@@ -623,6 +627,20 @@ export default function Epis() {
   })
 
   // ─── estilos das abas ──────────────────────────────────────────────────────
+  // ── Excluir TODOS os EPIs da função selecionada ─────────────────────────────
+  const handleExcluirTodos = async () => {
+    if (!funcaoSelecionada) return
+    setExcluindoTodos(true)
+    const ids = vinculos.map(v => v.id)
+    const { error } = await supabase.from('funcao_epi').delete().in('id', ids)
+    setExcluindoTodos(false)
+    setExcluirTodosOpen(false)
+    if (error) { toast.error(error.message); return }
+    toast.success(`${ids.length} EPI${ids.length !== 1 ? 's removidos' : ' removido'} com sucesso!`)
+    fetchVinculos(funcaoSelecionada.id)
+    fetchEpisPorFuncao()
+  }
+
   // ── Copiar EPIs de outra função ─────────────────────────────────────────────
   const handleCopiarEpis = async () => {
     if (!copiarFuncaoId || !funcaoSelecionada) return
@@ -1232,15 +1250,39 @@ export default function Epis() {
                       {vinculos.length} EPI{vinculos.length !== 1 ? 's' : ''} vinculado{vinculos.length !== 1 ? 's' : ''}
                     </p>
                   </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => { setCopiarFuncaoId(''); setCopiarModalOpen(true) }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, borderColor: '#7c3aed', color: '#7c3aed' }}
-                    >
-                      <Copy size={14} /> Copiar de outra função
-                    </Button>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    {/* Excluir Todos — só quando há EPIs vinculados */}
+                    {vinculos.length > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setExcluirTodosOpen(true)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, borderColor: '#dc2626', color: '#dc2626' }}
+                      >
+                        <Trash2 size={14} /> Excluir todos ({vinculos.length})
+                      </Button>
+                    )}
+                    {/* Copiar de outra função — só quando NÃO há EPIs (evita sobreposição) */}
+                    {vinculos.length === 0 ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => { setCopiarFuncaoId(''); setCopiarModalOpen(true) }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, borderColor: '#7c3aed', color: '#7c3aed' }}
+                      >
+                        <Copy size={14} /> Copiar de outra função
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled
+                        title="Exclua todos os EPIs antes de copiar de outra função"
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.4, cursor: 'not-allowed' }}
+                      >
+                        <Copy size={14} /> Copiar de outra função
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       onClick={() => { setVinculoForm(EMPTY_VINCULO_FORM); setVinculoModalOpen(true) }}
@@ -1978,6 +2020,31 @@ export default function Epis() {
               style={{ background: '#dc2626', color: '#fff' }}
             >
               {deletingVinculo ? 'Removendo…' : 'Desvincular'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── AlertDialog Excluir Todos os EPIs ── */}
+      <AlertDialog open={excluirTodosOpen} onOpenChange={setExcluirTodosOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir todos os EPIs?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isso removerá <strong>{vinculos.length} EPI{vinculos.length !== 1 ? 's' : ''}</strong> vinculados
+              à função <strong>{funcaoSelecionada?.nome}</strong>.
+              <br /><br />
+              Após excluir, você poderá copiar EPIs de outra função sem sobreposição.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={excluindoTodos}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={excluindoTodos}
+              onClick={handleExcluirTodos}
+              style={{ background: '#dc2626', color: '#fff' }}
+            >
+              {excluindoTodos ? 'Excluindo…' : `Excluir todos (${vinculos.length})`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -43,6 +43,7 @@ interface LancItem {
   dias_trabalhados: number
   faltas: number
   desconto_vt: number
+  desconto_adiant: number
   valor_vt_dia: number
   inss: number
   ir: number
@@ -97,11 +98,21 @@ export default function FechamentoPonto() {
     if (!lancsRaw) { setLoading(false); return }
 
     const ids = lancsRaw.map((l: any) => l.id)
-    const [{ data: pontosRaw }, { data: prodRaw }, { data: feriadosRaw }] = await Promise.all([
+    const colabIds = [...new Set(lancsRaw.map((l: any) => l.colaborador_id).filter(Boolean))]
+    const [{ data: pontosRaw }, { data: prodRaw }, { data: feriadosRaw }, { data: adiantRaw }] = await Promise.all([
       ids.length ? supabase.from('registro_ponto').select('lancamento_id,horas_trabalhadas,horas_extras,data,falta').in('lancamento_id', ids) : Promise.resolve({ data: [] }),
       ids.length ? supabase.from('ponto_producao').select('lancamento_id,valor_total,dias').in('lancamento_id', ids) : Promise.resolve({ data: [] }),
       supabase.from('feriados').select('data').gte('data', mr+'-01').lte('data', mr+'-31'),
+      colabIds.length
+        ? supabase.from('adiantamentos').select('colaborador_id,valor').eq('competencia', mr).eq('status','pago').is('descontado_em', null).in('colaborador_id', colabIds)
+        : Promise.resolve({ data: [] }),
     ])
+
+    // Somar adiantamentos pagos e ainda não descontados por colaborador
+    const mapaAdiant: Record<string, number> = {}
+    ;(adiantRaw ?? []).forEach((a: any) => {
+      mapaAdiant[a.colaborador_id] = (mapaAdiant[a.colaborador_id] ?? 0) + a.valor
+    })
 
     const funcaoIds = [...new Set(lancsRaw.map((l: any) => l.colaboradores?.funcao_id).filter(Boolean))]
     // Buscar valor/hora: funcao_valores (por tipo_contrato) + fallback em funcoes
@@ -226,6 +237,9 @@ export default function FechamentoPonto() {
         valorTotal = diasComProd.size > 0 ? valorHorasSemProd + valorProd : valorHoras + valorProd
       }
 
+      // ── Adiantamento: desconto de adiantamentos pagos não descontados ─────
+      const descontoAdiant = mapaAdiant[l.colaborador_id] ?? 0
+
       // ── VT: desconto por faltas ──────────────────────────────────────────
       const faltas     = (horasAgg as any).faltas ?? 0
       const vtDiario   = (colab?.vale_transporte && colab?.vt_dados) ? vtDia(colab.vt_dados) : 0
@@ -243,7 +257,7 @@ export default function FechamentoPonto() {
         : 0
 
       // Líquido = total a receber - desconto VT - INSS - IR
-      const liquido = valorTotal - descontoVT - inss - ir
+      const liquido = valorTotal - descontoVT - inss - ir - descontoAdiant
 
       return {
         id: l.id,
@@ -269,6 +283,7 @@ export default function FechamentoPonto() {
         dias_trabalhados: horasAgg.dias,
         faltas,
         desconto_vt: descontoVT,
+        desconto_adiant: descontoAdiant,
         valor_vt_dia: vtDiario,
         inss,
         ir,
@@ -309,6 +324,7 @@ export default function FechamentoPonto() {
       totalInss: v.lancs.reduce((s, l) => s + l.inss, 0),
       totalIr: v.lancs.reduce((s, l) => s + l.ir, 0),
       totalVt: v.lancs.reduce((s, l) => s + l.desconto_vt, 0),
+      totalAdiant: v.lancs.reduce((s, l) => s + l.desconto_adiant, 0),
     }))
   }, [lancamentos, busca])
 
@@ -550,6 +566,11 @@ export default function FechamentoPonto() {
                                 ? <span title={ehCLT ? `Base IR: ${formatCurrency(lanc.valor_horas + lanc.valor_dsr - lanc.inss)}` : ''}>
                                     −{formatCurrency(lanc.ir)}
                                   </span>
+                                : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}
+                            </TableCell>
+                            <TableCell className="text-right" style={{ color: '#b45309', fontSize: 12 }}>
+                              {lanc.desconto_adiant > 0
+                                ? <span title="Adiantamento descontado">−{formatCurrency(lanc.desconto_adiant)}</span>
                                 : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}
                             </TableCell>
                             <TableCell className="text-right" style={{ fontWeight: 800, color: '#15803d', fontSize: 13 }}>

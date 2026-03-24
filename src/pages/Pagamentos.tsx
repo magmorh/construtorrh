@@ -294,238 +294,241 @@ export default function Pagamentos() {
   }
 
   // ─── render ────────────────────────────────────────────────────────────────
+  // ─── aba ativa ──────────────────────────────────────────────────────────────
+  const [aba, setAba] = useState<'agendados'|'realizados'>('agendados')
+
+  // ─── filtros avulsos ─────────────────────────────────────────────────────────
+  const [filtroNomeLanc, setFiltroNomeLanc]       = useState('')
+  const [filtroDataIni, setFiltroDataIni]         = useState('')
+  const [filtroDataFim, setFiltroDataFim]         = useState('')
+  const [filtroMesLanc, setFiltroMesLanc]         = useState(new Date().toISOString().slice(0, 7))
+
+  // ─── render ────────────────────────────────────────────────────────────────
+  // Filtros lançamentos da folha
+  const lancsAgendados  = lancsPendentes.filter(l => {
+    const matchNome = filtroNomeLanc ? l.colaboradores?.nome?.toLowerCase().includes(filtroNomeLanc.toLowerCase()) : true
+    const matchMes  = filtroMesLanc  ? l.mes_referencia === filtroMesLanc : true
+    return l.status === 'liberado' && matchNome && matchMes
+  })
+  const lancsRealizados = lancsPendentes.filter(l => {
+    const matchNome = filtroNomeLanc ? l.colaboradores?.nome?.toLowerCase().includes(filtroNomeLanc.toLowerCase()) : true
+    const matchMes  = filtroMesLanc  ? l.mes_referencia === filtroMesLanc : true
+    const matchDtIni = filtroDataIni ? (l.data_pagamento ?? '') >= filtroDataIni : true
+    const matchDtFim = filtroDataFim ? (l.data_pagamento ?? '') <= filtroDataFim : true
+    return l.status === 'pago' && matchNome && matchMes && matchDtIni && matchDtFim
+  })
+
+  const totalAgendado  = lancsAgendados.reduce((s: number, l: any) => s + (l.valor_liquido ?? 0), 0)
+  const totalRealizado = lancsRealizados.reduce((s: number, l: any) => s + (l.valor_liquido ?? 0), 0)
+
   return (
-    <div className="p-6">
-      <PageHeader
-        title="Folha de Pagamentos"
-        subtitle="Gerenciamento de pagamentos dos colaboradores"
-        action={
-          <Button onClick={openCreate} size="sm">
-            <Plus className="w-4 h-4 mr-1" /> Novo Pagamento
-          </Button>
-        }
-      />
-
-      {/* ══ SEÇÃO: Lançamentos Liberados p/ Pagamento ══ */}
-      <div style={{ marginBottom: 28 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <span style={{ fontWeight: 700, fontSize: 14, color: '#b45309' }}>💜 Lançamentos Aguardando Pagamento</span>
-          <span style={{ fontSize: 11, background: '#fef3c7', color: '#b45309', borderRadius: 6, padding: '2px 8px', fontWeight: 600 }}>
-            {lancsPendentes.filter(l => l.status === 'liberado').length} pendente(s)
-          </span>
+    <div style={{ padding: 24 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+        <div>
+          <h1 style={{ fontWeight: 800, fontSize: 22, margin: 0 }}>💰 Pagamentos</h1>
+          <p style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>Lançamentos liberados da folha e pagamentos avulsos</p>
         </div>
+        <button onClick={openCreate}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', fontWeight: 700, fontSize: 13, borderRadius: 8, border: 'none', background: '#7c3aed', color: '#fff', cursor: 'pointer' }}>
+          <span style={{ fontSize: 16 }}>+</span> Pagamento Avulso
+        </button>
+      </div>
 
-        {loadingLancs ? (
-          <div style={{ fontSize: 13, color: '#6b7280' }}>Carregando…</div>
-        ) : lancsPendentes.length === 0 ? (
-          <div style={{ background: '#f9fafb', border: '1px dashed #d1d5db', borderRadius: 10, padding: '20px', textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
-            Nenhum lançamento aguardando pagamento. Libere lançamentos no <strong>Fechamento</strong>.
+      {/* Cards resumo */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
+        <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 10, padding: '14px 18px' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', marginBottom: 4 }}>💜 Agendados</div>
+          <div style={{ fontWeight: 800, fontSize: 20, color: '#b45309' }}>
+            {lancsPendentes.filter(l => l.status === 'liberado').length} lançamento(s)
+          </div>
+        </div>
+        <div style={{ background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: 10, padding: '14px 18px' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#14532d', marginBottom: 4 }}>✅ Realizados (mês)</div>
+          <div style={{ fontWeight: 800, fontSize: 20, color: '#15803d' }}>
+            {lancsPendentes.filter(l => l.status === 'pago' && l.mes_referencia === filtroMesLanc).length} lançamento(s)
+          </div>
+        </div>
+        <div style={{ background: '#ede9fe', border: '1px solid #ddd6fe', borderRadius: 10, padding: '14px 18px' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#4c1d95', marginBottom: 4 }}>💲 Avulsos</div>
+          <div style={{ fontWeight: 800, fontSize: 20, color: '#7c3aed' }}>{rows.length} registro(s)</div>
+        </div>
+      </div>
+
+      {/* Abas */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 0, borderBottom: '2px solid #e5e7eb' }}>
+        {([
+          { key: 'agendados',  label: '⏳ Agendados', count: lancsPendentes.filter(l => l.status === 'liberado').length },
+          { key: 'realizados', label: '✅ Realizados', count: lancsPendentes.filter(l => l.status === 'pago').length },
+        ] as { key: 'agendados'|'realizados'; label: string; count: number }[]).map(tab => (
+          <button key={tab.key} onClick={() => setAba(tab.key)}
+            style={{
+              padding: '10px 20px', fontSize: 13, fontWeight: aba === tab.key ? 700 : 500,
+              border: 'none', background: 'transparent', cursor: 'pointer',
+              borderBottom: aba === tab.key ? '3px solid #7c3aed' : '3px solid transparent',
+              color: aba === tab.key ? '#7c3aed' : '#6b7280', marginBottom: -2,
+            }}>
+            {tab.label}
+            <span style={{ marginLeft: 6, fontSize: 11, background: aba === tab.key ? '#ede9fe' : '#f3f4f6', color: aba === tab.key ? '#7c3aed' : '#6b7280', borderRadius: 10, padding: '1px 7px', fontWeight: 600 }}>
+              {tab.count}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Filtros comuns */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', padding: '14px 0', alignItems: 'flex-end', borderBottom: '1px solid #f3f4f6', marginBottom: 16 }}>
+        <div>
+          <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'block', marginBottom: 3 }}>Competência</label>
+          <input type="month" value={filtroMesLanc} onChange={e => setFiltroMesLanc(e.target.value)}
+            style={{ height: 32, padding: '0 10px', fontSize: 13, border: '1.5px solid #e5e7eb', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)' }} />
+        </div>
+        <div style={{ position: 'relative' }}>
+          <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'block', marginBottom: 3 }}>Colaborador</label>
+          <input placeholder="Buscar nome..." value={filtroNomeLanc} onChange={e => setFiltroNomeLanc(e.target.value)}
+            style={{ height: 32, padding: '0 10px', fontSize: 13, border: '1.5px solid #e5e7eb', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', width: 200 }} />
+        </div>
+        {aba === 'realizados' && (
+          <>
+            <div>
+              <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'block', marginBottom: 3 }}>Data pgto de</label>
+              <input type="date" value={filtroDataIni} onChange={e => setFiltroDataIni(e.target.value)}
+                style={{ height: 32, padding: '0 10px', fontSize: 13, border: '1.5px solid #e5e7eb', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, display: 'block', marginBottom: 3 }}>até</label>
+              <input type="date" value={filtroDataFim} onChange={e => setFiltroDataFim(e.target.value)}
+                style={{ height: 32, padding: '0 10px', fontSize: 13, border: '1.5px solid #e5e7eb', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)' }} />
+            </div>
+          </>
+        )}
+        {(filtroNomeLanc || filtroDataIni || filtroDataFim) && (
+          <button onClick={() => { setFiltroNomeLanc(''); setFiltroDataIni(''); setFiltroDataFim('') }}
+            style={{ height: 32, padding: '0 12px', fontSize: 12, border: '1.5px solid #e5e7eb', borderRadius: 6, background: 'transparent', cursor: 'pointer', color: '#6b7280' }}>
+            ✕ Limpar
+          </button>
+        )}
+      </div>
+
+      {/* ══ ABA AGENDADOS ══ */}
+      {aba === 'agendados' && (
+        loadingLancs ? (
+          <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>Carregando…</div>
+        ) : lancsAgendados.length === 0 ? (
+          <div style={{ padding: 60, textAlign: 'center', color: '#9ca3af', border: '1px dashed #e5e7eb', borderRadius: 12 }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>💜</div>
+            <div style={{ fontWeight: 600 }}>Nenhum pagamento agendado</div>
+            <div style={{ fontSize: 12, marginTop: 4 }}>Libere lançamentos no <strong>Fechamento</strong> para aparecerem aqui.</div>
           </div>
         ) : (
           <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: '#fef3c7', borderBottom: '2px solid #fde68a' }}>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#92400e' }}>Colaborador</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#92400e' }}>Obra</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>Período</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>Status</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>Data Pgto</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#92400e' }}>Ações</th>
+                  <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, color: '#92400e' }}>Colaborador</th>
+                  <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, color: '#92400e' }}>Obra</th>
+                  <th style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>Período</th>
+                  <th style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>Competência</th>
+                  <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#92400e' }}>Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {lancsPendentes.map((l, i) => {
-                  const isPago = l.status === 'pago'
-                  return (
-                    <tr key={l.id} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa', borderBottom: '1px solid #f3f4f6' }}>
-                      <td style={{ padding: '8px 12px' }}>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{l.colaboradores?.nome ?? '—'}</div>
-                        <div style={{ fontSize: 10, color: '#6b7280' }}>{l.colaboradores?.chapa} · {l.colaboradores?.tipo_contrato?.toUpperCase()}</div>
-                      </td>
-                      <td style={{ padding: '8px 12px', color: '#374151', fontSize: 12 }}>
-                        {l.obras?.nome ?? '—'}
-                      </td>
-                      <td style={{ padding: '8px 12px', textAlign: 'center', color: '#374151', fontSize: 11 }}>
-                        {l.data_inicio?.slice(8)}/{l.data_inicio?.slice(5,7)} → {l.data_fim?.slice(8)}/{l.data_fim?.slice(5,7)}
-                      </td>
-                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                        <span style={{
-                          fontSize: 11, fontWeight: 600, borderRadius: 6, padding: '2px 8px',
-                          background: isPago ? '#ede9fe' : '#fef3c7',
-                          color: isPago ? '#6d28d9' : '#b45309',
-                        }}>
-                          {isPago ? '💰 Pago' : '💜 Ag. Pagamento'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '8px 12px', textAlign: 'center', fontSize: 11, color: isPago ? '#15803d' : '#9ca3af' }}>
-                        {(l as any).data_pagamento ?? '—'}
-                      </td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                          {!isPago && (
-                            <button
-                              style={{ height: 26, padding: '0 10px', fontSize: 11, borderRadius: 6, border: 'none', background: '#7c3aed', color: '#fff', cursor: 'pointer', fontWeight: 600 }}
-                              onClick={() => { setModalPagarLanc(l); setDataPagamento(new Date().toISOString().slice(0, 10)); setObsPagamento('') }}>
-                              💰 Pagar
-                            </button>
-                          )}
-                          {isPago && (
-                            <button
-                              style={{ height: 26, padding: '0 10px', fontSize: 11, borderRadius: 6, border: '1px solid #dc2626', background: 'transparent', color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}
-                              onClick={() => { setModalEstornar(l); setMotivoEstorno('') }}>
-                              ↩ Estornar
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
+                {lancsAgendados.map((l: any, i: number) => (
+                  <tr key={l.id} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa', borderBottom: '1px solid #f3f4f6' }}>
+                    <td style={{ padding: '10px 14px' }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{l.colaboradores?.nome ?? '—'}</div>
+                      <div style={{ fontSize: 10, color: '#6b7280' }}>{l.colaboradores?.chapa} · {l.colaboradores?.tipo_contrato?.toUpperCase()}</div>
+                    </td>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: '#374151' }}>{l.obras?.nome ?? '—'}</td>
+                    <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 11, color: '#374151' }}>
+                      {l.data_inicio?.slice(8)}/{l.data_inicio?.slice(5,7)} → {l.data_fim?.slice(8)}/{l.data_fim?.slice(5,7)}
+                    </td>
+                    <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 11 }}>
+                      <span style={{ background: '#ede9fe', color: '#7c3aed', borderRadius: 5, padding: '2px 8px', fontWeight: 600 }}>
+                        {l.mes_referencia?.slice(5)}/{l.mes_referencia?.slice(0,4)}
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                      <button
+                        style={{ height: 28, padding: '0 12px', fontSize: 11, borderRadius: 6, border: 'none', background: '#7c3aed', color: '#fff', cursor: 'pointer', fontWeight: 600 }}
+                        onClick={() => { setModalPagarLanc(l); setDataPagamento(new Date().toISOString().slice(0, 10)); setObsPagamento('') }}>
+                        💰 Pagar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
+              <tfoot>
+                <tr style={{ background: '#fef3c7', borderTop: '2px solid #fde68a', fontWeight: 700 }}>
+                  <td colSpan={4} style={{ padding: '9px 14px', fontSize: 12 }}>Total agendado — {lancsAgendados.length} lançamento(s)</td>
+                  <td style={{ padding: '9px 14px', textAlign: 'right', fontSize: 13, color: '#b45309' }}>{formatCurrency(totalAgendado)}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
-        )}
-      </div>
+        )
+      )}
 
-      <hr style={{ borderColor: '#e5e7eb', marginBottom: 24 }} />
-
-      {/* Filtros */}
-      <div className="flex flex-wrap gap-3 mb-4">
-        <div className="flex items-center gap-1.5">
-          <Label className="text-xs text-muted-foreground">Competência</Label>
-          <Input
-            type="month"
-            value={filtroCompetencia}
-            onChange={(e) => setFiltroCompetencia(e.target.value)}
-            className="h-8 w-40 text-sm"
-          />
-        </div>
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-          <Input
-            placeholder="Buscar colaborador..."
-            value={filtroColaborador}
-            onChange={(e) => setFiltroColaborador(e.target.value)}
-            className="h-8 pl-7 w-48 text-sm"
-          />
-        </div>
-        <Select value={filtroTipo} onValueChange={setFiltroTipo}>
-          <SelectTrigger className="h-8 w-40 text-sm">
-            <SelectValue placeholder="Tipo" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos os tipos</SelectItem>
-            {TIPO_OPTIONS.map((t) => (
-              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={filtroStatus} onValueChange={setFiltroStatus}>
-          <SelectTrigger className="h-8 w-40 text-sm">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos os status</SelectItem>
-            {STATUS_OPTIONS.map((s) => (
-              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Tabela */}
-      {loading ? (
-        <LoadingSkeleton />
-      ) : filtered.length === 0 ? (
-        <EmptyState icon={<DollarSign className="w-8 h-8" />} title="Nenhum pagamento encontrado" />
-      ) : (
-        <div className="rounded-md border border-border overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/50">
-                <TableHead>Colaborador</TableHead>
-                <TableHead>Competência</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead className="text-right">Bruto</TableHead>
-                <TableHead className="text-right">INSS</TableHead>
-                <TableHead className="text-right">FGTS</TableHead>
-                <TableHead className="text-right">IR</TableHead>
-                <TableHead className="text-right">VT</TableHead>
-                <TableHead className="text-right">Líquido</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((row) => (
-                <TableRow key={row.id} className="hover:bg-muted/30">
-                  <TableCell>
-                    <div>
-                      <p className="font-medium text-sm">{row.colaboradores?.nome ?? '—'}</p>
-                      <p className="text-xs text-muted-foreground">{row.colaboradores?.chapa}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm">{row.competencia}</TableCell>
-                  <TableCell className="text-sm capitalize">
-                    {TIPO_OPTIONS.find((t) => t.value === row.tipo)?.label ?? row.tipo ?? '—'}
-                  </TableCell>
-                  <TableCell className="text-right text-sm">{formatCurrency(row.valor_bruto)}</TableCell>
-                  <TableCell className="text-right text-sm">{formatCurrency(row.inss)}</TableCell>
-                  <TableCell className="text-right text-sm">{formatCurrency(row.fgts)}</TableCell>
-                  <TableCell className="text-right text-sm">{formatCurrency(row.ir)}</TableCell>
-                  <TableCell className="text-right text-sm">{formatCurrency(row.vale_transporte)}</TableCell>
-                  <TableCell className="text-right text-sm font-semibold">{formatCurrency(row.valor_liquido)}</TableCell>
-                  <TableCell>
-                    <BadgeStatus status={row.status} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {row.status === 'pendente' && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-emerald-600"
-                          title="Marcar como pago"
-                          onClick={() => marcarPago(row.id)}
-                        >
-                          <CheckCircle className="w-4 h-4" />
-                        </Button>
-                      )}
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7"
-                        onClick={() => openEdit(row)}
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 text-destructive"
-                        onClick={() => setDeleteId(row.id)}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-            <TableFooter>
-              <TableRow className="bg-muted font-semibold text-sm">
-                <TableCell colSpan={3}>Totais do período</TableCell>
-                <TableCell className="text-right">{formatCurrency(totalBruto)}</TableCell>
-                <TableCell className="text-right">{formatCurrency(totalInss)}</TableCell>
-                <TableCell className="text-right">{formatCurrency(totalFgts)}</TableCell>
-                <TableCell colSpan={2} />
-                <TableCell className="text-right">{formatCurrency(totalLiquido)}</TableCell>
-                <TableCell colSpan={2} />
-              </TableRow>
-            </TableFooter>
-          </Table>
-        </div>
+      {/* ══ ABA REALIZADOS ══ */}
+      {aba === 'realizados' && (
+        loadingLancs ? (
+          <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>Carregando…</div>
+        ) : lancsRealizados.length === 0 ? (
+          <div style={{ padding: 60, textAlign: 'center', color: '#9ca3af', border: '1px dashed #e5e7eb', borderRadius: 12 }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+            <div style={{ fontWeight: 600 }}>Nenhum pagamento realizado no período</div>
+          </div>
+        ) : (
+          <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: '#f0fdf4', borderBottom: '2px solid #bbf7d0' }}>
+                  <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, color: '#14532d' }}>Colaborador</th>
+                  <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, color: '#14532d' }}>Obra</th>
+                  <th style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 700, color: '#14532d' }}>Período</th>
+                  <th style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 700, color: '#14532d' }}>Data Pgto</th>
+                  <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, color: '#14532d' }}>Obs</th>
+                  <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#14532d' }}>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lancsRealizados.map((l: any, i: number) => (
+                  <tr key={l.id} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa', borderBottom: '1px solid #f3f4f6' }}>
+                    <td style={{ padding: '10px 14px' }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{l.colaboradores?.nome ?? '—'}</div>
+                      <div style={{ fontSize: 10, color: '#6b7280' }}>{l.colaboradores?.chapa} · {l.colaboradores?.tipo_contrato?.toUpperCase()}</div>
+                    </td>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: '#374151' }}>{l.obras?.nome ?? '—'}</td>
+                    <td style={{ padding: '10px 14px', textAlign: 'center', fontSize: 11, color: '#374151' }}>
+                      {l.data_inicio?.slice(8)}/{l.data_inicio?.slice(5,7)} → {l.data_fim?.slice(8)}/{l.data_fim?.slice(5,7)}
+                    </td>
+                    <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>
+                        {l.data_pagamento ? l.data_pagamento.slice(8)+'/'+l.data_pagamento.slice(5,7)+'/'+l.data_pagamento.slice(0,4) : '—'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px 14px', fontSize: 11, color: '#6b7280', maxWidth: 180 }}>
+                      {l.obs_pagamento ?? '—'}
+                    </td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                      <button
+                        style={{ height: 28, padding: '0 12px', fontSize: 11, borderRadius: 6, border: '1px solid #fecaca', background: 'transparent', color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}
+                        onClick={() => { setModalEstornar(l); setMotivoEstorno('') }}>
+                        ↩ Estornar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0', fontWeight: 700 }}>
+                  <td colSpan={5} style={{ padding: '9px 14px', fontSize: 12 }}>Total realizado — {lancsRealizados.length} lançamento(s)</td>
+                  <td style={{ padding: '9px 14px', textAlign: 'right', fontSize: 13, color: '#15803d' }}>{formatCurrency(totalRealizado)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )
       )}
 
       {/* ══ MODAL EFETIVAR PAGAMENTO ══ */}
@@ -543,37 +546,28 @@ export default function Pagamentos() {
             </div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 6 }}>📅 Data de Efetivação *</label>
-              <input
-                type="date"
-                value={dataPagamento}
-                onChange={e => setDataPagamento(e.target.value)}
-                style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '2px solid #7c3aed', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', boxSizing: 'border-box' }}
-              />
+              <input type="date" value={dataPagamento} onChange={e => setDataPagamento(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '2px solid #7c3aed', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', boxSizing: 'border-box' }} />
             </div>
             <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 6 }}>Observação (opcional)</label>
-              <textarea
-                value={obsPagamento}
-                onChange={e => setObsPagamento(e.target.value)}
-                placeholder="Ex.: Pago via Pix, transferência banco X…"
-                rows={3}
-                style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '1.5px solid #e5e7eb', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
-              />
+              <textarea value={obsPagamento} onChange={e => setObsPagamento(e.target.value)}
+                placeholder="Ex.: Pago via Pix, transferência banco X…" rows={3}
+                style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '1.5px solid #e5e7eb', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button style={{ padding: '8px 16px', fontSize: 13, borderRadius: 6, border: '1.5px solid #e5e7eb', background: 'transparent', cursor: 'pointer', color: 'var(--foreground)' }}
-                onClick={() => setModalPagarLanc(null)}>Cancelar</button>
-              <button disabled={!dataPagamento || savingPgto}
-                style={{ padding: '8px 18px', fontSize: 13, fontWeight: 700, borderRadius: 6, border: 'none', background: '#7c3aed', color: '#fff', cursor: 'pointer', opacity: (!dataPagamento || savingPgto) ? 0.5 : 1 }}
-                onClick={efetivarPagamento}>
-                {savingPgto ? 'Salvando…' : '💰 Confirmar Pagamento'}
+              <button onClick={() => setModalPagarLanc(null)}
+                style={{ padding: '8px 16px', fontSize: 13, borderRadius: 6, border: '1.5px solid #e5e7eb', background: 'transparent', cursor: 'pointer', color: 'var(--foreground)' }}>Cancelar</button>
+              <button disabled={!dataPagamento || savingPgto} onClick={efetivarPagamento}
+                style={{ padding: '8px 18px', fontSize: 13, fontWeight: 700, borderRadius: 6, border: 'none', background: '#7c3aed', color: '#fff', cursor: 'pointer', opacity: (!dataPagamento || savingPgto) ? 0.5 : 1 }}>
+                {savingPgto ? 'Salvando…' : '💰 Confirmar'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ══ MODAL ESTORNAR PAGAMENTO ══ */}
+      {/* ══ MODAL ESTORNAR ══ */}
       {modalEstornar && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: 'var(--background)', borderRadius: 14, width: 420, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
@@ -587,20 +581,15 @@ export default function Pagamentos() {
             </div>
             <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 6 }}>Motivo do Estorno</label>
-              <textarea
-                value={motivoEstorno}
-                onChange={e => setMotivoEstorno(e.target.value)}
-                placeholder="Ex.: Pagamento duplicado, erro de valor…"
-                rows={3}
-                style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '2px solid #fecaca', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
-              />
+              <textarea value={motivoEstorno} onChange={e => setMotivoEstorno(e.target.value)}
+                placeholder="Ex.: Pagamento duplicado, erro de valor…" rows={3}
+                style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '2px solid #fecaca', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button style={{ padding: '8px 16px', fontSize: 13, borderRadius: 6, border: '1.5px solid #e5e7eb', background: 'transparent', cursor: 'pointer', color: 'var(--foreground)' }}
-                onClick={() => setModalEstornar(null)}>Cancelar</button>
-              <button disabled={savingPgto}
-                style={{ padding: '8px 18px', fontSize: 13, fontWeight: 700, borderRadius: 6, border: 'none', background: '#dc2626', color: '#fff', cursor: 'pointer', opacity: savingPgto ? 0.5 : 1 }}
-                onClick={estornarPagamento}>
+              <button onClick={() => setModalEstornar(null)}
+                style={{ padding: '8px 16px', fontSize: 13, borderRadius: 6, border: '1.5px solid #e5e7eb', background: 'transparent', cursor: 'pointer', color: 'var(--foreground)' }}>Cancelar</button>
+              <button disabled={savingPgto} onClick={estornarPagamento}
+                style={{ padding: '8px 18px', fontSize: 13, fontWeight: 700, borderRadius: 6, border: 'none', background: '#dc2626', color: '#fff', cursor: 'pointer', opacity: savingPgto ? 0.5 : 1 }}>
                 {savingPgto ? 'Salvando…' : '↩ Confirmar Estorno'}
               </button>
             </div>
@@ -608,14 +597,13 @@ export default function Pagamentos() {
         </div>
       )}
 
-      {/* Modal criar/editar */}
+      {/* ══ MODAL CRIAR/EDITAR PAGAMENTO AVULSO ══ */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editando ? 'Editar Pagamento' : 'Novo Pagamento'}</DialogTitle>
+            <DialogTitle>{editando ? 'Editar Pagamento Avulso' : '💵 Novo Pagamento Avulso'}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-4 py-2">
-            {/* Colaborador */}
             <div className="col-span-2">
               <Label>Colaborador *</Label>
               <Select value={form.colaborador_id} onValueChange={(v) => setField('colaborador_id', v)}>
@@ -629,8 +617,6 @@ export default function Pagamentos() {
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Obra */}
             <div>
               <Label>Obra</Label>
               <Select value={form.obra_id} onValueChange={(v) => setField('obra_id', v)}>
@@ -645,25 +631,10 @@ export default function Pagamentos() {
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Competência */}
             <div>
-              <Label>Competência *</Label>
-              <Input
-                type="month"
-                value={form.competencia}
-                onChange={(e) => setField('competencia', e.target.value)}
-                className="mt-1"
-              />
-            </div>
-
-            {/* Tipo */}
-            <div>
-              <Label>Tipo</Label>
+              <Label>Tipo *</Label>
               <Select value={form.tipo} onValueChange={(v) => setField('tipo', v)}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {TIPO_OPTIONS.map((t) => (
                     <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
@@ -671,116 +642,30 @@ export default function Pagamentos() {
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Data pagamento */}
+            <div>
+              <Label>Competência *</Label>
+              <Input type="month" value={form.competencia} onChange={(e) => setField('competencia', e.target.value)} className="mt-1" />
+            </div>
             <div>
               <Label>Data Pagamento</Label>
-              <Input
-                type="date"
-                value={form.data_pagamento}
-                onChange={(e) => setField('data_pagamento', e.target.value)}
-                className="mt-1"
-              />
+              <Input type="date" value={form.data_pagamento} onChange={(e) => setField('data_pagamento', e.target.value)} className="mt-1" />
             </div>
-
-            {/* Valor bruto */}
             <div>
               <Label>Valor Bruto</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={form.valor_bruto}
-                onChange={(e) => setField('valor_bruto', e.target.value)}
-                className="mt-1"
-                placeholder="0,00"
-              />
+              <Input type="number" value={form.valor_bruto} onChange={(e) => setField('valor_bruto', e.target.value)} className="mt-1" placeholder="0,00" />
             </div>
-
-            {/* INSS */}
             <div>
-              <Label>INSS</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={form.inss}
-                onChange={(e) => setField('inss', e.target.value)}
-                className="mt-1"
-                placeholder="0,00"
-              />
+              <Label>Adiantamento (desconto)</Label>
+              <Input type="number" value={form.adiantamento} onChange={(e) => setField('adiantamento', e.target.value)} className="mt-1" placeholder="0,00" />
             </div>
-
-            {/* FGTS */}
             <div>
-              <Label>FGTS</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={form.fgts}
-                onChange={(e) => setField('fgts', e.target.value)}
-                className="mt-1"
-                placeholder="0,00"
-              />
+              <Label>Líquido (auto)</Label>
+              <Input readOnly value={formatCurrency(calcLiquido(form))} className="mt-1 bg-muted" />
             </div>
-
-            {/* IR */}
-            <div>
-              <Label>IR</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={form.ir}
-                onChange={(e) => setField('ir', e.target.value)}
-                className="mt-1"
-                placeholder="0,00"
-              />
-            </div>
-
-            {/* Vale transporte */}
-            <div>
-              <Label>Vale Transporte</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={form.vale_transporte}
-                onChange={(e) => setField('vale_transporte', e.target.value)}
-                className="mt-1"
-                placeholder="0,00"
-              />
-            </div>
-
-            {/* Adiantamento */}
-            <div>
-              <Label>Adiantamento</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={form.adiantamento}
-                onChange={(e) => setField('adiantamento', e.target.value)}
-                className="mt-1"
-                placeholder="0,00"
-              />
-            </div>
-
-            {/* Valor líquido (calculado) */}
-            <div>
-              <Label>Valor Líquido (calculado)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={form.valor_liquido}
-                onChange={(e) => setField('valor_liquido', e.target.value)}
-                className="mt-1 bg-muted"
-                placeholder="0,00"
-              />
-            </div>
-
-            {/* Status */}
             <div>
               <Label>Status</Label>
               <Select value={form.status} onValueChange={(v) => setField('status', v)}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {STATUS_OPTIONS.map((s) => (
                     <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
@@ -788,32 +673,25 @@ export default function Pagamentos() {
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Observações */}
             <div className="col-span-2">
               <Label>Observações</Label>
-              <Textarea
-                value={form.observacoes}
-                onChange={(e) => setField('observacoes', e.target.value)}
-                className="mt-1"
-                rows={2}
-              />
+              <Textarea value={form.observacoes} onChange={(e) => setField('observacoes', e.target.value)} className="mt-1" rows={3} placeholder="Detalhes…" />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? 'Salvando…' : 'Salvar'}
+            <Button disabled={saving} onClick={handleSave} style={{ background: '#7c3aed', color: '#fff' }}>
+              {saving ? 'Salvando…' : editando ? '💾 Salvar' : '+ Registrar'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Confirmar exclusão */}
+      {/* ══ ALERT DELETE ══ */}
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir pagamento?</AlertDialogTitle>
+            <AlertDialogTitle>Confirmar exclusão?</AlertDialogTitle>
             <AlertDialogDescription>Esta ação não pode ser desfeita.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

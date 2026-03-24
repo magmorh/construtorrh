@@ -482,11 +482,37 @@ function FuncoesTab() {
 
 // ─── SOLICITAÇÕES DO PORTAL ───────────────────────────────────────────────────
 function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Funcao[] }) {
-  const [rows, setRows]     = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const [rows, setRows]         = useState<any[]>([])
+  const [loading, setLoading]   = useState(true)
   const [filtroStatus, setFiltroStatus] = useState<'pendente'|'aprovado'|'recusado'|'todos'>('pendente')
   const [aprovando, setAprovando] = useState<Set<string>>(new Set())
-  const [modalApr, setModalApr] = useState<any | null>(null) // solicitação para aprovar
+  const [modalApr, setModalApr] = useState<any | null>(null)
+  const [recusaId, setRecusaId] = useState<string | null>(null)
+  const [motivoRecusa, setMotivoRecusa] = useState('')
+
+  // ── campos editáveis do modal de aprovação ──────────────────────────────────
+  const [ed, setEd] = useState<Record<string,string>>({})
+  const SE = (k: string, v: string) => setEd(p => ({ ...p, [k]: v }))
+
+  function abrirModal(r: any) {
+    const d = r.dados ?? {}
+    setEd({
+      nome: d.nome ?? '', cpf: d.cpf ?? '', rg: d.rg ?? '', pis_nit: d.pis_nit ?? '',
+      data_nascimento: d.data_nascimento ?? '', genero: d.genero ?? '', estado_civil: d.estado_civil ?? '',
+      telefone: d.telefone ?? '', email: d.email ?? '',
+      ctps_numero: d.ctps_numero ?? '', ctps_serie: d.ctps_serie ?? '',
+      cep: d.cep ?? '', endereco: d.endereco ?? '', cidade: d.cidade ?? '', estado: d.estado ?? '',
+      funcao_id: d.funcao_id ?? '', tipo_contrato: d.tipo_contrato ?? 'clt',
+      data_admissao: d.data_admissao ?? new Date().toISOString().slice(0,10),
+      banco: d.banco ?? '', agencia: d.agencia ?? '', conta: d.conta ?? '',
+      tipo_conta: d.tipo_conta ?? 'corrente', pix_tipo: d.pix_tipo ?? '', pix_chave: d.pix_chave ?? '',
+      vt_modalidade: d.vt_modalidade ?? 'nenhum', vt_gasolina_valor_dia: d.vt_gasolina_valor_dia ?? '',
+      vt_cartao_tipo: d.vt_cartao_tipo ?? '', vt_cartao_numero: d.vt_cartao_numero ?? '',
+      vt_trecho_ida: d.vt_trecho_ida ?? '', vt_trecho_volta: d.vt_trecho_volta ?? '',
+      obra_id: '', observacoes: d.observacoes ?? '',
+    })
+    setModalApr(r)
+  }
 
   const fetch = useCallback(async () => {
     setLoading(true)
@@ -499,38 +525,62 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
 
   useEffect(() => { fetch() }, [fetch])
 
-  async function aprovar(s: any) {
-    setAprovando(prev => new Set([...prev, s.id]))
-    // Cria colaborador no sistema
-    const d = s.dados ?? {}
+  async function aprovar() {
+    if (!modalApr || !ed.nome.trim()) return
+    setAprovando(prev => new Set([...prev, modalApr.id]))
     const { data: novoColab, error } = await supabase.from('colaboradores').insert({
-      nome: d.nome, cpf: d.cpf || null, telefone: d.telefone || null,
-      funcao_id: d.funcao_id || null, tipo_contrato: d.tipo_contrato || 'clt',
-      data_admissao: d.data_admissao || null, obra_id: modalApr?.obra_id_sel || null,
+      nome: ed.nome, cpf: ed.cpf || null, rg: ed.rg || null,
+      pis_nit: ed.pis_nit || null, data_nascimento: ed.data_nascimento || null,
+      genero: ed.genero || null, estado_civil: ed.estado_civil || null,
+      telefone: ed.telefone || null, email: ed.email || null,
+      ctps_numero: ed.ctps_numero || null, ctps_serie: ed.ctps_serie || null,
+      cep: ed.cep || null, endereco: ed.endereco || null, cidade: ed.cidade || null,
+      estado: ed.estado || null,
+      funcao_id: ed.funcao_id || null, tipo_contrato: ed.tipo_contrato || 'clt',
+      data_admissao: ed.data_admissao || null,
+      obra_id: ed.obra_id || null,
+      banco: ed.banco || null, agencia: ed.agencia || null, conta: ed.conta || null,
+      tipo_conta: ed.tipo_conta || null, pix_tipo: ed.pix_tipo || null, pix_chave: ed.pix_chave || null,
+      vt_modalidade: ed.vt_modalidade || 'nenhum',
+      vt_gasolina_valor_dia: ed.vt_gasolina_valor_dia ? parseFloat(ed.vt_gasolina_valor_dia) : null,
+      vt_cartao_tipo: ed.vt_cartao_tipo || null, vt_cartao_numero: ed.vt_cartao_numero || null,
+      observacoes: ed.observacoes || null,
       status: 'ativo',
     }).select('id').single()
     if (!error && novoColab?.id) {
       await supabase.from('portal_solicitacoes').update({
         status: 'aprovado', sincronizado_em: new Date().toISOString(), colaborador_id: novoColab.id,
-      }).eq('id', s.id)
-      toast.success(`${d.nome} cadastrado com sucesso!`)
+      }).eq('id', modalApr.id)
+      toast.success(`${ed.nome} cadastrado com sucesso!`)
     } else {
       toast.error('Erro ao criar colaborador: ' + error?.message)
     }
-    setAprovando(prev => { const ss = new Set(prev); ss.delete(s.id); return ss })
+    setAprovando(prev => { const ss = new Set(prev); ss.delete(modalApr.id); return ss })
     setModalApr(null); fetch()
   }
 
-  async function recusar(id: string, obs: string) {
-    await supabase.from('portal_solicitacoes').update({ status: 'recusado', observacoes_admin: obs }).eq('id', id)
+  async function recusar() {
+    if (!recusaId) return
+    await supabase.from('portal_solicitacoes').update({ status: 'recusado', observacoes_admin: motivoRecusa || 'Recusado pelo administrador' }).eq('id', recusaId)
     toast.success('Solicitação recusada')
-    setModalApr(null); fetch()
+    setRecusaId(null); setMotivoRecusa(''); fetch()
   }
 
   const statusBadge = (s: string) => {
     if (s === 'aprovado') return { bg: '#dcfce7', cor: '#15803d', label: '✓ Aprovado' }
     if (s === 'recusado') return { bg: '#fee2e2', cor: '#dc2626', label: '✗ Recusado' }
     return { bg: '#fef3c7', cor: '#b45309', label: '⏳ Pendente' }
+  }
+
+  const INP: React.CSSProperties = { width:'100%',height:38,border:'1px solid var(--border)',borderRadius:7,padding:'0 10px',fontSize:12,boxSizing:'border-box',background:'var(--input)',color:'var(--foreground)' }
+  const SEL: React.CSSProperties = { ...INP, cursor:'pointer' }
+  function L({ label, col, children }: { label:string; col?:string; children:React.ReactNode }) {
+    return (
+      <div style={{ gridColumn: col }}>
+        <label style={{ fontSize:10,fontWeight:700,color:'var(--muted-foreground)',display:'block',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em' }}>{label}</label>
+        {children}
+      </div>
+    )
   }
 
   return (
@@ -576,10 +626,9 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
                     {d.cpf && <span>CPF: {d.cpf}</span>}
                     {fn && <span>🏷️ {fn.nome}</span>}
                     {d.tipo_contrato && <span>📋 {d.tipo_contrato.toUpperCase()}</span>}
-                    {d.data_admissao && <span>📅 Admissão: {new Date(d.data_admissao + 'T12:00:00').toLocaleDateString('pt-BR')}</span>}
+                    {d.data_admissao && <span>📅 {new Date(d.data_admissao + 'T12:00:00').toLocaleDateString('pt-BR')}</span>}
                     {d.telefone && <span>📞 {d.telefone}</span>}
                   </div>
-                  {d.observacoes && <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 4, fontStyle: 'italic' }}>{d.observacoes}</div>}
                   <div style={{ fontSize: 10, color: 'var(--muted-foreground)', marginTop: 4 }}>
                     Enviado {new Date(r.criado_em).toLocaleString('pt-BR')}
                     {r.observacoes_admin && <span style={{ marginLeft: 8, background: '#fee2e2', color: '#dc2626', borderRadius: 4, padding: '1px 5px' }}>Admin: {r.observacoes_admin}</span>}
@@ -587,18 +636,11 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                   <span style={{ background: badge.bg, color: badge.cor, borderRadius: 6, padding: '3px 9px', fontSize: 11, fontWeight: 700 }}>{badge.label}</span>
-                  {r.status === 'pendente' && (
-                    <>
-                      <Button size="sm" onClick={() => setModalApr({ ...r, obra_id_sel: '' })}
-                        style={{ gap: 4, height: 30, fontSize: 12, background: '#15803d', color: '#fff' }}>
-                        ✓ Aprovar
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => recusar(r.id, 'Recusado pelo administrador')}
-                        style={{ gap: 4, height: 30, fontSize: 12, borderColor: '#dc2626', color: '#dc2626' }}>
-                        ✗ Recusar
-                      </Button>
-                    </>
-                  )}
+                  {r.status === 'pendente' && (<>
+                    <Button size="sm" onClick={() => abrirModal(r)} style={{ gap: 4, height: 30, fontSize: 12, background: '#15803d', color: '#fff' }}>✓ Aprovar</Button>
+                    <Button variant="outline" size="sm" onClick={() => { setRecusaId(r.id); setMotivoRecusa('') }}
+                      style={{ gap: 4, height: 30, fontSize: 12, borderColor: '#dc2626', color: '#dc2626' }}>✗ Recusar</Button>
+                  </>)}
                 </div>
               </div>
             )
@@ -606,31 +648,164 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
         </div>
       )}
 
-      {/* Modal aprovação */}
+      {/* ── Modal Aprovação — formulário completo editável ── */}
       {modalApr && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--background)', borderRadius: 16, width: '100%', maxWidth: 460, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-            <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 16 }}>✓ Aprovar Solicitação</div>
-            <div style={{ background: 'var(--muted)', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
-              <div style={{ fontWeight: 700 }}>👷 {modalApr.dados?.nome}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 4 }}>
-                {funcoes.find(f => f.id === modalApr.dados?.funcao_id)?.nome ?? 'Função não informada'}
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}>
+          <div style={{ background:'var(--background)',borderRadius:16,width:'100%',maxWidth:680,maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+            {/* Header */}
+            <div style={{ padding:'18px 22px 14px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between' }}>
+              <div>
+                <div style={{ fontWeight:800,fontSize:17 }}>✓ Aprovar Solicitação</div>
+                <div style={{ fontSize:12,color:'var(--muted-foreground)',marginTop:2 }}>Revise e edite os dados antes de cadastrar o colaborador</div>
+              </div>
+              <button onClick={()=>setModalApr(null)} style={{ border:'none',background:'none',cursor:'pointer',padding:4 }}>✕</button>
+            </div>
+            {/* Corpo — scrollável */}
+            <div style={{ overflowY:'auto',flex:1,padding:'16px 22px',display:'flex',flexDirection:'column',gap:16 }}>
+
+              {/* Dados Pessoais */}
+              <div>
+                <div style={{ fontWeight:700,fontSize:12,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10 }}>👤 Dados Pessoais</div>
+                <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 }}>
+                  <L label="Nome Completo *" col="1/-1"><input value={ed.nome} onChange={e=>SE('nome',e.target.value)} style={INP} /></L>
+                  <L label="CPF"><input value={ed.cpf} onChange={e=>SE('cpf',e.target.value)} placeholder="000.000.000-00" style={INP} /></L>
+                  <L label="RG"><input value={ed.rg} onChange={e=>SE('rg',e.target.value)} placeholder="00.000.000-0" style={INP} /></L>
+                  <L label="PIS/NIT"><input value={ed.pis_nit} onChange={e=>SE('pis_nit',e.target.value)} placeholder="000.00000.00-0" style={INP} /></L>
+                  <L label="Nasc."><input type="date" value={ed.data_nascimento} onChange={e=>SE('data_nascimento',e.target.value)} style={INP} /></L>
+                  <L label="Gênero">
+                    <select value={ed.genero} onChange={e=>SE('genero',e.target.value)} style={SEL}>
+                      <option value="">—</option><option value="M">Masc.</option><option value="F">Fem.</option><option value="outro">Outro</option>
+                    </select>
+                  </L>
+                  <L label="Estado Civil">
+                    <select value={ed.estado_civil} onChange={e=>SE('estado_civil',e.target.value)} style={SEL}>
+                      <option value="">—</option><option value="solteiro">Solteiro(a)</option><option value="casado">Casado(a)</option>
+                      <option value="divorciado">Divorciado(a)</option><option value="viuvo">Viúvo(a)</option><option value="uniao_estavel">União Estável</option>
+                    </select>
+                  </L>
+                  <L label="Telefone"><input value={ed.telefone} onChange={e=>SE('telefone',e.target.value)} style={INP} /></L>
+                  <L label="E-mail"><input value={ed.email} onChange={e=>SE('email',e.target.value)} style={INP} /></L>
+                  <L label="CTPS Nº"><input value={ed.ctps_numero} onChange={e=>SE('ctps_numero',e.target.value)} style={INP} /></L>
+                  <L label="CTPS Série"><input value={ed.ctps_serie} onChange={e=>SE('ctps_serie',e.target.value)} style={INP} /></L>
+                </div>
+              </div>
+
+              {/* Endereço */}
+              <div>
+                <div style={{ fontWeight:700,fontSize:12,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10 }}>📍 Endereço</div>
+                <div style={{ display:'grid',gridTemplateColumns:'110px 1fr',gap:10 }}>
+                  <L label="CEP"><input value={ed.cep} onChange={e=>SE('cep',e.target.value)} placeholder="00000-000" style={INP} /></L>
+                  <L label="Endereço"><input value={ed.endereco} onChange={e=>SE('endereco',e.target.value)} style={INP} /></L>
+                </div>
+                <div style={{ display:'grid',gridTemplateColumns:'1fr 70px',gap:10,marginTop:10 }}>
+                  <L label="Cidade"><input value={ed.cidade} onChange={e=>SE('cidade',e.target.value)} style={INP} /></L>
+                  <L label="UF"><input value={ed.estado} onChange={e=>SE('estado',e.target.value.toUpperCase().slice(0,2))} maxLength={2} style={INP} /></L>
+                </div>
+              </div>
+
+              {/* Contrato */}
+              <div>
+                <div style={{ fontWeight:700,fontSize:12,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10 }}>📋 Contrato</div>
+                <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10 }}>
+                  <L label="Função *" col="1/-1">
+                    <select value={ed.funcao_id} onChange={e=>SE('funcao_id',e.target.value)} style={SEL}>
+                      <option value="">Selecione…</option>
+                      {funcoes.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
+                    </select>
+                  </L>
+                  <L label="Tipo Contrato">
+                    <select value={ed.tipo_contrato} onChange={e=>SE('tipo_contrato',e.target.value)} style={SEL}>
+                      <option value="clt">CLT</option><option value="autonomo">Autônomo</option><option value="estagio">Estágio</option>
+                    </select>
+                  </L>
+                  <L label="Admissão"><input type="date" value={ed.data_admissao} onChange={e=>SE('data_admissao',e.target.value)} style={INP} /></L>
+                  <L label="Obra">
+                    <select value={ed.obra_id} onChange={e=>SE('obra_id',e.target.value)} style={SEL}>
+                      <option value="">Sem obra</option>
+                      {obras.map(o=><option key={o.id} value={o.id}>{o.nome}</option>)}
+                    </select>
+                  </L>
+                </div>
+              </div>
+
+              {/* Bancário */}
+              <div>
+                <div style={{ fontWeight:700,fontSize:12,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10 }}>🏦 Dados Bancários</div>
+                <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 }}>
+                  <L label="Banco"><input value={ed.banco} onChange={e=>SE('banco',e.target.value)} style={INP} /></L>
+                  <L label="Tipo Conta">
+                    <select value={ed.tipo_conta} onChange={e=>SE('tipo_conta',e.target.value)} style={SEL}>
+                      <option value="corrente">Corrente</option><option value="poupanca">Poupança</option>
+                    </select>
+                  </L>
+                  <L label="Agência"><input value={ed.agencia} onChange={e=>SE('agencia',e.target.value)} style={INP} /></L>
+                  <L label="Conta"><input value={ed.conta} onChange={e=>SE('conta',e.target.value)} style={INP} /></L>
+                  <L label="Tipo PIX">
+                    <select value={ed.pix_tipo} onChange={e=>SE('pix_tipo',e.target.value)} style={SEL}>
+                      <option value="">Nenhum</option><option value="cpf">CPF</option>
+                      <option value="telefone">Telefone</option><option value="email">E-mail</option><option value="aleatoria">Aleatória</option>
+                    </select>
+                  </L>
+                  <L label="Chave PIX"><input value={ed.pix_chave} onChange={e=>SE('pix_chave',e.target.value)} style={INP} /></L>
+                </div>
+              </div>
+
+              {/* VT */}
+              <div>
+                <div style={{ fontWeight:700,fontSize:12,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10 }}>🚌 Vale Transporte</div>
+                <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 }}>
+                  <L label="Modalidade VT" col="1/-1">
+                    <select value={ed.vt_modalidade} onChange={e=>SE('vt_modalidade',e.target.value)} style={SEL}>
+                      <option value="nenhum">Não tem VT</option><option value="cartao">Cartão VT</option>
+                      <option value="gasolina">Reembolso Gasolina</option><option value="dinheiro">Dinheiro</option>
+                    </select>
+                  </L>
+                  {ed.vt_modalidade === 'gasolina' && (
+                    <L label="Valor/dia gasolina" col="1/-1">
+                      <input type="number" value={ed.vt_gasolina_valor_dia} onChange={e=>SE('vt_gasolina_valor_dia',e.target.value)} step="0.01" style={INP} />
+                    </L>
+                  )}
+                  {(ed.vt_modalidade === 'cartao' || ed.vt_modalidade === 'dinheiro') && (<>
+                    <L label="Empresa Cartão"><input value={ed.vt_cartao_tipo} onChange={e=>SE('vt_cartao_tipo',e.target.value)} style={INP} /></L>
+                    <L label="Nº Cartão"><input value={ed.vt_cartao_numero} onChange={e=>SE('vt_cartao_numero',e.target.value)} style={INP} /></L>
+                    <L label="Trecho Ida" col="1/-1"><input value={ed.vt_trecho_ida} onChange={e=>SE('vt_trecho_ida',e.target.value)} style={INP} /></L>
+                    <L label="Trecho Volta" col="1/-1"><input value={ed.vt_trecho_volta} onChange={e=>SE('vt_trecho_volta',e.target.value)} style={INP} /></L>
+                  </>)}
+                </div>
+              </div>
+
+              {/* Obs */}
+              <div>
+                <label style={{ fontSize:10,fontWeight:700,color:'var(--muted-foreground)',display:'block',marginBottom:5,textTransform:'uppercase' }}>Observações</label>
+                <textarea value={ed.observacoes} onChange={e=>SE('observacoes',e.target.value)} rows={2}
+                  style={{ width:'100%',border:'1px solid var(--border)',borderRadius:7,padding:'8px 10px',fontSize:12,boxSizing:'border-box',background:'var(--input)',color:'var(--foreground)',resize:'vertical' }} />
               </div>
             </div>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 6, color: 'var(--muted-foreground)', textTransform: 'uppercase' }}>Vincular à Obra</label>
-              <select value={modalApr.obra_id_sel} onChange={e => setModalApr((m: any) => ({ ...m, obra_id_sel: e.target.value }))}
-                style={{ width: '100%', height: 42, border: '1px solid var(--border)', borderRadius: 8, padding: '0 12px', fontSize: 13, background: 'var(--input)', color: 'var(--foreground)' }}>
-                <option value="">Sem obra (definir depois)</option>
-                {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-              </select>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <Button variant="outline" onClick={() => setModalApr(null)}>Cancelar</Button>
-              <Button onClick={() => aprovar(modalApr)} disabled={aprovando.has(modalApr.id)}
-                style={{ background: '#15803d', color: '#fff' }}>
-                {aprovando.has(modalApr.id) ? '⏳ Cadastrando…' : '✓ Confirmar e Cadastrar'}
+
+            {/* Footer */}
+            <div style={{ padding:'14px 22px',borderTop:'1px solid var(--border)',display:'flex',justifyContent:'flex-end',gap:10 }}>
+              <Button variant="outline" onClick={()=>setModalApr(null)}>Cancelar</Button>
+              <Button onClick={aprovar} disabled={aprovando.has(modalApr.id) || !ed.nome.trim()}
+                style={{ background:'#15803d',color:'#fff',gap:6 }}>
+                {aprovando.has(modalApr.id)?'⏳ Cadastrando…':'✓ Confirmar e Cadastrar Colaborador'}
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Recusa ── */}
+      {recusaId && (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}>
+          <div style={{ background:'var(--background)',borderRadius:14,width:'100%',maxWidth:400,padding:22,boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontWeight:800,fontSize:16,marginBottom:14 }}>✗ Recusar Solicitação</div>
+            <label style={{ fontSize:12,fontWeight:700,display:'block',marginBottom:6,color:'var(--muted-foreground)' }}>Motivo da recusa (opcional)</label>
+            <textarea value={motivoRecusa} onChange={e=>setMotivoRecusa(e.target.value)} rows={3}
+              placeholder="Explique o motivo da recusa…"
+              style={{ width:'100%',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',fontSize:13,boxSizing:'border-box',background:'var(--input)',color:'var(--foreground)',marginBottom:14 }} />
+            <div style={{ display:'flex',justifyContent:'flex-end',gap:10 }}>
+              <Button variant="outline" onClick={()=>setRecusaId(null)}>Cancelar</Button>
+              <Button onClick={recusar} style={{ background:'#dc2626',color:'#fff' }}>✗ Confirmar Recusa</Button>
             </div>
           </div>
         </div>

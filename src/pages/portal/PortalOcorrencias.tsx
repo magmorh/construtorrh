@@ -3,242 +3,361 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { getPortalSession } from '@/hooks/usePortalAuth'
 import PortalLayout from './PortalLayout'
-import { AlertTriangle, CheckCircle2, Loader2, ChevronDown } from 'lucide-react'
+import { AlertTriangle, Loader2, CheckCircle2, Trash2 } from 'lucide-react'
 
-type Gravidade = 'baixa' | 'media' | 'alta' | 'critica'
-type TipoOcorr = 'ocorrencia' | 'acidente' | 'quase_acidente' | 'epi' | 'disciplinar'
+interface Obra        { id: string; nome: string }
+interface Colaborador { id: string; nome: string; chapa: string }
+interface OcorRow {
+  id: string; tipo: string; gravidade: string | null; descricao: string; criado_em: string
+  data_ocorrencia: string; colaboradores?: { nome: string }; sincronizado_em: string | null
+  hora_acidente?: string | null; local?: string | null; cat_emitida?: boolean | null
+  dias_afastamento?: number | null; com_afastamento?: boolean | null; cid?: string | null
+  tipo_atestado?: string | null; tipo_adv?: string | null; assinada?: boolean | null
+  dias_suspensao?: number | null; motivo?: string | null
+}
 
-const TIPOS: { value: TipoOcorr; label: string; emoji: string }[] = [
-  { value: 'ocorrencia',     label: 'Ocorrência Geral', emoji: '📋' },
-  { value: 'acidente',       label: 'Acidente',         emoji: '🚨' },
-  { value: 'quase_acidente', label: 'Quase Acidente',   emoji: '⚠️' },
-  { value: 'epi',            label: 'EPI / Segurança',  emoji: '🦺' },
-  { value: 'disciplinar',    label: 'Disciplinar',      emoji: '📌' },
-]
-
-const GRAVIDADES: { value: Gravidade; label: string; cor: string; bg: string }[] = [
-  { value: 'baixa',   label: 'Baixa',   cor: '#15803d', bg: '#dcfce7' },
-  { value: 'media',   label: 'Média',   cor: '#b45309', bg: '#fef3c7' },
-  { value: 'alta',    label: 'Alta',    cor: '#dc2626', bg: '#fee2e2' },
-  { value: 'critica', label: 'Crítica', cor: '#7c3aed', bg: '#ede9fe' },
-]
-
-interface ColabRow { id: string; nome: string }
-interface ObraRow  { id: string; nome: string }
-interface OcorrRow { id: string; titulo: string; tipo: string; gravidade: string; data: string; criado_em: string; colaboradores?: { nome: string } | null }
+type AbaOcor = 'acidente' | 'atestado' | 'advertencia' | 'geral'
 
 export default function PortalOcorrencias() {
-  const nav = useNavigate()
+  const nav     = useNavigate()
   const session = getPortalSession()
-  const obras = session?.obras_ids ?? []
+  const obrasIds = session?.obras_ids ?? []
 
-  const [obraId, setObraId]     = useState(obras[0] ?? '')
-  const [obrasData, setObrasData] = useState<ObraRow[]>([])
-  const [colabs, setColabs]     = useState<ColabRow[]>([])
-  const [historico, setHistorico] = useState<OcorrRow[]>([])
+  const [obrasData, setObrasData]   = useState<Obra[]>([])
+  const [obraId, setObraId]         = useState('')
+  const [colabs, setColabs]         = useState<Colaborador[]>([])
+  const [aba, setAba]               = useState<AbaOcor>('acidente')
+  const [subAba, setSubAba]         = useState<'nova' | 'historico'>('nova')
+  const [historico, setHistorico]   = useState<OcorRow[]>([])
+  const [saving, setSaving]         = useState(false)
+  const [sucesso, setSucesso]       = useState(false)
+  const [deletandoId, setDeletandoId] = useState<string|null>(null)
 
-  // Formulário
-  const [tipo, setTipo]         = useState<TipoOcorr>('ocorrencia')
-  const [gravidade, setGravidade] = useState<Gravidade>('media')
-  const [titulo, setTitulo]     = useState('')
-  const [descricao, setDescricao] = useState('')
-  const [colabId, setColabId]   = useState('')
-  const [data, setData]         = useState(new Date().toISOString().slice(0, 10))
-  const [saving, setSaving]     = useState(false)
-  const [sucesso, setSucesso]   = useState(false)
-  const [aba, setAba]           = useState<'nova' | 'historico'>('nova')
+  // ── Campos comuns ──────────────────────────────────────────────────────────
+  const [colabId, setColabId]       = useState('')
+  const [dataOcor, setDataOcor]     = useState(new Date().toISOString().slice(0,10))
+  const [descricao, setDescricao]   = useState('')
+  const [gravidade, setGravidade]   = useState('leve')
 
-  const fetchObras = useCallback(async () => {
-    if (!obras.length) return
-    const { data: d } = await supabase.from('obras').select('id,nome').in('id', obras).order('nome')
-    if (d) setObrasData(d)
-  }, [obras.join(',')])
+  // ── Acidente ───────────────────────────────────────────────────────────────
+  const [hora, setHora]             = useState('')
+  const [local, setLocal]           = useState('')
+  const [tipoAcid, setTipoAcid]     = useState('sem_afastamento')
+  const [catEmitida, setCatEmitida] = useState(false)
 
-  const fetchColabs = useCallback(async () => {
-    if (!obraId) return
-    const { data: d } = await supabase.from('colaboradores').select('id,nome').eq('obra_id', obraId).eq('status', 'ativo').order('nome')
-    if (d) setColabs(d)
-  }, [obraId])
+  // ── Atestado ───────────────────────────────────────────────────────────────
+  const [tipoAtest, setTipoAtest]   = useState('medico')
+  const [diasAfas, setDiasAfas]     = useState('')
+  const [comAfas, setComAfas]       = useState(false)
+  const [cid, setCid]               = useState('')
+  const [medico, setMedico]         = useState('')
 
-  const fetchHistorico = useCallback(async () => {
-    if (!obraId) return
-    const { data: d } = await supabase
-      .from('portal_ocorrencias')
-      .select('id,titulo,tipo,gravidade,data,criado_em,colaboradores(nome)')
-      .eq('obra_id', obraId)
-      .order('criado_em', { ascending: false })
-      .limit(30)
-    if (d) setHistorico(d as unknown as OcorrRow[])
-  }, [obraId])
+  // ── Advertência ───────────────────────────────────────────────────────────
+  const [tipoAdv, setTipoAdv]       = useState('escrita')
+  const [motivo, setMotivo]         = useState('')
+  const [assinada, setAssinada]     = useState(false)
+  const [diasSusp, setDiasSusp]     = useState('')
 
-  useEffect(() => { if (!session) { nav('/portal'); return } fetchObras() }, [])
-  useEffect(() => { fetchColabs(); fetchHistorico() }, [fetchColabs, fetchHistorico])
+  const loadBase = useCallback(async () => {
+    if (!obrasIds.length) return
+    const { data: o } = await supabase.from('obras').select('id,nome').in('id', obrasIds).order('nome')
+    if (o) { setObrasData(o); if (!obraId && o.length) setObraId(o[0].id) }
+  }, [obrasIds.join(',')])
+
+  const loadColabs = useCallback(async (oid: string) => {
+    if (!oid) return
+    const { data } = await supabase.from('colaboradores').select('id,nome,chapa').eq('obra_id', oid).eq('status','ativo').order('nome')
+    setColabs(data ?? [])
+  }, [])
+
+  const loadHistorico = useCallback(async (oid: string, tipo: AbaOcor) => {
+    if (!oid) return
+    const q = supabase.from('portal_ocorrencias')
+      .select('id,tipo,gravidade,descricao,criado_em,data_ocorrencia,hora_acidente,local,cat_emitida,dias_afastamento,com_afastamento,cid,tipo_atestado,tipo_adv,assinada,dias_suspensao,sincronizado_em,colaboradores(nome)')
+      .eq('obra_id', oid)
+    if (tipo !== 'geral') q.eq('tipo', tipo)
+    q.order('criado_em', { ascending: false }).limit(50)
+    const { data } = await q
+    setHistorico((data ?? []) as any[])
+  }, [])
+
+  useEffect(() => { if (!session) { nav('/portal'); return } loadBase() }, [])
+  useEffect(() => { if (obraId) { loadColabs(obraId); loadHistorico(obraId, aba) } }, [obraId, aba])
+
+  function resetForm() {
+    setColabId(''); setDataOcor(new Date().toISOString().slice(0,10)); setDescricao(''); setGravidade('leve')
+    setHora(''); setLocal(''); setTipoAcid('sem_afastamento'); setCatEmitida(false)
+    setTipoAtest('medico'); setDiasAfas(''); setComAfas(false); setCid(''); setMedico('')
+    setTipoAdv('escrita'); setMotivo(''); setAssinada(false); setDiasSusp('')
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!titulo.trim()) return
+    if (!colabId || !descricao.trim()) return
     setSaving(true)
-    const { error } = await supabase.from('portal_ocorrencias').insert({
-      obra_id: obraId, colaborador_id: colabId || null,
-      tipo, gravidade, titulo, descricao, data,
+    const base = {
+      obra_id: obraId, colaborador_id: colabId, tipo: aba,
+      data_ocorrencia: dataOcor, descricao, gravidade,
       portal_usuario_id: session?.id,
-    })
+    }
+    let extra: Record<string,any> = {}
+    if (aba === 'acidente')     extra = { hora_acidente: hora||null, local: local||null, tipo_acidente: tipoAcid, cat_emitida: catEmitida }
+    if (aba === 'atestado')     extra = { tipo_atestado: tipoAtest, dias_afastamento: diasAfas?parseInt(diasAfas):null, com_afastamento: comAfas, cid: cid||null, medico: medico||null }
+    if (aba === 'advertencia')  extra = { tipo_adv: tipoAdv, motivo: motivo||null, assinada, dias_suspensao: diasSusp?parseInt(diasSusp):null }
+
+    const { error } = await supabase.from('portal_ocorrencias').insert({ ...base, ...extra })
     setSaving(false)
     if (!error) {
-      setSucesso(true); setTitulo(''); setDescricao(''); setColabId('')
-      fetchHistorico()
-      setTimeout(() => { setSucesso(false); setAba('historico') }, 1800)
+      setSucesso(true); resetForm(); loadHistorico(obraId, aba)
+      setTimeout(() => { setSucesso(false); setSubAba('historico') }, 1600)
     }
+  }
+
+  async function excluir(id: string, sync: string|null) {
+    if (sync) { alert('Esta ocorrência já foi sincronizada e não pode ser excluída aqui.'); return }
+    if (!confirm('Excluir esta ocorrência?')) return
+    setDeletandoId(id)
+    await supabase.from('portal_ocorrencias').delete().eq('id', id)
+    setDeletandoId(null); loadHistorico(obraId, aba)
+  }
+
+  const INP: React.CSSProperties = { width:'100%',height:44,border:'1px solid #e5e7eb',borderRadius:8,padding:'0 12px',fontSize:13,boxSizing:'border-box',background:'#fff' }
+  const SEL: React.CSSProperties = { ...INP, cursor:'pointer' }
+  const LBL = (txt: string) => <label style={{ fontSize:12,fontWeight:700,color:'#374151',display:'block',marginBottom:6,textTransform:'uppercase',letterSpacing:'0.05em' }}>{txt}</label>
+
+  const ABAS: { key: AbaOcor; icon: string; label: string; cor: string }[] = [
+    { key:'acidente',    icon:'⚠️', label:'Acidente',    cor:'#dc2626' },
+    { key:'atestado',    icon:'🏥', label:'Atestado',    cor:'#2563eb' },
+    { key:'advertencia', icon:'📋', label:'Advertência', cor:'#ea580c' },
+    { key:'geral',       icon:'📌', label:'Geral',       cor:'#7c3aed' },
+  ]
+
+  const GRAV_COR: Record<string,{bg:string;cor:string}> = {
+    leve:   {bg:'#fef9c3',cor:'#a16207'},
+    moderado:{bg:'#fef3c7',cor:'#b45309'},
+    grave:  {bg:'#fee2e2',cor:'#dc2626'},
+    fatal:  {bg:'#3f0000',cor:'#fff'},
   }
 
   return (
     <PortalLayout>
       <div style={{ padding: '16px 16px 8px' }}>
         <div style={{ fontWeight: 800, fontSize: 18, color: '#1e3a5f' }}>⚠️ Ocorrências</div>
-        <div style={{ fontSize: 12, color: '#9ca3af' }}>Registre e acompanhe eventos na obra</div>
+        <div style={{ fontSize: 12, color: '#9ca3af' }}>Registre acidentes, atestados, advertências e ocorrências</div>
       </div>
 
-      {/* Seletor obra */}
+      {/* Obra */}
       {obrasData.length > 1 && (
         <div style={{ padding: '0 16px 10px' }}>
-          <select value={obraId} onChange={e => setObraId(e.target.value)}
-            style={{ width: '100%', height: 40, border: '1px solid #e5e7eb', borderRadius: 8, padding: '0 12px', fontSize: 13, background: '#fff' }}>
+          <select value={obraId} onChange={e => setObraId(e.target.value)} style={SEL}>
             {obrasData.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
           </select>
         </div>
       )}
+      {obrasData.length === 1 && <div style={{ padding:'0 16px 6px',fontSize:12,fontWeight:700,color:'#6b7280' }}>🏗️ {obrasData[0]?.nome}</div>}
 
-      {/* Abas */}
-      <div style={{ display: 'flex', margin: '0 16px 12px', background: '#f3f4f6', borderRadius: 10, padding: 4 }}>
-        {(['nova', 'historico'] as const).map(a => (
-          <button key={a} onClick={() => setAba(a)}
-            style={{
-              flex: 1, height: 36, border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13,
-              background: aba === a ? '#fff' : 'transparent', color: aba === a ? '#1e3a5f' : '#9ca3af',
-              boxShadow: aba === a ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
-            }}>
-            {a === 'nova' ? '+ Nova Ocorrência' : `Histórico (${historico.length})`}
+      {/* Tabs tipo ocorrência */}
+      <div style={{ display:'flex',padding:'0 16px 0',gap:6,overflowX:'auto',marginBottom:12 }}>
+        {ABAS.map(a => (
+          <button key={a.key} onClick={()=>{setAba(a.key);setSubAba('nova')}} style={{
+            flexShrink:0, height:36, padding:'0 14px', border:`2px solid ${aba===a.key?a.cor:'#e5e7eb'}`,
+            borderRadius:20, cursor:'pointer', fontWeight:700, fontSize:12,
+            background: aba===a.key?a.cor:'#fff', color: aba===a.key?'#fff':'#6b7280',
+          }}>
+            {a.icon} {a.label}
           </button>
         ))}
       </div>
 
-      {aba === 'nova' && (
-        <form onSubmit={handleSubmit} style={{ padding: '0 16px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Abas Nova / Histórico */}
+      {aba !== 'geral' && (
+        <div style={{ display:'flex',margin:'0 16px 12px',background:'#f3f4f6',borderRadius:10,padding:4 }}>
+          {(['nova','historico'] as const).map(s => (
+            <button key={s} onClick={()=>setSubAba(s)} style={{
+              flex:1, height:34, border:'none', borderRadius:8, cursor:'pointer', fontWeight:700, fontSize:12,
+              background:subAba===s?'#fff':'transparent', color:subAba===s?'#1e3a5f':'#9ca3af',
+              boxShadow:subAba===s?'0 1px 4px rgba(0,0,0,0.1)':'none',
+            }}>
+              {s==='nova'?'+ Nova Ocorrência':`Histórico (${historico.length})`}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── FORMULÁRIO ── */}
+      {(subAba === 'nova' || aba === 'geral') && aba !== 'geral' && (
+        <form onSubmit={handleSubmit} style={{ padding:'0 16px 32px',display:'flex',flexDirection:'column',gap:14 }}>
           {sucesso && (
-            <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 8, color: '#15803d', fontWeight: 700 }}>
-              <CheckCircle2 size={18} /> Ocorrência registrada com sucesso!
+            <div style={{ background:'#dcfce7',border:'1px solid #86efac',borderRadius:10,padding:'12px 16px',display:'flex',alignItems:'center',gap:8,color:'#15803d',fontWeight:700 }}>
+              <CheckCircle2 size={18}/> Ocorrência registrada com sucesso!
             </div>
           )}
 
-          {/* Tipo */}
+          {/* Colaborador */}
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tipo</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
-              {TIPOS.map(t => (
-                <button key={t.value} type="button" onClick={() => setTipo(t.value)}
-                  style={{
-                    background: tipo === t.value ? '#eff6ff' : '#f9fafb',
-                    border: `2px solid ${tipo === t.value ? '#3b82f6' : '#e5e7eb'}`,
-                    borderRadius: 10, padding: '8px 4px', cursor: 'pointer',
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                  }}>
-                  <span style={{ fontSize: 20 }}>{t.emoji}</span>
-                  <span style={{ fontSize: 9, fontWeight: 700, color: tipo === t.value ? '#1d4ed8' : '#6b7280', textAlign: 'center', lineHeight: 1.2 }}>{t.label}</span>
-                </button>
-              ))}
-            </div>
+            {LBL('Colaborador *')}
+            <select value={colabId} onChange={e=>setColabId(e.target.value)} required style={SEL}>
+              <option value="">Selecione…</option>
+              {colabs.map(c=><option key={c.id} value={c.id}>{c.nome}{c.chapa?` (${c.chapa})`:''}</option>)}
+            </select>
           </div>
 
-          {/* Gravidade */}
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Gravidade</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6 }}>
-              {GRAVIDADES.map(g => (
-                <button key={g.value} type="button" onClick={() => setGravidade(g.value)}
-                  style={{
-                    background: gravidade === g.value ? g.bg : '#f9fafb',
-                    border: `2px solid ${gravidade === g.value ? g.cor : '#e5e7eb'}`,
-                    borderRadius: 8, padding: '8px 4px', cursor: 'pointer', fontWeight: 700,
-                    fontSize: 11, color: gravidade === g.value ? g.cor : '#9ca3af',
-                  }}>
-                  {g.label}
-                </button>
-              ))}
-            </div>
+          {/* Data + hora */}
+          <div style={{ display:'grid',gridTemplateColumns:aba==='acidente'?'1fr 1fr':'1fr',gap:10 }}>
+            <div>{LBL('Data *')}<input type="date" value={dataOcor} onChange={e=>setDataOcor(e.target.value)} required style={INP}/></div>
+            {aba==='acidente'&&<div>{LBL('Hora')}<input type="time" value={hora} onChange={e=>setHora(e.target.value)} style={INP}/></div>}
           </div>
 
-          {/* Data e Colaborador */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          {/* Gravidade — apenas acidente e geral */}
+          {(aba==='acidente') && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Data</div>
-              <input type="date" value={data} onChange={e => setData(e.target.value)}
-                style={{ width: '100%', height: 42, border: '1px solid #e5e7eb', borderRadius: 8, padding: '0 10px', fontSize: 13, boxSizing: 'border-box', background: '#fff' }} />
-            </div>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Colaborador</div>
-              <select value={colabId} onChange={e => setColabId(e.target.value)}
-                style={{ width: '100%', height: 42, border: '1px solid #e5e7eb', borderRadius: 8, padding: '0 8px', fontSize: 12, background: '#fff', boxSizing: 'border-box' }}>
-                <option value="">Geral (sem vincular)</option>
-                {colabs.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              {LBL('Gravidade')}
+              <select value={gravidade} onChange={e=>setGravidade(e.target.value)} style={SEL}>
+                <option value="leve">Leve</option>
+                <option value="moderado">Moderado</option>
+                <option value="grave">Grave</option>
+                <option value="fatal">Fatal</option>
               </select>
             </div>
-          </div>
+          )}
 
-          {/* Título */}
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Título *</div>
-            <input value={titulo} onChange={e => setTitulo(e.target.value)} required
-              placeholder="Descreva brevemente o que aconteceu…"
-              style={{ width: '100%', height: 44, border: '1px solid #e5e7eb', borderRadius: 8, padding: '0 12px', fontSize: 13, boxSizing: 'border-box', background: '#fff' }} />
-          </div>
+          {/* Campos específicos por tipo */}
+          {aba === 'acidente' && (<>
+            <div>
+              {LBL('Tipo de Acidente')}
+              <select value={tipoAcid} onChange={e=>setTipoAcid(e.target.value)} style={SEL}>
+                <option value="sem_afastamento">Sem Afastamento</option>
+                <option value="com_afastamento">Com Afastamento</option>
+                <option value="trajeto">De Trajeto</option>
+                <option value="quase_acidente">Quase Acidente</option>
+              </select>
+            </div>
+            <div>
+              {LBL('Local do Acidente')}
+              <input value={local} onChange={e=>setLocal(e.target.value)} placeholder="Descreva o local…" style={INP}/>
+            </div>
+            <label style={{ display:'flex',alignItems:'center',gap:10,cursor:'pointer',userSelect:'none' }}>
+              <input type="checkbox" checked={catEmitida} onChange={e=>setCatEmitida(e.target.checked)} style={{ width:18,height:18 }}/>
+              <span style={{ fontSize:14,fontWeight:600,color:'#374151' }}>CAT Emitida</span>
+            </label>
+          </>)}
+
+          {aba === 'atestado' && (<>
+            <div>
+              {LBL('Tipo de Atestado')}
+              <select value={tipoAtest} onChange={e=>setTipoAtest(e.target.value)} style={SEL}>
+                <option value="medico">Médico</option>
+                <option value="odontologico">Odontológico</option>
+                <option value="acompanhamento">Acompanhamento Familiar</option>
+                <option value="outros">Outros</option>
+              </select>
+            </div>
+            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 }}>
+              <div>
+                {LBL('Dias de Afastamento')}
+                <input type="number" value={diasAfas} onChange={e=>setDiasAfas(e.target.value)} min="0" placeholder="0" style={INP}/>
+              </div>
+              <div>
+                {LBL('CID')}
+                <input value={cid} onChange={e=>setCid(e.target.value)} placeholder="Ex.: J00" style={INP}/>
+              </div>
+            </div>
+            <div>
+              {LBL('Médico / Hospital')}
+              <input value={medico} onChange={e=>setMedico(e.target.value)} placeholder="Nome do médico ou hospital" style={INP}/>
+            </div>
+            <label style={{ display:'flex',alignItems:'center',gap:10,cursor:'pointer',userSelect:'none' }}>
+              <input type="checkbox" checked={comAfas} onChange={e=>setComAfas(e.target.checked)} style={{ width:18,height:18 }}/>
+              <span style={{ fontSize:14,fontWeight:600,color:'#374151' }}>Com Afastamento</span>
+            </label>
+          </>)}
+
+          {aba === 'advertencia' && (<>
+            <div>
+              {LBL('Tipo de Advertência')}
+              <select value={tipoAdv} onChange={e=>setTipoAdv(e.target.value)} style={SEL}>
+                <option value="verbal">Verbal</option>
+                <option value="escrita">Escrita</option>
+                <option value="suspensao">Suspensão</option>
+              </select>
+            </div>
+            {tipoAdv === 'suspensao' && (
+              <div>
+                {LBL('Dias de Suspensão')}
+                <input type="number" value={diasSusp} onChange={e=>setDiasSusp(e.target.value)} min="1" style={INP}/>
+              </div>
+            )}
+            <div>
+              {LBL('Motivo')}
+              <input value={motivo} onChange={e=>setMotivo(e.target.value)} placeholder="Motivo da advertência…" style={INP}/>
+            </div>
+            <label style={{ display:'flex',alignItems:'center',gap:10,cursor:'pointer',userSelect:'none' }}>
+              <input type="checkbox" checked={assinada} onChange={e=>setAssinada(e.target.checked)} style={{ width:18,height:18 }}/>
+              <span style={{ fontSize:14,fontWeight:600,color:'#374151' }}>Advertência Assinada</span>
+            </label>
+          </>)}
 
           {/* Descrição */}
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Detalhes</div>
-            <textarea value={descricao} onChange={e => setDescricao(e.target.value)} rows={4}
-              placeholder="Descreva os detalhes da ocorrência, local, causa…"
-              style={{ width: '100%', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px', fontSize: 13, boxSizing: 'border-box', background: '#fff', resize: 'vertical' }} />
+            {LBL('Descrição *')}
+            <textarea value={descricao} onChange={e=>setDescricao(e.target.value)} required rows={3}
+              placeholder={aba==='acidente'?'Descreva como ocorreu o acidente…':aba==='atestado'?'Motivo do afastamento…':'Detalhes da ocorrência…'}
+              style={{ width:'100%',border:'1px solid #e5e7eb',borderRadius:8,padding:'10px 12px',fontSize:13,boxSizing:'border-box',background:'#fff',resize:'vertical' }}/>
           </div>
 
-          <button type="submit" disabled={saving || !titulo.trim()}
-            style={{
-              height: 50, background: saving ? '#94a3b8' : '#dc2626', color: '#fff',
-              border: 'none', borderRadius: 12, fontSize: 16, fontWeight: 700,
-              cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-            }}>
-            {saving ? <><Loader2 size={18} className="animate-spin" /> Registrando…</> : <><AlertTriangle size={18} /> Registrar Ocorrência</>}
+          <button type="submit" disabled={saving||!colabId||!descricao.trim()} style={{
+            height:52,background:saving?'#94a3b8':'#dc2626',color:'#fff',border:'none',borderRadius:12,fontSize:16,fontWeight:700,
+            cursor:saving?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+          }}>
+            {saving?<><Loader2 size={18} className="animate-spin"/>Salvando…</>:<><AlertTriangle size={18}/>Registrar Ocorrência</>}
           </button>
         </form>
       )}
 
-      {aba === 'historico' && (
-        <div style={{ padding: '0 16px 24px' }}>
-          {historico.length === 0 ? (
-            <div style={{ background: '#fff', borderRadius: 12, padding: 32, textAlign: 'center', color: '#9ca3af' }}>
-              Nenhuma ocorrência registrada nesta obra
+      {/* ── HISTÓRICO / GERAL ── */}
+      {(subAba==='historico' || aba==='geral') && (
+        <div style={{ padding:'0 16px 32px' }}>
+          {aba==='geral'&&(
+            <div style={{ marginBottom:12,fontWeight:700,fontSize:13,color:'var(--muted-foreground)' }}>
+              Todas as ocorrências registradas — {historico.length} registros
             </div>
-          ) : historico.map(o => {
-            const g = GRAVIDADES.find(g => g.value === o.gravidade)
-            const t = TIPOS.find(t => t.value === o.tipo)
-            return (
-              <div key={o.id} style={{ background: '#fff', borderRadius: 12, border: `2px solid ${g?.bg ?? '#e5e7eb'}`, marginBottom: 8, padding: '12px 14px' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: '#111', marginBottom: 4 }}>
-                      {t?.emoji} {o.titulo}
+          )}
+          {historico.length===0?(
+            <div style={{ background:'#fff',borderRadius:12,padding:32,textAlign:'center',color:'#9ca3af' }}>
+              Nenhuma ocorrência registrada ainda
+            </div>
+          ):historico.map(h=>{
+            const jaSync=!!h.sincronizado_em
+            const cNome=(h as any).colaboradores?.nome??'—'
+            const gc=GRAV_COR[h.gravidade??'']??{bg:'#f3f4f6',cor:'#374151'}
+            const tipoCor={acidente:'#dc2626',atestado:'#2563eb',advertencia:'#ea580c',geral:'#7c3aed'}[h.tipo]??'#6b7280'
+            return(
+              <div key={h.id} style={{ background:'#fff',borderRadius:12,border:`1px solid ${jaSync?'#86efac':'#e5e7eb'}`,marginBottom:8,padding:'14px 16px' }}>
+                <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:4 }}>
+                      <span style={{ background:tipoCor+'20',color:tipoCor,borderRadius:5,padding:'1px 8px',fontSize:11,fontWeight:700,textTransform:'uppercase' }}>{h.tipo}</span>
+                      {h.gravidade&&<span style={{ background:gc.bg,color:gc.cor,borderRadius:5,padding:'1px 8px',fontSize:11,fontWeight:700 }}>{h.gravidade}</span>}
                     </div>
-                    {(o.colaboradores as any)?.nome && (
-                      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>
-                        👤 {(o.colaboradores as any).nome}
-                      </div>
+                    <div style={{ fontWeight:700,fontSize:14,color:'#111' }}>{cNome}</div>
+                    <div style={{ fontSize:12,color:'#374151',marginTop:4,lineHeight:1.4 }}>{h.descricao}</div>
+                    {h.local&&<div style={{ fontSize:11,color:'#6b7280',marginTop:2 }}>📍 {h.local}</div>}
+                    {h.dias_afastamento&&<div style={{ fontSize:11,color:'#2563eb',marginTop:2 }}>🏥 {h.dias_afastamento} dia(s) afastamento</div>}
+                    {h.motivo&&<div style={{ fontSize:11,color:'#ea580c',marginTop:2 }}>📋 {(h as any).motivo}</div>}
+                  </div>
+                  <div style={{ display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6 }}>
+                    {jaSync?<span style={{ background:'#dcfce7',color:'#15803d',borderRadius:5,padding:'2px 8px',fontSize:11,fontWeight:700 }}>✓ Sincronizado</span>
+                           :<span style={{ background:'#fef3c7',color:'#b45309',borderRadius:5,padding:'2px 8px',fontSize:11,fontWeight:700 }}>⏳ Pendente</span>}
+                    {!jaSync&&(
+                      <button onClick={()=>excluir(h.id,h.sincronizado_em)} disabled={deletandoId===h.id}
+                        style={{ background:'none',border:'1px solid #fca5a5',borderRadius:6,padding:'3px 8px',cursor:'pointer',display:'flex',alignItems:'center',gap:4,color:'#dc2626',fontSize:11 }}>
+                        <Trash2 size={12}/>{deletandoId===h.id?'…':'Excluir'}
+                      </button>
                     )}
                   </div>
-                  <span style={{ fontSize: 10, background: g?.bg, color: g?.cor, borderRadius: 6, padding: '3px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                    {g?.label}
-                  </span>
                 </div>
-                <div style={{ fontSize: 10, color: '#9ca3af' }}>
-                  📅 {new Date(o.data).toLocaleDateString('pt-BR')} · {new Date(o.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                <div style={{ fontSize:10,color:'#9ca3af',marginTop:6 }}>
+                  {h.data_ocorrencia.split('-').reverse().join('/')} · {new Date(h.criado_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}
                 </div>
               </div>
             )

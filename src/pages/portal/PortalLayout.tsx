@@ -1,6 +1,6 @@
 import React from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { ClipboardList, AlertTriangle, Home, LogOut, UserPlus } from 'lucide-react'
+import { ClipboardList, AlertTriangle, Home, LogOut, UserPlus, HardHat } from 'lucide-react'
 import { clearPortalSession, getPortalSession } from '@/hooks/usePortalAuth'
 
 interface PortalLayoutProps { children: React.ReactNode }
@@ -19,6 +19,7 @@ export default function PortalLayout({ children }: PortalLayoutProps) {
     { to: '/portal/ponto',       icon: <ClipboardList size={22} />, label: 'Ponto' },
     { to: '/portal/ocorrencias', icon: <AlertTriangle size={22} />, label: 'Ocorrências' },
     { to: '/portal/solicitacoes',icon: <UserPlus size={22} />,      label: 'Solicitar' },
+    { to: '/portal/producao',    icon: <HardHat size={22} />,       label: 'Produção'  },
   ]
 
   return (

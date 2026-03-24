@@ -484,7 +484,9 @@ export default function Ponto() {
       const diasLanc = diasMap[lanc.id] ?? []
       const vHorasLanc = diasLanc.reduce((s,d)=>{
         if(diasComProd.has(d.data)) return s  // dias com produção não entram no cálculo de horas
-        const cl=calcDia(d); return s+(cl.normais+cl.extras50)*valorHoraEfetivo
+        const cl=calcDia(d)
+        // calcDia retorna MINUTOS → converter para horas antes de multiplicar pelo valor/hora
+        return s + (fmtDecimal(cl.normais)*valorHoraEfetivo + fmtDecimal(cl.extras50)*valorHoraEfetivo*1.5)
       },0)
       const res = calcDSRComFaltas(vHorasLanc, lanc.data_inicio, lanc.data_fim, datasComFalta, feriados)
       dsrTotal += res.dsr
@@ -974,7 +976,8 @@ export default function Ponto() {
                       const diasLancAtual = diasMap[lanc.id] ?? []
                       const vHorasLanc = diasLancAtual.reduce((s,d)=>{
                         if(diasComProd.has(d.data)) return s
-                        const cl=calcDia(d); return s+(cl.normais+cl.extras50)*valorHoraEfetivo
+                        const cl=calcDia(d)
+                        return s + (fmtDecimal(cl.normais)*valorHoraEfetivo + fmtDecimal(cl.extras50)*valorHoraEfetivo*1.5)
                       },0)
                       // DSR individual com regra de falta semanal
                       const ehCLTLanc = colabSel?.tipo_contrato === 'clt'

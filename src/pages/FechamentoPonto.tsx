@@ -95,6 +95,8 @@ export default function FechamentoPonto() {
   const [saving, setSaving] = useState(false)
   const [tabelaInss, setTabelaInss] = useState<FaixaINSS[]>([])
   const [tabelaIR, setTabelaIR]     = useState<FaixaIR[]>([])
+  const [modalEstornar, setModalEstornar] = useState<string | null>(null)   // lancId
+  const [motivoEstorno, setMotivoEstorno] = useState('')
 
   // Modal confirmar pagamento
 
@@ -465,6 +467,83 @@ export default function FechamentoPonto() {
     else { toast.success('Liberado para pagamento! Vá até Pagamentos para efetivar.'); fetchLancamentos(mesRef) }
   }
 
+  // ── Estornar lançamento (liberado → em_fechamento) ─────────────────────────
+  // Usado após estorno no Pagamentos: permite re-aprovar ou devolver ao Ponto
+  async function estornarLanc(id: string) {
+    if (!motivoEstorno.trim()) { toast.error('Informe o motivo do estorno'); return }
+    setSaving(true)
+    const { error } = await supabase.from('ponto_lancamentos').update({
+      status: 'em_fechamento',
+      // Limpar snapshot para recalcular com fórmulas atuais
+      snap_valor_hora: null,
+      snap_horas_normais: null,
+      snap_horas_extras: null,
+      snap_valor_horas: null,
+      snap_valor_producao: null,
+      snap_valor_dsr: null,
+      snap_valor_premio: null,
+      snap_valor_total: null,
+      snap_faltas: null,
+      snap_vt_diario: null,
+      snap_desconto_vt: null,
+      snap_desconto_adiant: null,
+      snap_inss: null,
+      snap_ir: null,
+      snap_liquido: null,
+      snap_fechado_em: null,
+      snap_fechado_por: null,
+      motivo_recusa: `Estornado: ${motivoEstorno}`,
+      data_pagamento: null,
+      obs_pagamento: null,
+    }).eq('id', id)
+    setSaving(false)
+    if (error) toast.error('Erro ao estornar')
+    else {
+      toast.success('↩ Lançamento estornado — retornou para Fechamento para re-aprovação')
+      setModalEstornar(null)
+      setMotivoEstorno('')
+      fetchLancamentos(mesRef)
+    }
+  }
+
+  // ── Devolver ao Ponto (liberado/em_fechamento → rascunho, limpa tudo) ──────
+  async function devolverAoPonto(id: string) {
+    if (!motivoEstorno.trim()) { toast.error('Informe o motivo'); return }
+    setSaving(true)
+    const { error } = await supabase.from('ponto_lancamentos').update({
+      status: 'rascunho',
+      valor_hora_snapshot: null,
+      snap_valor_hora: null,
+      snap_horas_normais: null,
+      snap_horas_extras: null,
+      snap_valor_horas: null,
+      snap_valor_producao: null,
+      snap_valor_dsr: null,
+      snap_valor_premio: null,
+      snap_valor_total: null,
+      snap_faltas: null,
+      snap_vt_diario: null,
+      snap_desconto_vt: null,
+      snap_desconto_adiant: null,
+      snap_inss: null,
+      snap_ir: null,
+      snap_liquido: null,
+      snap_fechado_em: null,
+      snap_fechado_por: null,
+      motivo_recusa: `Devolvido: ${motivoEstorno}`,
+      data_pagamento: null,
+      obs_pagamento: null,
+    }).eq('id', id)
+    setSaving(false)
+    if (error) toast.error('Erro ao devolver')
+    else {
+      toast.success('↩ Lançamento devolvido ao Ponto — pode ser editado e excluído')
+      setModalEstornar(null)
+      setMotivoEstorno('')
+      fetchLancamentos(mesRef)
+    }
+  }
+
   // ── Recusar lançamento ────────────────────────────────────────────────────
   async function recusarLanc(id: string) {
     if (!motivoRecusa.trim()) { toast.error('Informe o motivo'); return }
@@ -731,6 +810,13 @@ export default function FechamentoPonto() {
                                     </Button>
                                   </>
                                 )}
+                                {lanc.status === 'liberado' && (
+                                  <Button size="sm" variant="outline"
+                                    style={{ height: 26, fontSize: 11, borderColor: '#dc2626', color: '#dc2626' }}
+                                    onClick={() => { setModalEstornar(lanc.id); setMotivoEstorno('') }}>
+                                    ↩ Estornar
+                                  </Button>
+                                )}
                                 {(lanc.status === 'rascunho' || lanc.status === 'recusado') && (
                                   <span style={{ fontSize: 10, color: '#6b7280', fontStyle: 'italic' }}>
                                     ↩ Aguardando edição no Ponto
@@ -751,6 +837,55 @@ export default function FechamentoPonto() {
       )}
 
 
+
+      {/* ═══ MODAL ESTORNAR ═══ */}
+      {modalEstornar && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 70, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--background)', borderRadius: 12, width: 460, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontWeight: 800, fontSize: 15, margin: 0, color: '#b91c1c' }}>↩ Estornar Lançamento</h3>
+              <button onClick={() => setModalEstornar(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18 }}>✕</button>
+            </div>
+
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12, color: '#991b1b' }}>
+              ⚠️ Este lançamento está <strong>Ag. Pagamento</strong>. Antes de estornar aqui, certifique-se de ter estornado o pagamento na aba <strong>Pagamentos</strong>.
+            </div>
+
+            <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>Motivo do estorno *</label>
+            <textarea
+              value={motivoEstorno}
+              onChange={e => setMotivoEstorno(e.target.value)}
+              placeholder="Descreva o motivo do estorno..."
+              style={{ width: '100%', minHeight: 70, borderRadius: 6, border: '1px solid var(--border)', padding: 8, fontSize: 13, resize: 'vertical' }}
+            />
+
+            <div style={{ marginTop: 8, padding: 10, background: '#f8fafc', borderRadius: 8, fontSize: 12, color: '#374151', border: '1px solid #e5e7eb' }}>
+              <strong>Escolha a ação:</strong>
+              <div style={{ marginTop: 6, fontSize: 11, color: '#6b7280' }}>
+                <div>🔄 <strong>Re-aprovar</strong>: volta para Fechamento com valores recalculados (fórmulas atuais)</div>
+                <div style={{ marginTop: 4 }}>🗑 <strong>Devolver ao Ponto</strong>: permite editar e excluir o ponto (apaga todos os valores)</div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+              <button onClick={() => setModalEstornar(null)}
+                style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', fontSize: 13 }}>
+                Cancelar
+              </button>
+              <button onClick={() => devolverAoPonto(modalEstornar!)}
+                disabled={saving || !motivoEstorno.trim()}
+                style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: saving ? '#9ca3af' : '#dc2626', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600 }}>
+                🗑 Devolver ao Ponto
+              </button>
+              <button onClick={() => estornarLanc(modalEstornar!)}
+                disabled={saving || !motivoEstorno.trim()}
+                style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: saving ? '#9ca3af' : '#7c3aed', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600 }}>
+                🔄 Re-aprovar no Fechamento
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═══ MODAL RECUSAR ═══ */}
       {modalRecusar && (

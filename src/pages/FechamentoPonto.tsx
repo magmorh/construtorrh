@@ -107,6 +107,7 @@ export default function FechamentoPonto() {
       .from('ponto_lancamentos')
       .select(`
         id, colaborador_id, obra_id, mes_referencia, data_inicio, data_fim, status,
+        valor_hora_snapshot,
         snap_valor_hora, snap_horas_normais, snap_horas_extras, snap_valor_horas,
         snap_valor_producao, snap_valor_dsr, snap_valor_premio, snap_valor_total,
         snap_faltas, snap_vt_diario, snap_desconto_vt, snap_desconto_adiant,
@@ -284,7 +285,8 @@ export default function FechamentoPonto() {
       }
       // ══ FIM TRAVA — abaixo: cálculo ao vivo apenas para em_fechamento ══════
 
-      const vh = getVH(colab?.funcao_id ?? null, tipo)
+      // ✅ Prioridade: snapshot do Ponto (valor_hora_snapshot) → snapshot do Fechamento (snap_valor_hora) → ao vivo (funcao_valores)
+      const vh = (l.valor_hora_snapshot ?? l.snap_valor_hora ?? getVH(colab?.funcao_id ?? null, tipo)) as number
       const valorHoras = horasAgg.norm * vh + horasAgg.extra * vh * 1.5
       const valorProd  = mapaProd[l.id] ?? 0
 
@@ -302,17 +304,10 @@ export default function FechamentoPonto() {
         premio = valorProd > salario ? valorProd - salario : 0
         valorTotal = salario + premio
       } else {
-        // Autônomo/PJ: horas (dias sem prod) + produção
-        const diasComProd = mapaProdDias[l.id] ?? new Set<string>()
-        const normSemProd = horasAgg.norm  // simplificado: usa total (prod já soma separado)
-        // Para autônomo, Total = horas de dias SEM prod + produção
-        // Como não temos horas por dia aqui, usamos: valorHoras - valorHorasDiasComProd
-        // Aproximação: se tem prod, não soma horas dos dias com prod
-        const diasTotalLanc = horasAgg.dias || 1
-        const diasSemProd = Math.max(0, diasTotalLanc - diasComProd.size)
-        const horasPorDia = diasTotalLanc > 0 ? valorHoras / diasTotalLanc : 0
-        const valorHorasSemProd = horasPorDia * diasSemProd
-        valorTotal = diasComProd.size > 0 ? valorHorasSemProd + valorProd : valorHoras + valorProd
+        // Autônomo/PJ: igual ao Ponto — Total = valorHoras + produção
+        // Regra: autônomo recebe por horas trabalhadas + produção (sem DSR)
+        // Se há produção em algum dia, ainda recebe horas normais do período
+        valorTotal = valorHoras + valorProd
       }
 
       // ── Adiantamento: desconto de adiantamentos pagos não descontados ─────

@@ -29,6 +29,13 @@ const FechamentoPonto   = React.lazy(() => import('@/pages/FechamentoPonto'))
 const Usuarios       = React.lazy(() => import('@/pages/Usuarios'))
 const EncargosPage   = React.lazy(() => import('@/pages/EncargosPage'))
 const Adiantamentos  = React.lazy(() => import('@/pages/Adiantamentos'))
+const PortalAdmin    = React.lazy(() => import('@/pages/PortalAdmin'))
+// Portal externo (sem Layout principal)
+const PortalLogin        = React.lazy(() => import('@/pages/portal/PortalLogin'))
+const PortalHome         = React.lazy(() => import('@/pages/portal/PortalHome'))
+const PortalPonto        = React.lazy(() => import('@/pages/portal/PortalPonto'))
+const PortalOcorrencias  = React.lazy(() => import('@/pages/portal/PortalOcorrencias'))
+const PortalSolicitacoes = React.lazy(() => import('@/pages/portal/PortalSolicitacoes'))
 
 // ─── Full-page loading spinner ───────────────────────────────────────────────
 function FullPageSpinner() {
@@ -76,6 +83,13 @@ export default function App() {
             <Routes>
               {/* Public */}
               <Route path="/login" element={<Login />} />
+
+              {/* ── Portal Externo (público, sem Layout) ── */}
+              <Route path="/portal"            element={<PortalLogin />} />
+              <Route path="/portal/home"       element={<PortalHome />} />
+              <Route path="/portal/ponto"      element={<PortalPonto />} />
+              <Route path="/portal/ocorrencias" element={<PortalOcorrencias />} />
+              <Route path="/portal/solicitacoes" element={<PortalSolicitacoes />} />
 
               {/* Private — wrapped in Layout */}
               <Route
@@ -276,6 +290,16 @@ export default function App() {
                   <PrivateRoute>
                     <Layout>
                       <Usuarios />
+                    </Layout>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/portal-admin"
+                element={
+                  <PrivateRoute>
+                    <Layout>
+                      <PortalAdmin />
                     </Layout>
                   </PrivateRoute>
                 }

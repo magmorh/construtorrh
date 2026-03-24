@@ -179,6 +179,9 @@ export default function ValeTransportePage() {
   const [obraLote, setObraLote]   = useState('todas')
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [savingLote, setSavingLote] = useState(false)
+  // Config global do lote (exibidas no modal)
+  const [loteContarSabado, setLoteContarSabado] = useState(false)
+  const [loteDesconto6pct, setLoteDesconto6pct] = useState(true)
 
   // ── Lançar em Lote (criar VT mês inteiro para todos sem VT) ──────────────
   const [modalLancarLote, setModalLancarLote] = useState(false)
@@ -1142,116 +1145,234 @@ export default function ValeTransportePage() {
       </AlertDialog>
 
       {/* ── Modal fechamento em lote ── */}
-      {modalLote && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 700, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}>
-            {/* header */}
-            <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Building2 size={20} style={{ color: '#7c3aed' }} />
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: 17 }}>Fechar VT em Lote</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{fmtMes(competencia)} — selecione os lançamentos a pagar</div>
+      {modalLote && (() => {
+        // Agrupar VTs por colaborador para exibição em linhas
+        const colabsNoLote = Array.from(
+          new Map(vtsPendentesLote.map(r => {
+            const c = colaboradores.find(x => x.id === r.colaborador_id)
+            return [r.colaborador_id, c]
+          })).entries()
+        ).filter(([, c]) => !!c)
+
+        const vtsPorColab = (colabId: string) =>
+          vtsPendentesLote.filter(r => r.colaborador_id === colabId)
+
+        const obraFiltrada = obras.find(o => o.id === obraLote)
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 820, maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}>
+
+              {/* ── Header ── */}
+              <div style={{ padding: '18px 24px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Building2 size={20} style={{ color: '#7c3aed' }} />
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 17 }}>Fechar VT em Lote — {fmtMes(competencia)}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>Configure globalmente e selecione os lançamentos a enviar para pagamento</div>
+                  </div>
+                </div>
+                <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setModalLote(false)}><X size={16} /></Button>
+              </div>
+
+              {/* ── Configurações Globais ── */}
+              <div style={{ padding: '14px 24px', borderBottom: '1px solid var(--border)', background: 'var(--muted)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted-foreground)', marginBottom: 10 }}>
+                  ⚙️ Configurações Gerais — aplicadas a todos os selecionados
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'center' }}>
+
+                  {/* Filtro obra */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Label style={{ fontSize: 12, whiteSpace: 'nowrap', fontWeight: 600 }}>Obra:</Label>
+                    <Select value={obraLote} onValueChange={v => { setObraLote(v); setSelecionados(new Set()) }}>
+                      <SelectTrigger style={{ width: 200, height: 32, fontSize: 12 }}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todas">Todas as obras</SelectItem>
+                        {obras.map(o => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Período */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Label style={{ fontSize: 12, fontWeight: 600 }}>Período:</Label>
+                    <span style={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontWeight: 600 }}>
+                      {fmtData(primeiroDia(competencia))} → {fmtData(ultimoDia(competencia))}
+                    </span>
+                  </div>
+
+                  {/* Contar sábado */}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, userSelect: 'none' }}>
+                    <input type="checkbox" checked={loteContarSabado} onChange={e => setLoteContarSabado(e.target.checked)}
+                      style={{ width: 14, height: 14, accentColor: '#7c3aed' }} />
+                    Contar sábado
+                  </label>
+
+                  {/* Desconto 6% */}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, userSelect: 'none' }}>
+                    <input type="checkbox" checked={loteDesconto6pct} onChange={e => setLoteDesconto6pct(e.target.checked)}
+                      style={{ width: 14, height: 14, accentColor: '#7c3aed' }} />
+                    Desconto 6% no Fechamento
+                  </label>
+
+                  <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted-foreground)' }}>
+                    {vtsPendentesLote.length} lançamento(s) · <strong>{selecionados.size}</strong> selecionado(s)
+                  </span>
+                </div>
+                {obraFiltrada && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>
+                    📍 Obra: {obraFiltrada.nome}
+                  </div>
+                )}
+              </div>
+
+              {/* ── Tabela por colaborador ── */}
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                {vtsPendentesLote.length === 0 ? (
+                  <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 14 }}>
+                    ✓ Nenhum VT pendente {obraLote !== 'todas' ? 'nesta obra' : ''} em {fmtMes(competencia)}
+                  </div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                      <tr style={{ background: 'var(--card)', borderBottom: '2px solid var(--border)' }}>
+                        <th style={{ padding: '10px 8px 10px 16px', width: 36 }}>
+                          <button onClick={toggleAll} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                            {vtsPendentesLote.every(r => selecionados.has(r.id))
+                              ? <CheckSquare size={16} style={{ color: '#7c3aed' }} />
+                              : <Square size={16} style={{ color: 'var(--muted-foreground)' }} />}
+                          </button>
+                        </th>
+                        <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Colaborador / Obra</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Período</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dias</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tipo</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>R$ Empresa</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>6%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {colabsNoLote.map(([colabId, colab], gi) => {
+                        const vtsColab = vtsPorColab(colabId)
+                        const todosSel = vtsColab.every(r => selecionados.has(r.id))
+                        const algumSel = vtsColab.some(r => selecionados.has(r.id))
+                        const totalColab = vtsColab.filter(r => selecionados.has(r.id)).reduce((s, r) => s + (r.valor_empresa ?? 0), 0)
+
+                        return (
+                          <React.Fragment key={colabId}>
+                            {/* Linha do colaborador */}
+                            {vtsColab.map((r, ri) => {
+                              const sel = selecionados.has(r.id)
+                              const isFirst = ri === 0
+                              return (
+                                <tr key={r.id}
+                                  onClick={() => toggleSel(r.id)}
+                                  style={{
+                                    borderBottom: ri === vtsColab.length - 1 ? '2px solid var(--border)' : '1px solid var(--border)',
+                                    background: sel ? 'rgba(124,58,237,0.06)' : (gi % 2 === 0 ? 'var(--card)' : 'transparent'),
+                                    cursor: 'pointer',
+                                  }}>
+                                  <td style={{ padding: '9px 8px 9px 16px' }}>
+                                    {sel ? <CheckSquare size={15} style={{ color: '#7c3aed' }} /> : <Square size={15} style={{ color: 'var(--muted-foreground)' }} />}
+                                  </td>
+                                  <td style={{ padding: '9px 8px' }}>
+                                    {isFirst && (
+                                      <>
+                                        <div style={{ fontWeight: 700, fontSize: 13 }}>{colab?.nome}</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                                          {colab?.chapa && <span style={{ fontSize: 10, background: 'var(--muted)', borderRadius: 4, padding: '1px 5px', color: 'var(--muted-foreground)' }}>{colab.chapa}</span>}
+                                          {colab?.obra_nome && <span style={{ fontSize: 10, color: '#7c3aed', fontWeight: 600 }}>📍 {colab.obra_nome}</span>}
+                                          {colab?.funcao_nome && <span style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>{colab.funcao_nome}</span>}
+                                        </div>
+                                      </>
+                                    )}
+                                    {!isFirst && (
+                                      <span style={{ fontSize: 11, color: 'var(--muted-foreground)', paddingLeft: 8 }}>↳ parcela {ri + 1}</span>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '9px 8px', textAlign: 'center', fontSize: 12, color: 'var(--muted-foreground)' }}>
+                                    <span style={{ background: 'var(--muted)', borderRadius: 5, padding: '2px 7px', fontSize: 11, fontWeight: 600 }}>
+                                      {fmtData(r.data_inicio)} → {fmtData(r.data_fim)}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '9px 8px', textAlign: 'center', fontSize: 12, fontWeight: 700 }}>
+                                    {r.dias_trabalhados ?? '—'}
+                                    {loteContarSabado && <span style={{ fontSize: 9, color: '#7c3aed', display: 'block' }}>+sáb</span>}
+                                  </td>
+                                  <td style={{ padding: '9px 8px', textAlign: 'center' }}>
+                                    <span style={{ fontSize: 10, background: r.tipo === 'cartao' ? '#dbeafe' : '#dcfce7', color: r.tipo === 'cartao' ? '#1d4ed8' : '#15803d', borderRadius: 4, padding: '2px 6px', fontWeight: 600 }}>
+                                      {r.tipo ?? 'cartão'}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 700, color: '#1d4ed8' }}>
+                                    {formatCurrency(r.valor_empresa)}
+                                  </td>
+                                  <td style={{ padding: '9px 8px', textAlign: 'center' }}>
+                                    {loteDesconto6pct
+                                      ? <span style={{ fontSize: 10, background: '#dcfce7', color: '#15803d', borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>✓ 6%</span>
+                                      : <span style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>—</span>}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                            {/* Subtotal do colaborador se tem mais de 1 VT */}
+                            {vtsColab.length > 1 && (
+                              <tr style={{ background: algumSel ? 'rgba(124,58,237,0.04)' : 'var(--muted)', borderBottom: '2px solid var(--border)' }}>
+                                <td colSpan={5} style={{ padding: '6px 8px 6px 56px', fontSize: 11, color: 'var(--muted-foreground)', fontStyle: 'italic' }}>
+                                  <button onClick={() => vtsColab.forEach(r => toggleSel(r.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#7c3aed', fontWeight: 600, padding: 0 }}>
+                                    {todosSel ? '✓ Desmarcar todos' : '+ Marcar todos'} os {vtsColab.length} lançamentos de {colab?.nome?.split(' ')[0]}
+                                  </button>
+                                </td>
+                                <td style={{ padding: '6px 8px', textAlign: 'right', fontSize: 12, fontWeight: 800, color: '#15803d' }}>
+                                  {formatCurrency(totalColab)}
+                                </td>
+                                <td />
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--muted)' }}>
+                        <td colSpan={5} style={{ padding: '11px 8px 11px 16px', fontWeight: 800, fontSize: 13 }}>
+                          Total selecionado ({selecionados.size} lançamento{selecionados.size !== 1 ? 's' : ''})
+                          {loteDesconto6pct && <span style={{ fontSize: 11, color: '#b45309', marginLeft: 8, fontWeight: 600 }}>· Desconto 6% aplicado no Fechamento</span>}
+                        </td>
+                        <td style={{ padding: '11px 8px', textAlign: 'right', fontWeight: 800, color: '#15803d', fontSize: 16 }}>
+                          {formatCurrency(vtsPendentesLote.filter(r => selecionados.has(r.id)).reduce((s, r) => s + (r.valor_empresa ?? 0), 0))}
+                        </td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                )}
+              </div>
+
+              {/* ── Footer ── */}
+              <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
+                  {loteContarSabado && <span style={{ marginRight: 12 }}>📅 Contando sábado</span>}
+                  {loteDesconto6pct && <span style={{ color: '#b45309' }}>💰 Desconto de 6% será aplicado no Fechamento de Ponto</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <Button variant="outline" onClick={() => setModalLote(false)} disabled={savingLote}>Cancelar</Button>
+                  <Button
+                    disabled={selecionados.size === 0 || savingLote}
+                    onClick={handlePagarLote}
+                    style={{ background: '#15803d', color: '#fff', gap: 6 }}
+                  >
+                    {savingLote
+                      ? <><Loader2 size={14} className="animate-spin" /> Processando…</>
+                      : <><CreditCard size={14} /> Enviar {selecionados.size} VT(s) para Pagamentos</>}
+                  </Button>
                 </div>
               </div>
-              <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setModalLote(false)}><X size={16} /></Button>
-            </div>
-
-            {/* filtro obra */}
-            <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <Label style={{ fontSize: 13, whiteSpace: 'nowrap' }}>Filtrar por obra:</Label>
-              <Select value={obraLote} onValueChange={v => { setObraLote(v); setSelecionados(new Set()) }}>
-                <SelectTrigger style={{ width: 220, height: 34, fontSize: 13 }}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todas">Todas as obras</SelectItem>
-                  {obras.map(o => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <span style={{ fontSize: 12, color: 'var(--muted-foreground)', marginLeft: 'auto' }}>
-                {vtsPendentesLote.length} pendente(s) · {selecionados.size} selecionado(s)
-              </span>
-            </div>
-
-            {/* tabela */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px' }}>
-              {vtsPendentesLote.length === 0 ? (
-                <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 14 }}>
-                  ✓ Nenhum VT pendente {obraLote !== 'todas' ? 'nesta obra' : ''} em {fmtMes(competencia)}
-                </div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: 'var(--muted)' }}>
-                      <th style={{ padding: '9px 8px', width: 36 }}>
-                        <button onClick={toggleAll} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                          {vtsPendentesLote.every(r => selecionados.has(r.id))
-                            ? <CheckSquare size={16} style={{ color: '#7c3aed' }} />
-                            : <Square size={16} style={{ color: 'var(--muted-foreground)' }} />}
-                        </button>
-                      </th>
-                      <th style={{ padding: '9px 8px', textAlign: 'left', fontWeight: 700 }}>Colaborador</th>
-                      <th style={{ padding: '9px 8px', textAlign: 'left', fontWeight: 700 }}>Período</th>
-                      <th style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 700 }}>Valor Empresa</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {vtsPendentesLote.map((r, i) => {
-                      const colab = colaboradores.find(c => c.id === r.colaborador_id)
-                      const sel = selecionados.has(r.id)
-                      return (
-                        <tr key={r.id}
-                          onClick={() => toggleSel(r.id)}
-                          style={{ borderBottom: '1px solid var(--border)', background: sel ? 'rgba(124,58,237,0.07)' : i % 2 === 0 ? 'var(--card)' : 'transparent', cursor: 'pointer' }}>
-                          <td style={{ padding: '9px 8px' }}>
-                            {sel ? <CheckSquare size={15} style={{ color: '#7c3aed' }} /> : <Square size={15} style={{ color: 'var(--muted-foreground)' }} />}
-                          </td>
-                          <td style={{ padding: '9px 8px', fontWeight: 600 }}>
-                            {colab?.nome ?? r.colaborador_id}
-                            {colab?.chapa && <span style={{ fontSize: 10, color: 'var(--muted-foreground)', marginLeft: 6 }}>{colab.chapa}</span>}
-                            {colab?.obra_nome && <div style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>{colab.obra_nome}</div>}
-                          </td>
-                          <td style={{ padding: '9px 8px', color: 'var(--muted-foreground)' }}>
-                            {fmtData(r.data_inicio)} → {fmtData(r.data_fim)}
-                          </td>
-                          <td style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 700, color: '#1d4ed8' }}>
-                            {formatCurrency(r.valor_empresa)}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--muted)' }}>
-                      <td colSpan={3} style={{ padding: '9px 8px', fontWeight: 700 }}>
-                        Total selecionado ({selecionados.size} VT)
-                      </td>
-                      <td style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 800, color: '#15803d', fontSize: 15 }}>
-                        {formatCurrency(vtsPendentesLote.filter(r => selecionados.has(r.id)).reduce((s, r) => s + (r.valor_empresa ?? 0), 0))}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              )}
-            </div>
-
-            {/* footer */}
-            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <Button variant="outline" onClick={() => setModalLote(false)} disabled={savingLote}>Cancelar</Button>
-              <Button
-                disabled={selecionados.size === 0 || savingLote}
-                onClick={handlePagarLote}
-                style={{ background: '#15803d', color: '#fff', gap: 6 }}
-              >
-                {savingLote
-                  ? <><Loader2 size={14} className="animate-spin" /> Processando…</>
-                  : <><CreditCard size={14} /> Enviar {selecionados.size} VT(s) para Pagamentos</>}
-              </Button>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* ══ MODAL LANÇAR EM LOTE ══ */}
       {modalLancarLote && (() => {

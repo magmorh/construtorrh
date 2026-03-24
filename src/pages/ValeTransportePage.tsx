@@ -157,6 +157,8 @@ export default function ValeTransportePage() {
   const [form, setForm]           = useState<FormData>(emptyForm())
   const [saving, setSaving]       = useState(false)
   const [deleteId, setDeleteId]   = useState<string | null>(null)
+  // Taxa diária "congelada" no momento do lançamento — usada ao editar para não recalcular da base atual
+  const [vtDiarioSnap, setVtDiarioSnap] = useState<number | null>(null)
 
   const competencia = `${ano}-${String(mes).padStart(2, '0')}`
 
@@ -225,15 +227,21 @@ export default function ValeTransportePage() {
   }
 
   // ─── recalcula valor+dias ao mudar período/tick sábado ────────────────────
+  // vtDiarioFixo: se informado (modo edição), usa essa taxa em vez de buscar do cadastro atual
   function recalcularPeriodo(
     dataIni: string, dataFim: string, contarSab: boolean,
-    comp: string, colab: ColaboradorVT | null, descontar: boolean
+    comp: string, colab: ColaboradorVT | null, descontar: boolean,
+    vtDiarioFixo?: number | null
   ) {
     const diasUtil = contarDiasUteis(dataIni, dataFim, contarSab)
-    const vtMen    = colab ? vtMensalColab(colab, comp, contarSab) : 0
-    const valorBruto = vtMen > 0
-      ? calcValorProporcional(vtMen, dataIni, dataFim, comp, contarSab)
-      : 0
+    let valorBruto = 0
+    if (vtDiarioFixo != null && vtDiarioFixo > 0) {
+      // Modo edição: usa a taxa diária salva no momento do lançamento original
+      valorBruto = vtDiarioFixo * diasUtil
+    } else {
+      const vtMen = colab ? vtMensalColab(colab, comp, contarSab) : 0
+      valorBruto  = vtMen > 0 ? calcValorProporcional(vtMen, dataIni, dataFim, comp, contarSab) : 0
+    }
     const salario  = colab?.salario ?? 0
     const desconto = descontar ? salario * 0.06 : 0
     const valorEmp = Math.max(0, valorBruto - desconto)
@@ -268,6 +276,7 @@ export default function ValeTransportePage() {
     const calc       = recalcularPeriodo(primeiroDia(competencia), ultimoDia(competencia), contarSab, competencia, colabSel, descontar)
 
     setEditando(null)
+    setVtDiarioSnap(null)   // novo lançamento sempre usa base atual do colaborador
     setForm({
       competencia,
       data_inicio:  primeiroDia(competencia),
@@ -282,6 +291,12 @@ export default function ValeTransportePage() {
   }
 
   function openEdit(row: VTRow) {
+    // Calcula e congela a taxa diária do lançamento original
+    // vtDiario_snap = valor ÷ dias (taxa usada no lançamento original)
+    const diasSalvos = row.dias_trabalhados ?? 0
+    const valorSalvo = row.valor ?? 0
+    const taxaDiaria = diasSalvos > 0 ? valorSalvo / diasSalvos : null
+    setVtDiarioSnap(taxaDiaria)
     setEditando(row)
     setForm({
       competencia:   row.competencia,
@@ -289,8 +304,8 @@ export default function ValeTransportePage() {
       data_fim:      row.data_fim    ?? ultimoDia(row.competencia),
       contar_sabado: false,
       tipo:          row.tipo ?? 'cartao',
-      valor:         String(row.valor ?? ''),
-      dias_trabalhados: String(row.dias_trabalhados ?? ''),
+      valor:         String(valorSalvo),
+      dias_trabalhados: String(diasSalvos),
       desconto_colaborador: String(row.desconto_colaborador ?? ''),
       valor_empresa: String(row.valor_empresa ?? ''),
       descontar_6pct: row.descontar_6pct ?? true,
@@ -310,7 +325,9 @@ export default function ValeTransportePage() {
         const fim    = key === 'data_fim'       ? String(value) : next.data_fim
         const contSab = key === 'contar_sabado' ? Boolean(value) : next.contar_sabado
         const desc   = key === 'descontar_6pct' ? Boolean(value) : next.descontar_6pct
-        const calc   = recalcularPeriodo(ini, fim, contSab, next.competencia, colabSel, desc)
+        // Em modo edição: usa taxa diária congelada do lançamento original (vtDiarioSnap)
+        // Em novo lançamento: usa base atual do colaborador (vtDiarioSnap = null)
+        const calc   = recalcularPeriodo(ini, fim, contSab, next.competencia, colabSel, desc, vtDiarioSnap)
         return { ...next, ...calc }
       }
 
@@ -694,7 +711,9 @@ export default function ValeTransportePage() {
               <div className="col-span-2">
                 <Label className="text-xs" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   Valor do VT (R$)
-                  <span style={{ fontSize: 9, background: 'var(--muted)', color: 'var(--muted-foreground)', borderRadius: 3, padding: '1px 4px', fontWeight: 600 }}>AUTO — base do colaborador</span>
+                  <span style={{ fontSize: 9, background: vtDiarioSnap != null ? '#fef3c7' : 'var(--muted)', color: vtDiarioSnap != null ? '#92400e' : 'var(--muted-foreground)', borderRadius: 3, padding: '1px 4px', fontWeight: 600 }}>
+                    {vtDiarioSnap != null ? `🔒 TAXA TRAVADA: R$ ${vtDiarioSnap.toFixed(4)}/dia` : 'AUTO — base do colaborador'}
+                  </span>
                 </Label>
                 <div style={{ marginTop: 4, height: 36, display: 'flex', alignItems: 'center', padding: '0 12px', background: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 14, fontWeight: 700, color: 'var(--foreground)' }}>
                   {parseFloat(form.valor) > 0 ? formatCurrency(parseFloat(form.valor)) : <span style={{ color: 'var(--muted-foreground)', fontWeight: 400 }}>Sem VT configurado no cadastro</span>}

@@ -18,6 +18,7 @@ interface ColabSimples {
   id: string; nome: string; chapa: string | null
   funcao_id: string | null; obra_id: string | null
   tipo_contrato: string; funcao_nome: string
+  data_admissao: string | null   // data de início dos trabalhos
 }
 interface ObraSimples { id: string; nome: string }
 interface HorarioDia {
@@ -177,7 +178,7 @@ export default function Ponto() {
   useEffect(()=>{
     const load=async()=>{
       const [{data:colsRaw},{data:obsRaw}]=await Promise.all([
-        supabase.from('colaboradores').select('id,nome,chapa,funcao_id,obra_id,tipo_contrato,funcoes!colaboradores_funcao_id_fkey(id,nome)').order('nome'),
+        supabase.from('colaboradores').select('id,nome,chapa,funcao_id,obra_id,tipo_contrato,data_admissao,funcoes!colaboradores_funcao_id_fkey(id,nome)').order('nome'),
         supabase.from('obras').select('id,nome').order('nome'),
       ])
       setColaboradores((colsRaw??[]).map((c:any)=>({
@@ -185,6 +186,7 @@ export default function Ponto() {
         funcao_id:c.funcao_id??c.funcoes?.id??null,
         obra_id:c.obra_id??null,tipo_contrato:c.tipo_contrato??'clt',
         funcao_nome:c.funcoes?.nome??'Sem função',
+        data_admissao:c.data_admissao??null,
       })))
       setObras((obsRaw??[]) as ObraSimples[])
       setLoadingColabs(false)
@@ -611,6 +613,11 @@ export default function Ponto() {
   async function criarLancamento(){
     if(!colabSel||!novoLancObraId||!novoLancInicio||!novoLancFim){toast.error('Preencha todos os campos');return}
     if(novoLancInicio>novoLancFim){toast.error('Data de início deve ser anterior à data de fim');return}
+    // Bloquear se o período for antes da data de admissão
+    if(colabSel.data_admissao && novoLancInicio < colabSel.data_admissao){
+      toast.error(`${colabSel.nome} só pode ter ponto a partir de ${new Date(colabSel.data_admissao+'T12:00:00').toLocaleDateString('pt-BR')} (data de admissão)`)
+      return
+    }
     // Bloquear se houver lançamento em rascunho ou recusado (precisa aprovar antes)
     const temAberto=lancamentos.some(l=>l.status==='rascunho'||l.status==='recusado'||l.status==='aguardando_aprovacao')
     if(temAberto){toast.error('Finalize os lançamentos em aberto (envie para Fechamento) antes de criar um novo');return}
@@ -746,12 +753,17 @@ export default function Ponto() {
   function mesSeguinte(){if(mes===12){setAno(a=>a+1);setMes(1)}else setMes(m=>m+1)}
 
   const colabsFiltrados=useMemo(()=>{
-    let lista=colaboradores
+    // Último dia do mês visualizado — só exibe colaboradores cuja admissão seja <= esse mês
+    const ultimoDiaMes = `${ano}-${String(mes).padStart(2,'0')}-31`
+    let lista=colaboradores.filter(c=> {
+      if(!c.data_admissao) return true           // sem data: sempre visível
+      return c.data_admissao <= ultimoDiaMes     // admitido até o mês atual
+    })
     if(obraFiltro!=='todas')lista=lista.filter(c=>c.obra_id===obraFiltro)
     const q=busca.toLowerCase()
     if(q)lista=lista.filter(c=>c.nome.toLowerCase().includes(q)||(c.chapa??'').toLowerCase().includes(q)||c.funcao_nome.toLowerCase().includes(q))
     return lista
-  },[colaboradores,busca,obraFiltro])
+  },[colaboradores,busca,obraFiltro,ano,mes])
 
   // ─────────────────────────────────────────────────────────────────────────
   return (

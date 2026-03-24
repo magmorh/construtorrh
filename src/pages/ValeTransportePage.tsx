@@ -24,8 +24,9 @@ import {
 type ColaboradorVT = Pick<Colaborador, 'id' | 'nome' | 'chapa' | 'salario' | 'vt_dados'> & {
   obra_id: string | null; obra_nome?: string; funcao_nome?: string
   tipo_contrato?: string | null
-  valor_hora_calc?: number | null    // valor/hora efetivo vindo de funcao_valores ou funcoes
-  salario_mensal_calc?: number | null // valor_hora_calc × 220
+  valor_hora_calc?: number | null
+  salario_mensal_calc?: number | null
+  data_admissao?: string | null   // data de início dos trabalhos
 }
 type VTRow = ValeTransporte & { colaboradores?: ColaboradorVT }
 type FormData = {
@@ -188,7 +189,7 @@ export default function ValeTransportePage() {
     const [colRes, obraRes, vtRes] = await Promise.all([
       supabase
         .from('colaboradores')
-        .select('id,nome,chapa,salario,vt_dados,obra_id,tipo_contrato,funcao_id,funcoes(nome,valor_hora_clt,valor_hora_autonomo),obras(nome)')
+        .select('id,nome,chapa,salario,vt_dados,obra_id,tipo_contrato,funcao_id,data_admissao,funcoes(nome,valor_hora_clt,valor_hora_autonomo),obras(nome)')
         .eq('status', 'ativo')
         .order('nome'),
       supabase.from('obras').select('id,nome').order('nome'),
@@ -209,6 +210,7 @@ export default function ValeTransportePage() {
           funcao_nome: c.funcoes?.nome ?? '',
           valor_hora_calc: vh,
           salario_mensal_calc: vh != null ? vh * 220 : (c.salario ?? null),
+          data_admissao: c.data_admissao ?? null,
         }
       }))
     }
@@ -267,19 +269,31 @@ export default function ValeTransportePage() {
 
   // ─── lista lateral filtrada ───────────────────────────────────────────────
   const colabsFiltrados = useMemo(() => colaboradores.filter(c => {
+    // Ocultar colaborador se ainda não admitido no mês da competência
+    if (c.data_admissao) {
+      const ultimoDiaMes = `${competencia}-31`
+      if (c.data_admissao > ultimoDiaMes) return false
+    }
     if (obraFiltro !== 'todas' && c.obra_id !== obraFiltro) return false
     if (busca) {
       const b = busca.toLowerCase()
       return c.nome.toLowerCase().includes(b) || (c.chapa ?? '').toLowerCase().includes(b)
     }
     return true
-  }), [colaboradores, busca, obraFiltro])
+  }), [colaboradores, busca, obraFiltro, competencia])
 
   // ─── abrir modal ──────────────────────────────────────────────────────────
   function openCreate() {
     if (!colabSel) return
     const { pode, motivo } = podeNovoVT(colabSel.id)
     if (!pode) { toast.error(motivo); return }
+
+    // Bloquear VT antes da data de admissão
+    if (colabSel.data_admissao && ultimoDia(competencia) < colabSel.data_admissao) {
+      const admFmt = new Date(colabSel.data_admissao + 'T12:00:00').toLocaleDateString('pt-BR')
+      toast.error(`${colabSel.nome} só pode ter VT a partir de ${admFmt} (data de admissão)`)
+      return
+    }
 
     const vtDados    = colabSel.vt_dados as any
     const tipoAuto   = modalidadeParaTipo(vtDados?.modalidade)
@@ -359,6 +373,11 @@ export default function ValeTransportePage() {
   async function handleSave() {
     if (!colabSel) return
     if (!form.data_inicio || !form.data_fim) return toast.error('Período obrigatório')
+    // Bloquear se o período iniciar antes da admissão
+    if (colabSel.data_admissao && form.data_inicio < colabSel.data_admissao) {
+      const admFmt = new Date(colabSel.data_admissao + 'T12:00:00').toLocaleDateString('pt-BR')
+      return toast.error(`Período não pode ser anterior à admissão de ${colabSel.nome} (${admFmt})`)
+    }
     setSaving(true)
     const payload = {
       colaborador_id: colabSel.id,

@@ -116,7 +116,7 @@ export default function FechamentoPonto() {
         snap_valor_producao, snap_valor_dsr, snap_valor_premio, snap_valor_total,
         snap_faltas, snap_vt_diario, snap_desconto_vt, snap_desconto_adiant,
         snap_inss, snap_ir, snap_liquido, snap_fechado_em,
-        colaboradores(nome, chapa, tipo_contrato, funcao_id, vale_transporte, vt_dados, funcoes(nome)),
+        colaboradores(nome, chapa, tipo_contrato, funcao_id, vale_transporte, vt_dados, data_admissao, funcoes(nome)),
         obras(nome)
       `)
       .in('status', ['em_fechamento', 'aprovado', 'liberado', 'pago', 'rascunho', 'recusado'])
@@ -247,6 +247,11 @@ export default function FechamentoPonto() {
       const colab = l.colaboradores
       const tipo  = colab?.tipo_contrato ?? 'clt'
       const horasAgg = mapaHoras[l.id] ?? { norm: 0, extra: 0, dias: 0, diasDatas: new Set() }
+
+      // Segurança: ignorar lançamento se inicio for antes da admissão do colaborador
+      if (colab?.data_admissao && l.data_inicio < colab.data_admissao) {
+        return null   // será filtrado abaixo
+      }
 
       // ══ TRAVA DE SNAPSHOT ══════════════════════════════════════════════════
       // Lançamentos já aprovados/liberados/pagos usam EXCLUSIVAMENTE os valores
@@ -403,7 +408,7 @@ export default function FechamentoPonto() {
         snap_fechado_em:     l.snap_fechado_em     ?? null,
       }
     })
-    setLancamentos(lista)
+    setLancamentos(lista.filter(Boolean) as LancItem[])
     setLoading(false)
   }, [])
 

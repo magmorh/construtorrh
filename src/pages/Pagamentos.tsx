@@ -152,7 +152,7 @@ export default function Pagamentos() {
     setLoadingLancs(true)
     const { data } = await supabase
       .from('ponto_lancamentos')
-      .select('id, colaborador_id, obra_id, mes_referencia, data_inicio, data_fim, status, motivo_recusa, colaboradores(nome, chapa, tipo_contrato), obras(nome)')
+      .select('id, colaborador_id, obra_id, mes_referencia, data_inicio, data_fim, status, motivo_recusa, data_pagamento, obs_pagamento, colaboradores(nome, chapa, tipo_contrato), obras(nome)')
       .in('status', ['liberado', 'pago'])
       .order('mes_referencia', { ascending: false })
     setLancsPendentes(data ?? [])

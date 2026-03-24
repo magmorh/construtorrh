@@ -429,7 +429,6 @@ export default function FechamentoPonto() {
                         <TableHead style={{ fontSize: 11 }}>Obra</TableHead>
                         <TableHead style={{ fontSize: 11 }}>Período</TableHead>
                         <TableHead className="text-center" style={{ fontSize: 11 }}>Dias</TableHead>
-                        <TableHead className="text-right" style={{ fontSize: 11 }}>Horas</TableHead>
                         <TableHead style={{ fontSize: 11, color: '#7c3aed', fontWeight: 700, minWidth: 260 }}>💵 Composição do Salário</TableHead>
                         <TableHead className="text-center" style={{ fontSize: 11, color: '#dc2626' }}>Faltas</TableHead>
                         <TableHead className="text-right" style={{ fontSize: 11, color: '#dc2626' }}>− VT</TableHead>
@@ -461,8 +460,6 @@ export default function FechamentoPonto() {
                               {lanc.data_inicio.slice(8)}/{lanc.data_inicio.slice(5,7)} → {lanc.data_fim.slice(8)}/{lanc.data_fim.slice(5,7)}
                             </TableCell>
                             <TableCell className="text-center" style={{ fontSize: 12 }}>{lanc.dias_trabalhados}</TableCell>
-                            <TableCell className="text-right" style={{ fontFamily: 'monospace', fontSize: 11 }}>{fmtHHMM(lanc.horas_normais)}</TableCell>
-
                             {/* ── Composição do Salário ── */}
                             <TableCell style={{ minWidth: 300 }}>
                               {ehCLT ? (

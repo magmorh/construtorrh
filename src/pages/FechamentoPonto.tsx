@@ -45,6 +45,7 @@ interface LancItem {
   dias_trabalhados: number
   faltas: number
   desconto_vt: number
+  desconto_vt_6pct: number     // parcela do desconto referente ao 6% do VT
   desconto_adiant: number
   valor_vt_dia: number
   inss: number
@@ -126,12 +127,16 @@ export default function FechamentoPonto() {
 
     const ids = lancsRaw.map((l: any) => l.id)
     const colabIds = [...new Set(lancsRaw.map((l: any) => l.colaborador_id).filter(Boolean))]
-    const [{ data: pontosRaw }, { data: prodRaw }, { data: feriadosRaw }, { data: adiantRaw }] = await Promise.all([
+    const [{ data: pontosRaw }, { data: prodRaw }, { data: feriadosRaw }, { data: adiantRaw }, { data: vtDescRaw }] = await Promise.all([
       ids.length ? supabase.from('registro_ponto').select('lancamento_id,horas_trabalhadas,horas_extras,data,falta').in('lancamento_id', ids) : Promise.resolve({ data: [] }),
       ids.length ? supabase.from('ponto_producao').select('lancamento_id,valor_total,dias').in('lancamento_id', ids) : Promise.resolve({ data: [] }),
       supabase.from('feriados').select('data').gte('data', mr+'-01').lte('data', mr+'-31'),
       colabIds.length
         ? supabase.from('adiantamentos').select('colaborador_id,valor').eq('competencia', mr).eq('status','pago').is('descontado_em', null).in('colaborador_id', colabIds)
+        : Promise.resolve({ data: [] }),
+      // VT com desconto 6% no mês
+      colabIds.length
+        ? supabase.from('vale_transporte').select('colaborador_id,desconto_colaborador,descontar_6pct').eq('competencia', mr).eq('descontar_6pct', true).in('colaborador_id', colabIds)
         : Promise.resolve({ data: [] }),
     ])
 
@@ -139,6 +144,12 @@ export default function FechamentoPonto() {
     const mapaAdiant: Record<string, number> = {}
     ;(adiantRaw ?? []).forEach((a: any) => {
       mapaAdiant[a.colaborador_id] = (mapaAdiant[a.colaborador_id] ?? 0) + a.valor
+    })
+
+    // Somar desconto VT (6%) por colaborador — apenas registros com descontar_6pct=true
+    const mapaDescontoVT6: Record<string, number> = {}
+    ;(vtDescRaw ?? []).forEach((v: any) => {
+      mapaDescontoVT6[v.colaborador_id] = (mapaDescontoVT6[v.colaborador_id] ?? 0) + (v.desconto_colaborador ?? 0)
     })
 
     const funcaoIds = [...new Set(lancsRaw.map((l: any) => l.colaboradores?.funcao_id).filter(Boolean))]
@@ -267,6 +278,7 @@ export default function FechamentoPonto() {
           dias_trabalhados: horasAgg.dias,
           faltas:         l.snap_faltas          ?? 0,
           desconto_vt:    l.snap_desconto_vt     ?? 0,
+          desconto_vt_6pct: 0,    // snap não guarda separado, usamos 0
           desconto_adiant:l.snap_desconto_adiant ?? 0,
           valor_vt_dia:   l.snap_vt_diario       ?? 0,
           inss:           l.snap_inss            ?? 0,
@@ -319,10 +331,12 @@ export default function FechamentoPonto() {
       // ── Adiantamento: desconto de adiantamentos pagos não descontados ─────
       const descontoAdiant = mapaAdiant[l.colaborador_id] ?? 0
 
-      // ── VT: desconto por faltas ──────────────────────────────────────────
+      // ── VT: desconto por faltas + desconto 6% do salário (se configurado no VT) ──
       const faltas     = (horasAgg as any).faltas ?? 0
       const vtDiario   = (colab?.vale_transporte && colab?.vt_dados) ? vtDia(colab.vt_dados) : 0
-      const descontoVT = vtDiario * faltas  // desconta passagem por dia de falta
+      const descontoVTFaltas = vtDiario * faltas          // desconta passagem por dia de falta
+      const descontoVT6pct   = mapaDescontoVT6[l.colaborador_id] ?? 0  // desconto 6% sal do lançamento VT
+      const descontoVT       = descontoVTFaltas + descontoVT6pct
 
       // ── Base de desconto: CLT = horas+DSR / Autônomo = total recebido ───────
       // CLT: desconto sobre salário (horas+DSR), NÃO sobre prêmio de produção
@@ -362,6 +376,7 @@ export default function FechamentoPonto() {
         dias_trabalhados: horasAgg.dias,
         faltas,
         desconto_vt: descontoVT,
+        desconto_vt_6pct: descontoVT6pct,
         desconto_adiant: descontoAdiant,
         valor_vt_dia: vtDiario,
         inss,
@@ -752,11 +767,21 @@ export default function FechamentoPonto() {
                               {lanc.faltas > 0 ? lanc.faltas : '—'}
                             </TableCell>
                             <TableCell className="text-right" style={{ color: '#dc2626', fontSize: 12 }}>
-                              {lanc.desconto_vt > 0
-                                ? <span title={`R$ ${lanc.valor_vt_dia.toFixed(2)}/dia × ${lanc.faltas} falta(s)`}>
+                              {lanc.desconto_vt > 0 ? (() => {
+                                const parts: string[] = []
+                                const vtFalta = lanc.desconto_vt - (lanc.desconto_vt_6pct ?? 0)
+                                if (vtFalta > 0) parts.push(`Falta: R$ ${lanc.valor_vt_dia.toFixed(2)}/dia × ${lanc.faltas} falta(s)`)
+                                if ((lanc.desconto_vt_6pct ?? 0) > 0) parts.push(`Desc. VT 6%: R$ ${lanc.desconto_vt_6pct.toFixed(2)}`)
+                                return (
+                                  <span title={parts.join('\n')}>
                                     −{formatCurrency(lanc.desconto_vt)}
+                                    {(lanc.desconto_vt_6pct ?? 0) > 0 && (
+                                      <div style={{ fontSize: 9, color: '#b45309' }}>incl. 6% VT</div>
+                                    )}
                                   </span>
-                                : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}
+                                )
+                              })()
+                              : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}
                             </TableCell>
                             <TableCell className="text-right" style={{ color: '#dc2626', fontSize: 12 }}>
                               {lanc.inss > 0

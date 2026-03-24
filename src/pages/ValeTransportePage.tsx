@@ -24,15 +24,12 @@ import {
 type ColaboradorVT = Pick<Colaborador, 'id' | 'nome' | 'chapa' | 'salario' | 'vt_dados'> & {
   obra_id: string | null; obra_nome?: string; funcao_nome?: string
 }
-
-type VTRow = ValeTransporte & {
-  colaboradores?: ColaboradorVT
-}
-
+type VTRow = ValeTransporte & { colaboradores?: ColaboradorVT }
 type FormData = {
   competencia: string
   data_inicio: string
   data_fim: string
+  contar_sabado: boolean      // tick: contar sábado nos dias trabalhados?
   tipo: string
   valor: string
   dias_trabalhados: string
@@ -47,25 +44,30 @@ const TIPO_OPTIONS = [
   { value: 'bilhete_unico', label: 'Bilhete Único' },
   { value: 'dinheiro',      label: 'Dinheiro' },
   { value: 'combustivel',   label: 'Combustível' },
+  { value: 'gasolina',      label: 'Gasolina' },
 ]
+
+// mapeamento da modalidade do colaborador → tipo do select
+function modalidadeParaTipo(modalidade: string | undefined): string {
+  if (!modalidade) return 'cartao'
+  if (modalidade === 'gasolina') return 'gasolina'
+  if (modalidade === 'bilhete_unico') return 'bilhete_unico'
+  if (modalidade === 'dinheiro') return 'dinheiro'
+  return 'cartao'
+}
 
 const MAX_PARCELAS_MES = 5
 
-// dias do mês corrente para calcular VT proporcional
+// ─── helpers de data ─────────────────────────────────────────────────────────
 function diasNoMes(competencia: string) {
   const [ano, mes] = competencia.split('-').map(Number)
   return new Date(ano, mes, 0).getDate()
 }
-
-function primeiroDia(competencia: string) {
-  return `${competencia}-01`
+function primeiroDia(comp: string) { return `${comp}-01` }
+function ultimoDia(comp: string) {
+  const [ano, mes] = comp.split('-').map(Number)
+  return `${comp}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`
 }
-function ultimoDia(competencia: string) {
-  const [ano, mes] = competencia.split('-').map(Number)
-  const d = new Date(ano, mes, 0).getDate()
-  return `${competencia}-${String(d).padStart(2, '0')}`
-}
-
 function fmtData(d: string | null | undefined) {
   if (!d) return '—'
   return d.slice(8) + '/' + d.slice(5, 7) + '/' + d.slice(0, 4)
@@ -76,31 +78,86 @@ function fmtMes(competencia: string) {
   return `${meses[parseInt(mes) - 1]}/${ano}`
 }
 
+/**
+ * Conta dias úteis entre duas datas (inclusive).
+ * Se contarSabado = true, conta Seg→Sáb; caso contrário Seg→Sex.
+ */
+function contarDiasUteis(dataIni: string, dataFim: string, contarSabado: boolean): number {
+  if (!dataIni || !dataFim) return 0
+  const ini = new Date(dataIni + 'T12:00:00')
+  const fim = new Date(dataFim + 'T12:00:00')
+  if (fim < ini) return 0
+  let count = 0
+  const cur = new Date(ini)
+  while (cur <= fim) {
+    const dow = cur.getDay() // 0=dom, 6=sab
+    if (dow !== 0) {          // exclui domingo sempre
+      if (contarSabado || dow !== 6) count++
+    }
+    cur.setDate(cur.getDate() + 1)
+  }
+  return count
+}
+
+/**
+ * Calcula o valor VT proporcional ao período.
+ * Usa dias úteis do período / dias úteis do mês inteiro.
+ */
+function calcValorProporcional(
+  vtMensal: number,
+  dataIni: string,
+  dataFim: string,
+  comp: string,
+  contarSabado: boolean
+): number {
+  if (!vtMensal || !dataIni || !dataFim) return 0
+  const diasMes    = contarDiasUteis(primeiroDia(comp), ultimoDia(comp), contarSabado)
+  const diasPeriod = contarDiasUteis(dataIni, dataFim, contarSabado)
+  if (diasMes === 0) return 0
+  return (vtMensal / diasMes) * diasPeriod
+}
+
+// Extrai valor diário do VT do colaborador
+function vtDiarioColab(vtDados: any): number {
+  if (!vtDados) return 0
+  if (vtDados.modalidade === 'gasolina') return vtDados.gasolina_valor_dia ?? 0
+  const ida   = (vtDados.trechos_ida   ?? []).reduce((s: number, t: any) => s + (parseFloat(t.valor) || 0), 0)
+  const volta = (vtDados.trechos_volta ?? []).reduce((s: number, t: any) => s + (parseFloat(t.valor) || 0), 0)
+  return ida + volta
+}
+
+// Calcula valor mensal do VT (diário × dias úteis do mês)
+function vtMensalColab(colab: ColaboradorVT, comp: string, contarSabado: boolean): number {
+  const d = colab.vt_dados as any
+  if (!d || !colab.vt_dados) return 0
+  // Se existe campo valor_mensal direto, usa ele
+  if (d.valor_mensal) return d.valor_mensal
+  const diario = vtDiarioColab(d)
+  if (!diario) return 0
+  const diasMes = contarDiasUteis(primeiroDia(comp), ultimoDia(comp), contarSabado)
+  return diario * diasMes
+}
+
 // ─── componente ──────────────────────────────────────────────────────────────
 export default function ValeTransportePage() {
   const hoje = new Date()
-  const [ano, setAno]   = useState(hoje.getFullYear())
-  const [mes, setMes]   = useState(hoje.getMonth() + 1)
-  const [busca, setBusca] = useState('')
+  const [ano, setAno]       = useState(hoje.getFullYear())
+  const [mes, setMes]       = useState(hoje.getMonth() + 1)
+  const [busca, setBusca]   = useState('')
   const [obraFiltro, setObraFiltro] = useState('todas')
 
   const [colaboradores, setColaboradores] = useState<ColaboradorVT[]>([])
-  const [obras, setObras] = useState<{id:string;nome:string}[]>([])
-  const [vtRows, setVtRows]   = useState<VTRow[]>([])
+  const [obras, setObras]   = useState<{id:string;nome:string}[]>([])
+  const [vtRows, setVtRows] = useState<VTRow[]>([])
   const [loading, setLoading] = useState(true)
-
   const [colabSel, setColabSel] = useState<ColaboradorVT | null>(null)
 
-  // modal lançamento
   const [modalOpen, setModalOpen] = useState(false)
   const [editando, setEditando]   = useState<VTRow | null>(null)
   const [form, setForm]           = useState<FormData>(emptyForm())
   const [saving, setSaving]       = useState(false)
+  const [deleteId, setDeleteId]   = useState<string | null>(null)
 
-  // delete
-  const [deleteId, setDeleteId] = useState<string | null>(null)
-
-  // competência (ano-mes)
   const competencia = `${ano}-${String(mes).padStart(2, '0')}`
 
   function emptyForm(): FormData {
@@ -109,6 +166,7 @@ export default function ValeTransportePage() {
       competencia: comp,
       data_inicio: primeiroDia(comp),
       data_fim:    ultimoDia(comp),
+      contar_sabado: false,
       tipo: 'cartao',
       valor: '',
       dias_trabalhados: '',
@@ -136,9 +194,7 @@ export default function ValeTransportePage() {
     ])
     if (colRes.data) {
       setColaboradores(colRes.data.map((c: any) => ({
-        ...c,
-        obra_nome:   c.obras?.nome   ?? '',
-        funcao_nome: c.funcoes?.nome ?? '',
+        ...c, obra_nome: c.obras?.nome ?? '', funcao_nome: c.funcoes?.nome ?? '',
       })))
     }
     if (obraRes.data) setObras(obraRes.data)
@@ -148,90 +204,77 @@ export default function ValeTransportePage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // ─── VT do colaborador selecionado no mês ──────────────────────────────────
+  // ─── VT do colaborador selecionado no mês ─────────────────────────────────
   const vtDoColab = useMemo(() =>
-    colabSel
-      ? vtRows.filter(r => r.colaborador_id === colabSel.id && r.competencia === competencia)
-      : [],
-    [colabSel, vtRows, competencia]
-  )
+    colabSel ? vtRows.filter(r => r.colaborador_id === colabSel.id && r.competencia === competencia) : []
+  , [colabSel, vtRows, competencia])
 
-  // Status do colaborador: completo / parcial / sem VT no mês
   function statusVTColab(colabId: string) {
-    const registros = vtRows.filter(r => r.colaborador_id === colabId && r.competencia === competencia)
-    if (registros.length === 0) return 'sem'
-    // verifica se existe período cobrindo o mês inteiro
-    const temCompleto = registros.some(r =>
-      r.data_inicio === primeiroDia(competencia) && r.data_fim === ultimoDia(competencia)
-    )
-    if (temCompleto) return 'completo'
-    return 'parcial'
+    const regs = vtRows.filter(r => r.colaborador_id === colabId && r.competencia === competencia)
+    if (regs.length === 0) return 'sem'
+    const temCompleto = regs.some(r => r.data_inicio === primeiroDia(competencia) && r.data_fim === ultimoDia(competencia))
+    return temCompleto ? 'completo' : 'parcial'
   }
 
-  // VT mensal do colaborador (do campo vt_dados)
-  function vtMensalColab(colab: ColaboradorVT): number {
-    const d = colab.vt_dados as any
-    return d?.valor_mensal ?? d?.valor ?? 0
-  }
-
-  // Valor VT proporcional ao período
-  function calcValorPeriodo(vtMensal: number, dataIni: string, dataFim: string, comp: string): number {
-    if (!vtMensal || !dataIni || !dataFim) return 0
-    const total = diasNoMes(comp)
-    const ini = parseInt(dataIni.slice(8))
-    const fim = parseInt(dataFim.slice(8))
-    const dias = Math.max(0, fim - ini + 1)
-    return (vtMensal / total) * dias
-  }
-
-  // Pode lançar mais VT no mês?
   function podeNovoVT(colabId: string): { pode: boolean; motivo?: string } {
-    const registros = vtRows.filter(r => r.colaborador_id === colabId && r.competencia === competencia)
-    if (registros.length >= MAX_PARCELAS_MES)
-      return { pode: false, motivo: `Limite de ${MAX_PARCELAS_MES} lançamentos/mês atingido` }
-    const temCompleto = registros.some(r =>
-      r.data_inicio === primeiroDia(competencia) && r.data_fim === ultimoDia(competencia)
-    )
-    if (temCompleto)
-      return { pode: false, motivo: 'VT do mês completo já lançado' }
+    const regs = vtRows.filter(r => r.colaborador_id === colabId && r.competencia === competencia)
+    if (regs.length >= MAX_PARCELAS_MES) return { pode: false, motivo: `Limite de ${MAX_PARCELAS_MES} lançamentos/mês atingido` }
+    const temCompleto = regs.some(r => r.data_inicio === primeiroDia(competencia) && r.data_fim === ultimoDia(competencia))
+    if (temCompleto) return { pode: false, motivo: 'VT do mês completo já lançado' }
     return { pode: true }
   }
 
-  // ─── lista lateral filtrada ────────────────────────────────────────────────
-  const colabsFiltrados = useMemo(() => {
-    return colaboradores.filter(c => {
-      if (obraFiltro !== 'todas' && c.obra_id !== obraFiltro) return false
-      if (busca) {
-        const b = busca.toLowerCase()
-        return c.nome.toLowerCase().includes(b) || (c.chapa ?? '').toLowerCase().includes(b)
-      }
-      return true
-    })
-  }, [colaboradores, busca, obraFiltro])
+  // ─── recalcula valor+dias ao mudar período/tick sábado ────────────────────
+  function recalcularPeriodo(
+    dataIni: string, dataFim: string, contarSab: boolean,
+    comp: string, colab: ColaboradorVT | null, descontar: boolean
+  ) {
+    const diasUtil = contarDiasUteis(dataIni, dataFim, contarSab)
+    const vtMen    = colab ? vtMensalColab(colab, comp, contarSab) : 0
+    const valorBruto = vtMen > 0
+      ? calcValorProporcional(vtMen, dataIni, dataFim, comp, contarSab)
+      : 0
+    const salario  = colab?.salario ?? 0
+    const desconto = descontar ? salario * 0.06 : 0
+    const valorEmp = Math.max(0, valorBruto - desconto)
+    return {
+      dias_trabalhados: String(diasUtil),
+      valor: valorBruto > 0 ? valorBruto.toFixed(2) : '',
+      desconto_colaborador: desconto.toFixed(2),
+      valor_empresa: valorEmp.toFixed(2),
+    }
+  }
 
-  // ─── modal helpers ─────────────────────────────────────────────────────────
+  // ─── lista lateral filtrada ───────────────────────────────────────────────
+  const colabsFiltrados = useMemo(() => colaboradores.filter(c => {
+    if (obraFiltro !== 'todas' && c.obra_id !== obraFiltro) return false
+    if (busca) {
+      const b = busca.toLowerCase()
+      return c.nome.toLowerCase().includes(b) || (c.chapa ?? '').toLowerCase().includes(b)
+    }
+    return true
+  }), [colaboradores, busca, obraFiltro])
+
+  // ─── abrir modal ──────────────────────────────────────────────────────────
   function openCreate() {
     if (!colabSel) return
     const { pode, motivo } = podeNovoVT(colabSel.id)
     if (!pode) { toast.error(motivo); return }
 
-    const vtMensal = vtMensalColab(colabSel)
-    const salario  = colabSel.salario ?? 0
-    const descontar = true
-    const valorBruto = vtMensal  // começa com mês completo; usuário ajusta período
-    const desconto   = descontar ? salario * 0.06 : 0
-    const valorEmp   = Math.max(0, valorBruto - desconto)
+    const vtDados    = colabSel.vt_dados as any
+    const tipoAuto   = modalidadeParaTipo(vtDados?.modalidade)
+    const contarSab  = false
+    const descontar  = true
+    const calc       = recalcularPeriodo(primeiroDia(competencia), ultimoDia(competencia), contarSab, competencia, colabSel, descontar)
 
     setEditando(null)
     setForm({
       competencia,
-      data_inicio: primeiroDia(competencia),
-      data_fim:    ultimoDia(competencia),
-      tipo: 'cartao',
-      valor: vtMensal > 0 ? vtMensal.toFixed(2) : '',
-      dias_trabalhados: String(diasNoMes(competencia)),
-      desconto_colaborador: desconto.toFixed(2),
-      valor_empresa: valorEmp.toFixed(2),
+      data_inicio:  primeiroDia(competencia),
+      data_fim:     ultimoDia(competencia),
+      contar_sabado: contarSab,
+      tipo:         tipoAuto,
+      ...calc,
       descontar_6pct: descontar,
       observacoes: '',
     })
@@ -241,57 +284,39 @@ export default function ValeTransportePage() {
   function openEdit(row: VTRow) {
     setEditando(row)
     setForm({
-      competencia: row.competencia,
-      data_inicio: row.data_inicio ?? primeiroDia(row.competencia),
-      data_fim:    row.data_fim    ?? ultimoDia(row.competencia),
-      tipo: row.tipo ?? 'cartao',
-      valor: String(row.valor ?? ''),
+      competencia:   row.competencia,
+      data_inicio:   row.data_inicio ?? primeiroDia(row.competencia),
+      data_fim:      row.data_fim    ?? ultimoDia(row.competencia),
+      contar_sabado: false,
+      tipo:          row.tipo ?? 'cartao',
+      valor:         String(row.valor ?? ''),
       dias_trabalhados: String(row.dias_trabalhados ?? ''),
       desconto_colaborador: String(row.desconto_colaborador ?? ''),
       valor_empresa: String(row.valor_empresa ?? ''),
       descontar_6pct: row.descontar_6pct ?? true,
-      observacoes: row.observacoes ?? '',
+      observacoes:   row.observacoes ?? '',
     })
     setModalOpen(true)
   }
 
+  // ─── setField: qualquer mudança recalcula ─────────────────────────────────
   function setField(key: keyof FormData, value: string | boolean) {
     setForm(prev => {
       const next = { ...prev, [key]: value }
 
-      // Ao mudar período → recalcula valor proporcional
-      if ((key === 'data_inicio' || key === 'data_fim') && colabSel) {
-        const vtMensal = vtMensalColab(colabSel)
-        if (vtMensal > 0) {
-          const ini = key === 'data_inicio' ? String(value) : next.data_inicio
-          const fim = key === 'data_fim'    ? String(value) : next.data_fim
-          const valorProp = calcValorPeriodo(vtMensal, ini, fim, next.competencia)
-          const desconto  = next.descontar_6pct ? (colabSel.salario ?? 0) * 0.06 : 0
-          return {
-            ...next,
-            valor: valorProp.toFixed(2),
-            desconto_colaborador: desconto.toFixed(2),
-            valor_empresa: Math.max(0, valorProp - desconto).toFixed(2),
-          }
-        }
+      // Mudanças que recalculam tudo (período ou tick sábado ou toggle desconto)
+      if (key === 'data_inicio' || key === 'data_fim' || key === 'contar_sabado' || key === 'descontar_6pct') {
+        const ini    = key === 'data_inicio'    ? String(value) : next.data_inicio
+        const fim    = key === 'data_fim'       ? String(value) : next.data_fim
+        const contSab = key === 'contar_sabado' ? Boolean(value) : next.contar_sabado
+        const desc   = key === 'descontar_6pct' ? Boolean(value) : next.descontar_6pct
+        const calc   = recalcularPeriodo(ini, fim, contSab, next.competencia, colabSel, desc)
+        return { ...next, ...calc }
       }
 
-      // Toggle desconto 6%
-      if (key === 'descontar_6pct') {
-        const ativar = value as boolean
-        const salario = colabSel?.salario ?? 0
-        const desconto = ativar ? salario * 0.06 : 0
-        const valor = parseFloat(next.valor) || 0
-        return {
-          ...next,
-          desconto_colaborador: desconto.toFixed(2),
-          valor_empresa: Math.max(0, valor - desconto).toFixed(2),
-        }
-      }
-
-      // Recalcula valor_empresa ao mudar valor ou desconto
+      // Recalcula valor_empresa ao editar valor ou desconto manualmente
       if (key === 'valor' || key === 'desconto_colaborador') {
-        const valor    = parseFloat(key === 'valor'    ? String(value) : next.valor) || 0
+        const valor    = parseFloat(key === 'valor'    ? String(value) : next.valor)    || 0
         const desconto = parseFloat(key === 'desconto_colaborador' ? String(value) : next.desconto_colaborador) || 0
         return { ...next, valor_empresa: Math.max(0, valor - desconto).toFixed(2) }
       }
@@ -300,7 +325,7 @@ export default function ValeTransportePage() {
     })
   }
 
-  // ─── save ──────────────────────────────────────────────────────────────────
+  // ─── save ─────────────────────────────────────────────────────────────────
   async function handleSave() {
     if (!colabSel) return
     if (!form.data_inicio || !form.data_fim) return toast.error('Período obrigatório')
@@ -328,7 +353,6 @@ export default function ValeTransportePage() {
     fetchData()
   }
 
-  // ─── delete ────────────────────────────────────────────────────────────────
   async function handleDelete() {
     if (!deleteId) return
     const { error } = await supabase.from('vale_transporte').delete().eq('id', deleteId)
@@ -337,60 +361,58 @@ export default function ValeTransportePage() {
     else { toast.success('Registro excluído!'); fetchData() }
   }
 
-  // ─── totais gerais no mês (para cards) ────────────────────────────────────
+  // ─── totais gerais do mês ─────────────────────────────────────────────────
   const vtDoMes = vtRows.filter(r => r.competencia === competencia)
-  const totalEmpresaMes   = vtDoMes.reduce((s, r) => s + (r.valor_empresa ?? 0), 0)
-  const colabsComVTCompleto = new Set(
+  const totalEmpresaMes = vtDoMes.reduce((s, r) => s + (r.valor_empresa ?? 0), 0)
+  const colabsCompletos = new Set(
     vtDoMes.filter(r => r.data_inicio === primeiroDia(competencia) && r.data_fim === ultimoDia(competencia))
            .map(r => r.colaborador_id)
   ).size
-  const colabsComVTParcial = new Set(
+  const colabsParciais = new Set(
     vtDoMes.filter(r => !(r.data_inicio === primeiroDia(competencia) && r.data_fim === ultimoDia(competencia)))
            .map(r => r.colaborador_id)
   ).size
 
-  // ─── nav mês ───────────────────────────────────────────────────────────────
+  // nav mês
   function navMes(delta: number) {
     let m = mes + delta, a = ano
-    if (m > 12) { m = 1; a++ }
+    if (m > 12) { m = 1;  a++ }
     if (m < 1)  { m = 12; a-- }
     setMes(m); setAno(a)
   }
-
   const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
-  // ─── render ────────────────────────────────────────────────────────────────
+  // ─── valores para exibir no modal ─────────────────────────────────────────
+  const vtMensal = colabSel ? vtMensalColab(colabSel, competencia, form.contar_sabado) : 0
+  const vtDiario = colabSel ? vtDiarioColab(colabSel.vt_dados as any) : 0
+
+  // ─── render ───────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', height: '100%', flexDirection: 'column', gap: 0 }}>
 
-      {/* ── Header ── */}
-      <div style={{ padding: '0 0 16px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+      {/* Header */}
+      <div style={{ paddingBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>🚌 Vale Transporte</h1>
           <p style={{ fontSize: 13, color: 'var(--muted-foreground)', marginTop: 2 }}>Controle de vale transporte por colaborador</p>
         </div>
-        {/* Navegação mês */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button onClick={() => navMes(-1)}
-            style={{ width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--card)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <button onClick={() => navMes(-1)} style={{ width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--card)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ChevronLeft size={16} />
           </button>
-          <span style={{ fontSize: 14, fontWeight: 700, minWidth: 130, textAlign: 'center' }}>
-            {MESES[mes - 1]} / {ano}
-          </span>
-          <button onClick={() => navMes(1)}
-            style={{ width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--card)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontSize: 14, fontWeight: 700, minWidth: 130, textAlign: 'center' }}>{MESES[mes - 1]} / {ano}</span>
+          <button onClick={() => navMes(1)} style={{ width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--card)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ChevronRight size={16} />
           </button>
         </div>
       </div>
 
-      {/* ── Cards resumo do mês ── */}
+      {/* Cards resumo */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 16 }}>
         {[
-          { icon: <CheckCircle2 size={15}/>, label: 'VT Completo (mês)', value: `${colabsComVTCompleto} colaborador(es)`, color: '#15803d' },
-          { icon: <AlertCircle   size={15}/>, label: 'VT Parcial',         value: `${colabsComVTParcial} colaborador(es)`,  color: '#b45309' },
-          { icon: <Bus           size={15}/>, label: 'Total Empresa (mês)', value: formatCurrency(totalEmpresaMes),          color: '#1d4ed8', money: true },
+          { icon: <CheckCircle2 size={15}/>, label: 'VT Completo (mês)',  value: `${colabsCompletos} colaborador(es)`, color: '#15803d' },
+          { icon: <AlertCircle  size={15}/>, label: 'VT Parcial',         value: `${colabsParciais} colaborador(es)`,  color: '#b45309' },
+          { icon: <Bus          size={15}/>, label: 'Total Empresa (mês)', value: formatCurrency(totalEmpresaMes),      color: '#1d4ed8' },
         ].map((c, i) => (
           <div key={i} style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: c.color, marginBottom: 4 }}>
@@ -401,69 +423,45 @@ export default function ValeTransportePage() {
         ))}
       </div>
 
-      {/* ── Layout 2 colunas: lista colaboradores | painel direito ── */}
+      {/* 2 colunas */}
       <div style={{ display: 'flex', gap: 12, flex: 1, minHeight: 0, overflow: 'hidden' }}>
 
-        {/* ── Coluna esquerda: lista ── */}
+        {/* Lista colaboradores */}
         <div style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-          {/* Título coluna */}
           <div style={{ padding: '12px 14px 8px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--muted-foreground)', marginBottom: 8 }}>
-              🚌 Vale Transporte
-            </div>
-            {/* Filtro obra */}
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--muted-foreground)', marginBottom: 8 }}>🚌 Vale Transporte</div>
             <Select value={obraFiltro} onValueChange={setObraFiltro}>
-              <SelectTrigger className="h-8 text-xs mb-2">
-                <SelectValue />
-              </SelectTrigger>
+              <SelectTrigger className="h-8 text-xs mb-2"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="todas">Todas as obras</SelectItem>
                 {obras.map(o => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
               </SelectContent>
             </Select>
-            {/* Busca */}
             <div style={{ position: 'relative' }}>
               <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted-foreground)' }} />
-              <input
-                placeholder="Nome ou chapa..."
-                value={busca}
-                onChange={e => setBusca(e.target.value)}
-                style={{ width: '100%', height: 30, paddingLeft: 28, paddingRight: 8, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', boxSizing: 'border-box' }}
-              />
+              <input placeholder="Nome ou chapa..." value={busca} onChange={e => setBusca(e.target.value)}
+                style={{ width: '100%', height: 30, paddingLeft: 28, paddingRight: 8, fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', boxSizing: 'border-box' }} />
             </div>
           </div>
-
-          {/* Lista colaboradores */}
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {loading ? (
               <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 12 }}>Carregando…</div>
             ) : colabsFiltrados.length === 0 ? (
               <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 12 }}>Nenhum colaborador</div>
             ) : colabsFiltrados.map(c => {
-              const status = statusVTColab(c.id)
+              const status  = statusVTColab(c.id)
               const isAtivo = colabSel?.id === c.id
               return (
                 <div key={c.id} onClick={() => setColabSel(c)}
-                  style={{
-                    padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
-                    background: isAtivo ? 'var(--primary)' : 'transparent',
-                    color: isAtivo ? '#fff' : 'var(--foreground)',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
-                  }}>
+                  style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', background: isAtivo ? 'var(--primary)' : 'transparent', color: isAtivo ? '#fff' : 'var(--foreground)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 1 }}>{c.chapa}</div>
                     <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome}</div>
-                    <div style={{ fontSize: 11, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.funcao_nome}</div>
+                    <div style={{ fontSize: 11, opacity: 0.7 }}>{c.funcao_nome}</div>
                   </div>
-                  {/* Badge status VT no mês */}
-                  <div style={{
-                    flexShrink: 0, fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 8,
-                    background: status === 'completo' ? (isAtivo ? 'rgba(255,255,255,0.25)' : '#dcfce7')
-                               : status === 'parcial'  ? (isAtivo ? 'rgba(255,255,255,0.25)' : '#fef3c7')
-                               : (isAtivo ? 'rgba(255,255,255,0.15)' : 'var(--muted)'),
-                    color: status === 'completo' ? (isAtivo ? '#fff' : '#15803d')
-                          : status === 'parcial'  ? (isAtivo ? '#fff' : '#b45309')
-                          : (isAtivo ? 'rgba(255,255,255,0.7)' : 'var(--muted-foreground)'),
+                  <div style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 8,
+                    background: status === 'completo' ? (isAtivo ? 'rgba(255,255,255,0.25)' : '#dcfce7') : status === 'parcial' ? (isAtivo ? 'rgba(255,255,255,0.25)' : '#fef3c7') : (isAtivo ? 'rgba(255,255,255,0.15)' : 'var(--muted)'),
+                    color: status === 'completo' ? (isAtivo ? '#fff' : '#15803d') : status === 'parcial' ? (isAtivo ? '#fff' : '#b45309') : (isAtivo ? 'rgba(255,255,255,0.7)' : 'var(--muted-foreground)'),
                   }}>
                     {status === 'completo' ? '✓ completo' : status === 'parcial' ? '~ parcial' : '— sem VT'}
                   </div>
@@ -473,7 +471,7 @@ export default function ValeTransportePage() {
           </div>
         </div>
 
-        {/* ── Coluna direita: painel do colaborador ── */}
+        {/* Painel direito */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
           {!colabSel ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-foreground)', gap: 12 }}>
@@ -482,22 +480,26 @@ export default function ValeTransportePage() {
               <div style={{ fontSize: 13 }}>para ver e gerenciar os vales do mês</div>
             </div>
           ) : (() => {
-            const vtMensal   = vtMensalColab(colabSel)
-            const salario    = colabSel.salario ?? 0
             const { pode, motivo } = podeNovoVT(colabSel.id)
             const totalPagoMes = vtDoColab.reduce((s, r) => s + (r.valor_empresa ?? 0), 0)
+            const vtMensalColab_ = vtMensalColab(colabSel, competencia, false)
+            const vtDiario_      = vtDiarioColab(colabSel.vt_dados as any)
+            const vtDados_       = colabSel.vt_dados as any
 
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', overflow: 'auto' }}>
-
-                {/* ─ cabeçalho do colaborador ─ */}
+                {/* Cabeçalho colab */}
                 <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
                   <div>
                     <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginBottom: 2 }}>{colabSel.chapa} · {colabSel.funcao_nome}</div>
                     <div style={{ fontSize: 17, fontWeight: 700 }}>{colabSel.nome}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 3 }}>
-                      VT cadastrado: <strong>{vtMensal > 0 ? formatCurrency(vtMensal) + '/mês' : 'não configurado'}</strong>
-                      {salario > 0 && <span style={{ marginLeft: 10 }}>Salário: <strong>{formatCurrency(salario)}</strong> · 6% = <strong>{formatCurrency(salario * 0.06)}</strong></span>}
+                    <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                      {vtDados_ ? <>
+                        <span>🚌 Modalidade: <strong>{vtDados_.modalidade ?? '—'}</strong></span>
+                        {vtDiario_ > 0 && <span>Valor/dia: <strong>{formatCurrency(vtDiario_)}</strong></span>}
+                        {vtMensalColab_ > 0 && <span>Mês estimado: <strong>{formatCurrency(vtMensalColab_)}</strong></span>}
+                      </> : <span style={{ color: '#b45309' }}>⚠ VT não configurado no cadastro</span>}
+                      {colabSel.salario && <span>Salário: <strong>{formatCurrency(colabSel.salario)}</strong> → 6% = <strong>{formatCurrency((colabSel.salario ?? 0) * 0.06)}</strong></span>}
                     </div>
                   </div>
                   <Button onClick={openCreate} disabled={!pode} title={motivo} className="gap-2 shrink-0">
@@ -505,27 +507,19 @@ export default function ValeTransportePage() {
                   </Button>
                 </div>
 
-                {/* ─ info bloqueio ─ */}
                 {!pode && (
                   <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 16px', fontSize: 13, color: '#92400e', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <AlertCircle size={15} />
-                    <span><strong>Bloqueado:</strong> {motivo}</span>
+                    <AlertCircle size={15} /><span><strong>Bloqueado:</strong> {motivo}</span>
                   </div>
                 )}
 
-                {/* ─ cards mini do mês ─ */}
+                {/* Mini cards */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                   {[
                     { label: 'Lançamentos no mês', value: `${vtDoColab.length} / ${MAX_PARCELAS_MES}`, color: '#1d4ed8' },
                     { label: 'Total empresa pago', value: formatCurrency(totalPagoMes), color: '#15803d' },
-                    { label: 'Status',
-                      value: statusVTColab(colabSel.id) === 'completo' ? '✓ Mês completo'
-                           : statusVTColab(colabSel.id) === 'parcial'  ? '~ Parcial'
-                           : '— Sem VT',
-                      color: statusVTColab(colabSel.id) === 'completo' ? '#15803d'
-                           : statusVTColab(colabSel.id) === 'parcial'  ? '#b45309'
-                           : 'var(--muted-foreground)',
-                    },
+                    { label: 'Status', value: statusVTColab(colabSel.id) === 'completo' ? '✓ Mês completo' : statusVTColab(colabSel.id) === 'parcial' ? '~ Parcial' : '— Sem VT',
+                      color: statusVTColab(colabSel.id) === 'completo' ? '#15803d' : statusVTColab(colabSel.id) === 'parcial' ? '#b45309' : 'var(--muted-foreground)' },
                   ].map((c, i) => (
                     <div key={i} style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px' }}>
                       <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginBottom: 3 }}>{c.label}</div>
@@ -534,7 +528,7 @@ export default function ValeTransportePage() {
                   ))}
                 </div>
 
-                {/* ─ tabela de lançamentos ─ */}
+                {/* Tabela lançamentos */}
                 {vtDoColab.length === 0 ? (
                   <div style={{ background: 'var(--card)', border: '1px dashed var(--border)', borderRadius: 10, padding: 40, textAlign: 'center', color: 'var(--muted-foreground)' }}>
                     <Bus size={28} strokeWidth={1.5} style={{ margin: '0 auto 8px' }} />
@@ -547,6 +541,7 @@ export default function ValeTransportePage() {
                         <tr style={{ background: 'var(--muted)', borderBottom: '2px solid var(--border)' }}>
                           <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700 }}>Período</th>
                           <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700 }}>Tipo</th>
+                          <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Dias</th>
                           <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Valor Bruto</th>
                           <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Desc. 6%</th>
                           <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Empresa</th>
@@ -557,19 +552,19 @@ export default function ValeTransportePage() {
                         {vtDoColab.map((r, i) => {
                           const eMesCompleto = r.data_inicio === primeiroDia(r.competencia) && r.data_fim === ultimoDia(r.competencia)
                           return (
-                            <tr key={r.id} style={{ background: i % 2 === 0 ? 'var(--card)' : 'var(--muted)/30', borderBottom: '1px solid var(--border)' }}>
+                            <tr key={r.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'var(--card)' : 'transparent' }}>
                               <td style={{ padding: '10px 14px' }}>
                                 <div style={{ fontWeight: 600 }}>
                                   {eMesCompleto
                                     ? <span style={{ color: '#15803d' }}>✓ Mês completo</span>
-                                    : `${fmtData(r.data_inicio)} → ${fmtData(r.data_fim)}`
-                                  }
+                                    : `${fmtData(r.data_inicio)} → ${fmtData(r.data_fim)}`}
                                 </div>
                                 <div style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>{fmtMes(r.competencia)}</div>
                               </td>
                               <td style={{ padding: '10px 14px', color: 'var(--muted-foreground)' }}>
                                 {TIPO_OPTIONS.find(t => t.value === r.tipo)?.label ?? r.tipo ?? '—'}
                               </td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right' }}>{r.dias_trabalhados}</td>
                               <td style={{ padding: '10px 14px', textAlign: 'right' }}>{formatCurrency(r.valor)}</td>
                               <td style={{ padding: '10px 14px', textAlign: 'right', color: r.descontar_6pct ? '#dc2626' : 'var(--muted-foreground)' }}>
                                 {r.descontar_6pct ? '−' + formatCurrency(r.desconto_colaborador) : <span style={{ fontSize: 10 }}>isento</span>}
@@ -579,12 +574,8 @@ export default function ValeTransportePage() {
                               </td>
                               <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
-                                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(r)}>
-                                    <Pencil size={13} />
-                                  </Button>
-                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => setDeleteId(r.id)}>
-                                    <Trash2 size={13} />
-                                  </Button>
+                                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(r)}><Pencil size={13} /></Button>
+                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => setDeleteId(r.id)}><Trash2 size={13} /></Button>
                                 </div>
                               </td>
                             </tr>
@@ -593,7 +584,7 @@ export default function ValeTransportePage() {
                       </tbody>
                       <tfoot>
                         <tr style={{ background: 'var(--muted)', borderTop: '2px solid var(--border)', fontWeight: 700 }}>
-                          <td colSpan={4} style={{ padding: '9px 14px', fontSize: 12 }}>Total empresa — {vtDoColab.length} lançamento(s)</td>
+                          <td colSpan={5} style={{ padding: '9px 14px', fontSize: 12 }}>Total empresa — {vtDoColab.length} lançamento(s)</td>
                           <td style={{ padding: '9px 14px', textAlign: 'right', color: '#1d4ed8' }}>{formatCurrency(totalPagoMes)}</td>
                           <td />
                         </tr>
@@ -607,35 +598,36 @@ export default function ValeTransportePage() {
         </div>
       </div>
 
-      {/* ══ MODAL LANÇAMENTO ══ */}
+      {/* ══ MODAL ══ */}
       {modalOpen && colabSel && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--background)', borderRadius: 14, width: 480, maxHeight: '90vh', overflowY: 'auto', padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-            {/* Header modal */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+          <div style={{ background: 'var(--background)', borderRadius: 14, width: 500, maxHeight: '92vh', overflowY: 'auto', padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+
+            {/* Título */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
               <div>
                 <h3 style={{ fontWeight: 800, fontSize: 16, margin: 0 }}>{editando ? 'Editar VT' : 'Novo Lançamento de VT'}</h3>
                 <p style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 4 }}>
                   {colabSel.chapa} — <strong>{colabSel.nome}</strong> · {fmtMes(form.competencia)}
                 </p>
               </div>
-              <button onClick={() => setModalOpen(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted-foreground)', padding: 4 }}>
+              <button onClick={() => setModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted-foreground)', padding: 4 }}>
                 <X size={18} />
               </button>
             </div>
 
-            {/* VT do colaborador */}
-            {vtMensalColab(colabSel) > 0 && (
-              <div style={{ background: 'var(--muted)', borderRadius: 8, padding: '10px 14px', marginBottom: 18, fontSize: 12 }}>
-                💳 VT cadastrado: <strong>{formatCurrency(vtMensalColab(colabSel))}/mês</strong>
-                {colabSel.salario && <> · Salário: <strong>{formatCurrency(colabSel.salario)}</strong></>}
+            {/* Info VT do colaborador */}
+            {vtDiario > 0 && (
+              <div style={{ background: 'var(--muted)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                <span>🚌 <strong>{(colabSel.vt_dados as any)?.modalidade ?? '—'}</strong></span>
+                <span>R$ <strong>{vtDiario.toFixed(2)}</strong>/dia</span>
+                <span>Mês estimado: <strong>{formatCurrency(vtMensal)}</strong></span>
               </div>
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
 
-              {/* Período de / até */}
+              {/* Período */}
               <div>
                 <Label className="text-xs">📅 Período de *</Label>
                 <input type="date" value={form.data_inicio} onChange={e => setField('data_inicio', e.target.value)}
@@ -649,7 +641,25 @@ export default function ValeTransportePage() {
                   style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', marginTop: 4, boxSizing: 'border-box' }} />
               </div>
 
-              {/* Tipo */}
+              {/* Tick sábado + dias calculados */}
+              <div className="col-span-2">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--muted)', borderRadius: 8, padding: '10px 14px', border: '1px solid var(--border)' }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>Contar sábado como dia trabalhado</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>
+                      {form.contar_sabado ? 'Contando Seg → Sáb' : 'Contando apenas Seg → Sex'}
+                      {' · '}
+                      <strong style={{ color: 'var(--foreground)' }}>{form.dias_trabalhados} dia(s)</strong> no período
+                    </div>
+                  </div>
+                  <button onClick={() => setField('contar_sabado', !form.contar_sabado)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: form.contar_sabado ? '#1d4ed8' : 'var(--muted-foreground)' }}>
+                    {form.contar_sabado ? <ToggleRight size={30} /> : <ToggleLeft size={30} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Tipo — puxado do cadastro */}
               <div>
                 <Label className="text-xs">Tipo</Label>
                 <Select value={form.tipo} onValueChange={v => setField('tipo', v)}>
@@ -660,14 +670,14 @@ export default function ValeTransportePage() {
                 </Select>
               </div>
 
-              {/* Dias */}
+              {/* Dias (editável manualmente) */}
               <div>
                 <Label className="text-xs">Dias trabalhados</Label>
                 <Input type="number" value={form.dias_trabalhados} onChange={e => setField('dias_trabalhados', e.target.value)}
                   className="mt-1 h-9" placeholder="22" />
               </div>
 
-              {/* Valor bruto */}
+              {/* Valor */}
               <div className="col-span-2">
                 <Label className="text-xs">Valor do VT (R$) *</Label>
                 <Input type="number" step="0.01" value={form.valor} onChange={e => setField('valor', e.target.value)}
@@ -684,7 +694,7 @@ export default function ValeTransportePage() {
                     <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>
                       {form.descontar_6pct
                         ? `Desconto: ${formatCurrency(parseFloat(form.desconto_colaborador) || 0)} (6% de ${formatCurrency(colabSel.salario ?? 0)})`
-                        : 'Empresa arca com 100% do VT (isento)'}
+                        : 'Empresa arca com 100% do VT — sem desconto no holerite'}
                     </div>
                   </div>
                   <button onClick={() => setField('descontar_6pct', !form.descontar_6pct)}
@@ -708,23 +718,19 @@ export default function ValeTransportePage() {
                 <Label className="text-xs">Valor empresa (calculado)</Label>
                 <Input type="number" step="0.01" value={form.valor_empresa}
                   onChange={e => setField('valor_empresa', e.target.value)}
-                  className="mt-1 h-9 bg-muted font-semibold" placeholder="0,00" />
+                  className="mt-1 h-9 bg-muted font-bold" placeholder="0,00" />
               </div>
 
               {/* Observações */}
               <div className="col-span-2">
                 <Label className="text-xs">Observações</Label>
-                <Textarea value={form.observacoes} onChange={e => setField('observacoes', e.target.value)}
-                  className="mt-1" rows={2} />
+                <Textarea value={form.observacoes} onChange={e => setField('observacoes', e.target.value)} className="mt-1" rows={2} />
               </div>
             </div>
 
-            {/* Rodapé modal */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
               <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
-              <Button onClick={handleSave} disabled={saving}>
-                {saving ? 'Salvando…' : editando ? 'Salvar alterações' : 'Lançar VT'}
-              </Button>
+              <Button onClick={handleSave} disabled={saving}>{saving ? 'Salvando…' : editando ? 'Salvar alterações' : 'Lançar VT'}</Button>
             </div>
           </div>
         </div>

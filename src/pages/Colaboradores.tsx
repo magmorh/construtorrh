@@ -522,6 +522,8 @@ export default function Colaboradores() {
 
   // delete
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  // mapa: colaborador_id → tem ponto lançado? (bloqueia exclusão visualmente)
+  const [colabsComPonto, setColabsComPonto] = useState<Set<string>>(new Set())
 
   // atualizar EPIs da função
   const [atualizandoEpis, setAtualizandoEpis] = useState(false)
@@ -530,16 +532,19 @@ export default function Colaboradores() {
   // ── fetch ─────────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [{ data: cols }, { data: fns }, { data: obs }] = await Promise.all([
+    const [{ data: cols }, { data: fns }, { data: obs }, { data: pontos }] = await Promise.all([
       supabase.from('colaboradores')
         .select('*, funcoes(id,nome,sigla,valor_hora_clt,valor_hora_autonomo,contratos_valores), obras(id,nome,codigo)')
         .order('nome'),
       supabase.from('funcoes').select('*').eq('ativo', true).order('nome'),
       supabase.from('obras').select('*').order('nome'),
+      supabase.from('ponto_lancamentos').select('colaborador_id'),
     ])
     if (cols) setRows(cols as ColaboradorRow[])
     if (fns)  setFuncoes(fns as Funcao[])
     if (obs)  setObras(obs as Obra[])
+    // Marcar colaboradores que possuem ponto lançado (não podem ser excluídos)
+    if (pontos) setColabsComPonto(new Set((pontos as any[]).map(p => p.colaborador_id)))
     setLoading(false)
   }, [])
 
@@ -941,6 +946,40 @@ export default function Colaboradores() {
   // ── deletar ───────────────────────────────────────────────────────────────
   const handleDelete = async () => {
     if (!deleteId) return
+
+    // ✅ Bloco 1: verificar se há ponto lançado (qualquer status)
+    const { count: cntPonto } = await supabase
+      .from('ponto_lancamentos')
+      .select('id', { count: 'exact', head: true })
+      .eq('colaborador_id', deleteId)
+    if ((cntPonto ?? 0) > 0) {
+      toast.error('❌ Não é possível excluir: este colaborador possui ponto(s) lançado(s) no sistema.')
+      setDeleteId(null)
+      return
+    }
+
+    // ✅ Bloco 2: verificar pagamentos avulsos
+    const { count: cntPgto } = await supabase
+      .from('pagamentos')
+      .select('id', { count: 'exact', head: true })
+      .eq('colaborador_id', deleteId)
+    if ((cntPgto ?? 0) > 0) {
+      toast.error('❌ Não é possível excluir: existem pagamentos registrados para este colaborador.')
+      setDeleteId(null)
+      return
+    }
+
+    // ✅ Bloco 3: verificar adiantamentos
+    const { count: cntAdiant } = await supabase
+      .from('adiantamentos')
+      .select('id', { count: 'exact', head: true })
+      .eq('colaborador_id', deleteId)
+    if ((cntAdiant ?? 0) > 0) {
+      toast.error('❌ Não é possível excluir: existem adiantamentos registrados para este colaborador.')
+      setDeleteId(null)
+      return
+    }
+
     const { error } = await supabase.from('colaboradores').delete().eq('id', deleteId)
     setDeleteId(null)
     if (error) { toast.error(traduzirErro(error.message)); return }
@@ -1039,7 +1078,18 @@ export default function Colaboradores() {
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
                           <Button variant="ghost" size="icon" style={{ width: 30, height: 30 }} title="Histórico de chapas" onClick={() => openHist(c.id)}><History size={13} /></Button>
                           <Button variant="ghost" size="icon" style={{ width: 30, height: 30 }} onClick={() => openEdit(c)}><Pencil size={13} /></Button>
-                          <Button variant="ghost" size="icon" style={{ width: 30, height: 30, color: 'var(--destructive)' }} onClick={() => setDeleteId(c.id)}><Trash2 size={13} /></Button>
+                          {colabsComPonto.has(c.id) ? (
+                            <Button variant="ghost" size="icon" title="Não é possível excluir: colaborador possui ponto(s) lançado(s)"
+                              style={{ width: 30, height: 30, color: '#d1d5db', cursor: 'not-allowed' }} disabled>
+                              <Trash2 size={13} />
+                            </Button>
+                          ) : (
+                            <Button variant="ghost" size="icon" title="Excluir colaborador"
+                              style={{ width: 30, height: 30, color: 'var(--destructive)' }}
+                              onClick={() => setDeleteId(c.id)}>
+                              <Trash2 size={13} />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

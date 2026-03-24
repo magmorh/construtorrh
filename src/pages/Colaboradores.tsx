@@ -481,53 +481,130 @@ function FuncoesTab() {
 }
 
 // ─── SOLICITAÇÕES DO PORTAL ───────────────────────────────────────────────────
-function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Funcao[] }) {
-  const [rows, setRows]         = useState<any[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [filtroStatus, setFiltroStatus] = useState<'pendente'|'aprovado'|'recusado'|'todos'>('pendente')
-  const [aprovando, setAprovando] = useState<Set<string>>(new Set())
-  const [modalApr, setModalApr] = useState<any | null>(null)
-  const [recusaId, setRecusaId] = useState<string | null>(null)
-  const [motivoRecusa, setMotivoRecusa] = useState('')
-
-  // ── campos editáveis do modal de aprovação ──────────────────────────────────
-  const [ed, setEd] = useState<Record<string,string>>({})
-  const [edVtTrechosIda,   setEdVtTrechosIda]   = useState<VtTrecho[]>([])
-  const [edVtTrechosVolta, setEdVtTrechosVolta] = useState<VtTrecho[]>([])
-  const SE = (k: string, v: string) => setEd(p => ({ ...p, [k]: v }))
-
-  function abrirModal(r: any) {
-    const d = r.dados ?? {}
-    setEd({
-      nome: d.nome ?? '', cpf: d.cpf ?? '', rg: d.rg ?? '', pis_nit: d.pis_nit ?? '',
-      data_nascimento: d.data_nascimento ?? '', genero: d.genero ?? '', estado_civil: d.estado_civil ?? '',
-      telefone: d.telefone ?? '', email: d.email ?? '',
-      ctps_numero: d.ctps_numero ?? '', ctps_serie: d.ctps_serie ?? '',
-      cep: d.cep ?? '', endereco: d.endereco ?? '', cidade: d.cidade ?? '', estado: d.estado ?? '',
-      funcao_id: d.funcao_id ?? '', tipo_contrato: d.tipo_contrato ?? 'clt',
-      data_admissao: d.data_admissao ?? new Date().toISOString().slice(0,10),
-      banco: d.banco ?? '', agencia: d.agencia ?? '', conta: d.conta ?? '',
-      tipo_conta: d.tipo_conta ?? 'corrente', pix_tipo: d.pix_tipo ?? '', pix_chave: d.pix_chave ?? '',
-      vt_modalidade: d.vt_modalidade ?? 'nenhum',
-      vt_gasolina_valor_dia: String(d.vt_gasolina_valor_dia ?? ''),
-      vt_cartao_tipo: d.vt_cartao_tipo ?? '', vt_cartao_numero: d.vt_cartao_numero ?? '',
-      obra_id: '', observacoes: d.observacoes ?? '',
-    })
-    // VT trechos — suporta tanto o formato antigo (string) quanto novo (array)
-    setEdVtTrechosIda(
-      Array.isArray(d.vt_trechos_ida) ? d.vt_trechos_ida :
-      (d.vt_trecho_ida ? [{ id: crypto.randomUUID(), nome_linha: d.vt_trecho_ida, tipo_veiculo: 'onibus', valor: '', tem_integracao: false }] : [])
-    )
-    setEdVtTrechosVolta(
-      Array.isArray(d.vt_trechos_volta) ? d.vt_trechos_volta :
-      (d.vt_trecho_volta ? [{ id: crypto.randomUUID(), nome_linha: d.vt_trecho_volta, tipo_veiculo: 'onibus', valor: '', tem_integracao: false }] : [])
-    )
-    setModalApr(r)
+// ─── helper: gera e imprime o PDF via window.print() ────────────────────────
+function gerarPDF(r: any, funcoes: Funcao[], obras: Obra[]) {
+  const d = r.dados ?? {}
+  const fn  = funcoes.find(f => f.id === d.funcao_id)?.nome ?? '—'
+  const ob  = obras.find(o => o.id === r.obra_id)?.nome ?? '—'
+  const fmt = (v: string | null | undefined) => v || '—'
+  const fmtDate = (v: string | null | undefined) => {
+    if (!v) return '—'
+    try { return new Date(v + 'T12:00:00').toLocaleDateString('pt-BR') } catch { return v }
   }
+
+  const vtLabel: Record<string,string> = { nenhum: 'Não recebe', gasolina: 'Aux. Gasolina', transporte: 'Transporte Público' }
+  const contr: Record<string,string>   = { clt: 'CLT', autonomo: 'Autônomo / PJ', estagio: 'Estágio' }
+  const sexo: Record<string,string>    = { M: 'Masculino', F: 'Feminino' }
+  const civil: Record<string,string>   = { solteiro:'Solteiro(a)', casado:'Casado(a)', divorciado:'Divorciado(a)', viuvo:'Viúvo(a)', uniao_estavel:'União Estável' }
+  const tconta: Record<string,string>  = { corrente:'Corrente', poupanca:'Poupança', salario:'Conta Salário' }
+  const pix: Record<string,string>     = { cpf:'CPF', telefone:'Telefone', email:'E-mail', chave_aleatoria:'Chave Aleatória' }
+
+  const row2 = (a: string, av: string, b: string, bv: string) =>
+    `<tr><td class="lb">${a}</td><td>${av}</td><td class="lb">${b}</td><td>${bv}</td></tr>`
+  const row1 = (a: string, av: string) =>
+    `<tr><td class="lb">${a}</td><td colspan="3">${av}</td></tr>`
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<title>Ficha de Cadastro — ${d.nome ?? ''}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:20px 28px}
+  h1{font-size:16px;font-weight:800;color:#1e3a5f;margin-bottom:2px}
+  .sub{font-size:11px;color:#555;margin-bottom:14px}
+  .sec{margin-bottom:12px}
+  .sec-title{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
+    color:#fff;background:#1e3a5f;padding:4px 8px;border-radius:3px 3px 0 0}
+  table{width:100%;border-collapse:collapse}
+  td{border:1px solid #d1d5db;padding:5px 8px;vertical-align:top;min-width:80px}
+  td.lb{font-weight:700;color:#374151;background:#f9fafb;width:22%;white-space:nowrap}
+  .assinatura{margin-top:28px;display:grid;grid-template-columns:1fr 1fr;gap:32px}
+  .assinatura div{border-top:1px solid #374151;padding-top:4px;text-align:center;font-size:10px;color:#555}
+  .rodape{margin-top:18px;font-size:9px;color:#9ca3af;text-align:right}
+  @media print{body{padding:10px 14px}}
+</style></head><body>
+
+<h1>👷 Ficha de Cadastro de Colaborador</h1>
+<div class="sub">Obra: <strong>${ob}</strong> &nbsp;|&nbsp; Solicitado em: ${new Date(r.criado_em).toLocaleString('pt-BR')} &nbsp;|&nbsp; Status: ${r.status.toUpperCase()}</div>
+
+<div class="sec">
+  <div class="sec-title">Identificação</div>
+  <table>
+    ${row1('Nome Completo', `<strong>${fmt(d.nome)}</strong>`)}
+    ${row2('CPF', fmt(d.cpf), 'RG', fmt(d.rg))}
+    ${row2('PIS / NIT', fmt(d.pis_nit), 'Data de Nascimento', fmtDate(d.data_nascimento))}
+    ${row2('Sexo', sexo[d.genero ?? ''] ?? fmt(d.genero), 'Estado Civil', civil[d.estado_civil ?? ''] ?? fmt(d.estado_civil))}
+    ${row2('Telefone', fmt(d.telefone), 'E-mail', fmt(d.email))}
+    ${row2('CTPS Nº', fmt(d.ctps_numero), 'Série CTPS', fmt(d.ctps_serie))}
+  </table>
+</div>
+
+<div class="sec">
+  <div class="sec-title">Endereço</div>
+  <table>
+    ${row1('Endereço', fmt(d.endereco))}
+    ${row2('Cidade', fmt(d.cidade), 'UF', fmt(d.estado))}
+    ${row1('CEP', fmt(d.cep))}
+  </table>
+</div>
+
+<div class="sec">
+  <div class="sec-title">Contrato</div>
+  <table>
+    ${row2('Função', fn, 'Tipo de Contrato', contr[d.tipo_contrato ?? ''] ?? fmt(d.tipo_contrato))}
+    ${row2('Data de Admissão', fmtDate(d.data_admissao), 'Obra', ob)}
+  </table>
+</div>
+
+<div class="sec">
+  <div class="sec-title">Dados Bancários</div>
+  <table>
+    ${row2('Banco', fmt(d.banco), 'Tipo de Conta', tconta[d.tipo_conta ?? ''] ?? fmt(d.tipo_conta))}
+    ${row2('Agência', fmt(d.agencia), 'Conta', fmt(d.conta))}
+    ${row2('Tipo de PIX', pix[d.pix_tipo ?? ''] ?? fmt(d.pix_tipo), 'Chave PIX', fmt(d.pix_chave))}
+  </table>
+</div>
+
+<div class="sec">
+  <div class="sec-title">Vale Transporte</div>
+  <table>
+    ${row1('Modalidade', vtLabel[d.vt_modalidade ?? 'nenhum'] ?? fmt(d.vt_modalidade))}
+    ${d.vt_modalidade === 'gasolina' ? row1('Valor diário', d.vt_gasolina_valor_dia ? `R$ ${parseFloat(d.vt_gasolina_valor_dia).toFixed(2)}` : '—') : ''}
+    ${d.vt_modalidade === 'transporte' ? row2('Empresa Cartão', fmt(d.vt_cartao_tipo), 'Nº Cartão', fmt(d.vt_cartao_numero)) : ''}
+    ${d.vt_modalidade === 'transporte' ? row1('Trechos de Ida', fmt(d.vt_trecho_ida)) : ''}
+    ${d.vt_modalidade === 'transporte' ? row1('Trechos de Volta', fmt(d.vt_trecho_volta)) : ''}
+  </table>
+</div>
+
+${d.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><table>${row1('Obs.', fmt(d.observacoes))}</table></div>` : ''}
+
+<div class="assinatura">
+  <div>Colaborador / Assinatura</div>
+  <div>Responsável RH / Carimbo</div>
+</div>
+
+<div class="rodape">Gerado automaticamente pelo sistema ConstrutorRH em ${new Date().toLocaleString('pt-BR')}</div>
+
+<script>window.onload=()=>{window.print()}<\/script>
+</body></html>`
+
+  const win = window.open('', '_blank', 'width=900,height=700')
+  if (win) { win.document.write(html); win.document.close() }
+}
+
+// ─── COMPONENTE PRINCIPAL da aba ─────────────────────────────────────────────
+function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Funcao[] }) {
+  const [rows, setRows]           = useState<any[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [filtroStatus, setFiltroStatus] = useState<'pendente'|'aprovado'|'recusado'|'todos'>('pendente')
+  const [recusaId, setRecusaId]   = useState<string | null>(null)
+  const [motivoRecusa, setMotivoRecusa] = useState('')
+  const [modalVer, setModalVer]   = useState<any | null>(null)
 
   const fetch = useCallback(async () => {
     setLoading(true)
-    const q = supabase.from('portal_solicitacoes').select('*').eq('tipo', 'novo_colaborador').order('criado_em', { ascending: false })
+    const q = supabase.from('portal_solicitacoes')
+      .select('*').eq('tipo', 'novo_colaborador')
+      .order('criado_em', { ascending: false })
     if (filtroStatus !== 'todos') q.eq('status', filtroStatus)
     const { data } = await q
     setRows(data ?? [])
@@ -536,54 +613,18 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
 
   useEffect(() => { fetch() }, [fetch])
 
-  async function aprovar() {
-    if (!modalApr || !ed.nome.trim()) return
-    setAprovando(prev => new Set([...prev, modalApr.id]))
-
-    // VT — tudo dentro de vt_dados (JSONB), igual ao sistema
-    const vtDados = ed.vt_modalidade === 'nenhum' ? null : {
-      modalidade:        ed.vt_modalidade,
-      gasolina_valor_dia: ed.vt_gasolina_valor_dia ? parseFloat(ed.vt_gasolina_valor_dia) : null,
-      cartao_tipo:       ed.vt_cartao_tipo   || null,
-      cartao_numero:     ed.vt_cartao_numero || null,
-      trechos_ida:       edVtTrechosIda,
-      trechos_volta:     edVtTrechosVolta,
-    }
-
-    const { data: novoColab, error } = await supabase.from('colaboradores').insert({
-      nome: ed.nome, cpf: ed.cpf || null, rg: ed.rg || null,
-      pis_nit: ed.pis_nit || null, data_nascimento: ed.data_nascimento || null,
-      genero: ed.genero || null, estado_civil: ed.estado_civil || null,
-      telefone: ed.telefone || null, email: ed.email || null,
-      ctps_numero: ed.ctps_numero || null, ctps_serie: ed.ctps_serie || null,
-      cep: ed.cep || null, endereco: ed.endereco || null, cidade: ed.cidade || null,
-      estado: ed.estado || null,
-      funcao_id: ed.funcao_id || null, tipo_contrato: ed.tipo_contrato || 'clt',
-      data_admissao: ed.data_admissao || null,
-      obra_id: ed.obra_id || null,
-      banco: ed.banco || null, agencia: ed.agencia || null, conta: ed.conta || null,
-      tipo_conta: ed.tipo_conta || null, pix_tipo: ed.pix_tipo || null, pix_chave: ed.pix_chave || null,
-      vt_modalidade: ed.vt_modalidade || 'nenhum',
-      vale_transporte: ed.vt_modalidade !== 'nenhum',
-      vt_dados: vtDados,
-      observacoes: ed.observacoes || null,
-      status: 'ativo',
-    }).select('id').single()
-    if (!error && novoColab?.id) {
-      await supabase.from('portal_solicitacoes').update({
-        status: 'aprovado', sincronizado_em: new Date().toISOString(), colaborador_id: novoColab.id,
-      }).eq('id', modalApr.id)
-      toast.success(`${ed.nome} cadastrado com sucesso!`)
-    } else {
-      toast.error('Erro ao criar colaborador: ' + error?.message)
-    }
-    setAprovando(prev => { const ss = new Set(prev); ss.delete(modalApr.id); return ss })
-    setModalApr(null); fetch()
+  async function marcarAprovado(id: string) {
+    await supabase.from('portal_solicitacoes').update({ status: 'aprovado' }).eq('id', id)
+    toast.success('Solicitação marcada como aprovada')
+    fetch()
   }
 
   async function recusar() {
     if (!recusaId) return
-    await supabase.from('portal_solicitacoes').update({ status: 'recusado', observacoes_admin: motivoRecusa || 'Recusado pelo administrador' }).eq('id', recusaId)
+    await supabase.from('portal_solicitacoes').update({
+      status: 'recusado',
+      observacoes_admin: motivoRecusa || 'Recusado pelo administrador',
+    }).eq('id', recusaId)
     toast.success('Solicitação recusada')
     setRecusaId(null); setMotivoRecusa(''); fetch()
   }
@@ -591,77 +632,100 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
   const statusBadge = (s: string) => {
     if (s === 'aprovado') return { bg: '#dcfce7', cor: '#15803d', label: '✓ Aprovado' }
     if (s === 'recusado') return { bg: '#fee2e2', cor: '#dc2626', label: '✗ Recusado' }
-    return { bg: '#fef3c7', cor: '#b45309', label: '⏳ Pendente' }
-  }
-
-  const INP: React.CSSProperties = { width:'100%',height:38,border:'1px solid var(--border)',borderRadius:7,padding:'0 10px',fontSize:12,boxSizing:'border-box',background:'var(--input)',color:'var(--foreground)' }
-  const SEL: React.CSSProperties = { ...INP, cursor:'pointer' }
-  function L({ label, col, children }: { label:string; col?:string; children:React.ReactNode }) {
-    return (
-      <div style={{ gridColumn: col }}>
-        <label style={{ fontSize:10,fontWeight:700,color:'var(--muted-foreground)',display:'block',marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em' }}>{label}</label>
-        {children}
-      </div>
-    )
+    return                       { bg: '#fef3c7', cor: '#b45309', label: '⏳ Pendente' }
   }
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+      {/* Toolbar */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16, flexWrap:'wrap', gap:10 }}>
         <div>
-          <div style={{ fontWeight: 800, fontSize: 16 }}>📥 Solicitações de Cadastro</div>
-          <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>Cadastros solicitados pelos encarregados via Portal da Obra</div>
+          <div style={{ fontWeight:800, fontSize:16 }}>📥 Solicitações de Cadastro</div>
+          <div style={{ fontSize:12, color:'var(--muted-foreground)' }}>Enviadas pelos encarregados via Portal · Cadastre manualmente no sistema</div>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display:'flex', gap:6 }}>
           {(['pendente','aprovado','recusado','todos'] as const).map(s => (
-            <button key={s} onClick={() => setFiltroStatus(s)}
-              style={{ height: 32, padding: '0 12px', border: `1px solid ${filtroStatus===s?'var(--primary)':'var(--border)'}`,
-                borderRadius: 7, background: filtroStatus===s?'var(--primary)':'var(--card)', cursor: 'pointer',
-                fontWeight: 600, fontSize: 12, color: filtroStatus===s?'#fff':'var(--foreground)' }}>
-              {s === 'pendente' ? '⏳ Pendentes' : s === 'aprovado' ? '✓ Aprovadas' : s === 'recusado' ? '✗ Recusadas' : 'Todas'}
+            <button key={s} onClick={() => setFiltroStatus(s)} style={{
+              height:32, padding:'0 12px', border:`1px solid ${filtroStatus===s?'var(--primary)':'var(--border)'}`,
+              borderRadius:7, background:filtroStatus===s?'var(--primary)':'var(--card)', cursor:'pointer',
+              fontWeight:600, fontSize:12, color:filtroStatus===s?'#fff':'var(--foreground)',
+            }}>
+              {s==='pendente'?'⏳ Pendentes':s==='aprovado'?'✓ Aprovadas':s==='recusado'?'✗ Recusadas':'Todas'}
             </button>
           ))}
         </div>
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 48, color: 'var(--muted-foreground)' }}>Carregando…</div>
+        <div style={{ textAlign:'center', padding:48, color:'var(--muted-foreground)' }}>Carregando…</div>
       ) : rows.length === 0 ? (
-        <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: 48, textAlign: 'center', color: 'var(--muted-foreground)' }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
-          Nenhuma solicitação {filtroStatus !== 'todos' ? `com status "${filtroStatus}"` : ''}
+        <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12,
+          padding:48, textAlign:'center', color:'var(--muted-foreground)' }}>
+          <div style={{ fontSize:32, marginBottom:8 }}>📭</div>
+          Nenhuma solicitação {filtroStatus !== 'todos' ? `"${filtroStatus}"` : ''}
         </div>
       ) : (
-        <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden' }}>
           {rows.map((r, i) => {
             const d = r.dados ?? {}
             const badge = statusBadge(r.status)
             const fn = funcoes.find(f => f.id === d.funcao_id)
+            const ob = obras.find(o => o.id === r.obra_id)
             return (
-              <div key={r.id} style={{ padding: '14px 18px', borderTop: i > 0 ? '1px solid var(--border)' : 'none', display: 'flex', gap: 14, alignItems: 'center' }}>
-                <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg,#1e3a5f,#2d6a4f)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 14, flexShrink: 0 }}>
-                  {(d.nome ?? '?').slice(0, 2).toUpperCase()}
+              <div key={r.id} style={{ padding:'14px 18px',
+                borderTop: i > 0 ? '1px solid var(--border)' : 'none',
+                display:'flex', gap:14, alignItems:'center' }}>
+                {/* Avatar */}
+                <div style={{ width:40, height:40, borderRadius:'50%',
+                  background:'linear-gradient(135deg,#1e3a5f,#2d6a4f)',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  color:'#fff', fontWeight:800, fontSize:14, flexShrink:0 }}>
+                  {(d.nome ?? '?').slice(0,2).toUpperCase()}
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{d.nome ?? '—'}</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+
+                {/* Info */}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:700, fontSize:14 }}>{d.nome ?? '—'}</div>
+                  <div style={{ fontSize:11, color:'var(--muted-foreground)', marginTop:2, display:'flex', gap:8, flexWrap:'wrap' }}>
                     {d.cpf && <span>CPF: {d.cpf}</span>}
                     {fn && <span>🏷️ {fn.nome}</span>}
-                    {d.tipo_contrato && <span>📋 {d.tipo_contrato.toUpperCase()}</span>}
+                    {ob && <span>🏗️ {ob.nome}</span>}
+                    {d.tipo_contrato && <span style={{ textTransform:'uppercase' }}>📋 {d.tipo_contrato}</span>}
                     {d.data_admissao && <span>📅 {new Date(d.data_admissao + 'T12:00:00').toLocaleDateString('pt-BR')}</span>}
-                    {d.telefone && <span>📞 {d.telefone}</span>}
                   </div>
-                  <div style={{ fontSize: 10, color: 'var(--muted-foreground)', marginTop: 4 }}>
+                  <div style={{ fontSize:10, color:'var(--muted-foreground)', marginTop:3 }}>
                     Enviado {new Date(r.criado_em).toLocaleString('pt-BR')}
-                    {r.observacoes_admin && <span style={{ marginLeft: 8, background: '#fee2e2', color: '#dc2626', borderRadius: 4, padding: '1px 5px' }}>Admin: {r.observacoes_admin}</span>}
+                    {r.observacoes_admin && (
+                      <span style={{ marginLeft:8, background:'#fee2e2', color:'#dc2626', borderRadius:4, padding:'1px 5px' }}>
+                        {r.observacoes_admin}
+                      </span>
+                    )}
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                  <span style={{ background: badge.bg, color: badge.cor, borderRadius: 6, padding: '3px 9px', fontSize: 11, fontWeight: 700 }}>{badge.label}</span>
+
+                {/* Ações */}
+                <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }}>
+                  <span style={{ background:badge.bg, color:badge.cor, borderRadius:6, padding:'3px 9px', fontSize:11, fontWeight:700 }}>
+                    {badge.label}
+                  </span>
+                  {/* Visualizar + PDF */}
+                  <Button size="sm" variant="outline" onClick={() => setModalVer(r)}
+                    style={{ height:30, fontSize:12, gap:4 }}>
+                    👁 Ver
+                  </Button>
+                  <Button size="sm" onClick={() => gerarPDF(r, funcoes, obras)}
+                    style={{ height:30, fontSize:12, background:'#1e3a5f', color:'#fff', gap:4 }}>
+                    🖨️ PDF
+                  </Button>
                   {r.status === 'pendente' && (<>
-                    <Button size="sm" onClick={() => abrirModal(r)} style={{ gap: 4, height: 30, fontSize: 12, background: '#15803d', color: '#fff' }}>✓ Aprovar</Button>
+                    <Button size="sm" onClick={() => marcarAprovado(r.id)}
+                      style={{ height:30, fontSize:12, background:'#15803d', color:'#fff' }}>
+                      ✓ OK
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => { setRecusaId(r.id); setMotivoRecusa('') }}
-                      style={{ gap: 4, height: 30, fontSize: 12, borderColor: '#dc2626', color: '#dc2626' }}>✗ Recusar</Button>
+                      style={{ height:30, fontSize:12, borderColor:'#dc2626', color:'#dc2626' }}>
+                      ✗
+                    </Button>
                   </>)}
                 </div>
               </div>
@@ -670,225 +734,156 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
         </div>
       )}
 
-      {/* ── Modal Aprovação — formulário completo editável ── */}
-      {modalApr && (
-        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}>
-          <div style={{ background:'var(--background)',borderRadius:16,width:'100%',maxWidth:680,maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-            {/* Header */}
-            <div style={{ padding:'18px 22px 14px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between' }}>
-              <div>
-                <div style={{ fontWeight:800,fontSize:17 }}>✓ Aprovar Solicitação</div>
-                <div style={{ fontSize:12,color:'var(--muted-foreground)',marginTop:2 }}>Revise e edite os dados antes de cadastrar o colaborador</div>
-              </div>
-              <button onClick={()=>setModalApr(null)} style={{ border:'none',background:'none',cursor:'pointer',padding:4 }}>✕</button>
-            </div>
-            {/* Corpo — scrollável */}
-            <div style={{ overflowY:'auto',flex:1,padding:'16px 22px',display:'flex',flexDirection:'column',gap:16 }}>
+      {/* ── Modal Visualizar ── */}
+      {modalVer && (() => {
+        const d = modalVer.dados ?? {}
+        const fn = funcoes.find(f => f.id === d.funcao_id)
+        const ob = obras.find(o => o.id === modalVer.obra_id)
+        const badge = statusBadge(modalVer.status)
+        const fmtDate = (v: string) => v ? new Date(v + 'T12:00:00').toLocaleDateString('pt-BR') : '—'
+        const fmt = (v: any) => v || '—'
+        const sexo: Record<string,string> = { M:'Masculino', F:'Feminino' }
+        const civil: Record<string,string> = { solteiro:'Solteiro(a)', casado:'Casado(a)', divorciado:'Divorciado(a)', viuvo:'Viúvo(a)', uniao_estavel:'União Estável' }
+        const vtLabel: Record<string,string> = { nenhum:'Não recebe', gasolina:'Aux. Gasolina', transporte:'Transporte Público' }
+        const contr: Record<string,string> = { clt:'CLT', autonomo:'Autônomo / PJ', estagio:'Estágio' }
+        const tconta: Record<string,string> = { corrente:'Corrente', poupanca:'Poupança', salario:'Conta Salário' }
 
-              {/* Dados Pessoais */}
-              <div>
-                <div style={{ fontWeight:700,fontSize:12,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10 }}>👤 Dados Pessoais</div>
-                <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 }}>
-                  <L label="Nome Completo *" col="1/-1"><input value={ed.nome} onChange={e=>SE('nome',e.target.value)} style={INP} /></L>
-                  <L label="CPF"><input value={ed.cpf} onChange={e=>SE('cpf',e.target.value)} placeholder="000.000.000-00" style={INP} /></L>
-                  <L label="RG"><input value={ed.rg} onChange={e=>SE('rg',e.target.value)} placeholder="00.000.000-0" style={INP} /></L>
-                  <L label="PIS/NIT"><input value={ed.pis_nit} onChange={e=>SE('pis_nit',e.target.value)} placeholder="000.00000.00-0" style={INP} /></L>
-                  <L label="Nasc."><input type="date" value={ed.data_nascimento} onChange={e=>SE('data_nascimento',e.target.value)} style={INP} /></L>
-                  <L label="Gênero">
-                    <select value={ed.genero} onChange={e=>SE('genero',e.target.value)} style={SEL}>
-                      <option value="">—</option><option value="M">Masc.</option><option value="F">Fem.</option><option value="outro">Outro</option>
-                    </select>
-                  </L>
-                  <L label="Estado Civil">
-                    <select value={ed.estado_civil} onChange={e=>SE('estado_civil',e.target.value)} style={SEL}>
-                      <option value="">—</option><option value="solteiro">Solteiro(a)</option><option value="casado">Casado(a)</option>
-                      <option value="divorciado">Divorciado(a)</option><option value="viuvo">Viúvo(a)</option><option value="uniao_estavel">União Estável</option>
-                    </select>
-                  </L>
-                  <L label="Telefone"><input value={ed.telefone} onChange={e=>SE('telefone',e.target.value)} style={INP} /></L>
-                  <L label="E-mail"><input value={ed.email} onChange={e=>SE('email',e.target.value)} style={INP} /></L>
-                  <L label="CTPS Nº"><input value={ed.ctps_numero} onChange={e=>SE('ctps_numero',e.target.value)} style={INP} /></L>
-                  <L label="CTPS Série"><input value={ed.ctps_serie} onChange={e=>SE('ctps_serie',e.target.value)} style={INP} /></L>
-                </div>
-              </div>
-
-              {/* Endereço */}
-              <div>
-                <div style={{ fontWeight:700,fontSize:12,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10 }}>📍 Endereço</div>
-                <div style={{ display:'grid',gridTemplateColumns:'110px 1fr',gap:10 }}>
-                  <L label="CEP"><input value={ed.cep} onChange={e=>SE('cep',e.target.value)} placeholder="00000-000" style={INP} /></L>
-                  <L label="Endereço"><input value={ed.endereco} onChange={e=>SE('endereco',e.target.value)} style={INP} /></L>
-                </div>
-                <div style={{ display:'grid',gridTemplateColumns:'1fr 70px',gap:10,marginTop:10 }}>
-                  <L label="Cidade"><input value={ed.cidade} onChange={e=>SE('cidade',e.target.value)} style={INP} /></L>
-                  <L label="UF"><input value={ed.estado} onChange={e=>SE('estado',e.target.value.toUpperCase().slice(0,2))} maxLength={2} style={INP} /></L>
-                </div>
-              </div>
-
-              {/* Contrato */}
-              <div>
-                <div style={{ fontWeight:700,fontSize:12,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10 }}>📋 Contrato</div>
-                <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10 }}>
-                  <L label="Função *" col="1/-1">
-                    <select value={ed.funcao_id} onChange={e=>SE('funcao_id',e.target.value)} style={SEL}>
-                      <option value="">Selecione…</option>
-                      {funcoes.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
-                    </select>
-                  </L>
-                  <L label="Tipo Contrato">
-                    <select value={ed.tipo_contrato} onChange={e=>SE('tipo_contrato',e.target.value)} style={SEL}>
-                      <option value="clt">CLT</option><option value="autonomo">Autônomo</option><option value="estagio">Estágio</option>
-                    </select>
-                  </L>
-                  <L label="Admissão"><input type="date" value={ed.data_admissao} onChange={e=>SE('data_admissao',e.target.value)} style={INP} /></L>
-                  <L label="Obra">
-                    <select value={ed.obra_id} onChange={e=>SE('obra_id',e.target.value)} style={SEL}>
-                      <option value="">Sem obra</option>
-                      {obras.map(o=><option key={o.id} value={o.id}>{o.nome}</option>)}
-                    </select>
-                  </L>
-                </div>
-              </div>
-
-              {/* Bancário */}
-              <div>
-                <div style={{ fontWeight:700,fontSize:12,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10 }}>🏦 Dados Bancários</div>
-                <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 }}>
-                  <L label="Banco"><input value={ed.banco} onChange={e=>SE('banco',e.target.value)} style={INP} /></L>
-                  <L label="Tipo Conta">
-                    <select value={ed.tipo_conta} onChange={e=>SE('tipo_conta',e.target.value)} style={SEL}>
-                      <option value="corrente">Corrente</option>
-                      <option value="poupanca">Poupança</option>
-                      <option value="salario">Conta Salário</option>
-                    </select>
-                  </L>
-                  <L label="Agência"><input value={ed.agencia} onChange={e=>SE('agencia',e.target.value)} style={INP} /></L>
-                  <L label="Conta"><input value={ed.conta} onChange={e=>SE('conta',e.target.value)} style={INP} /></L>
-                  <L label="Tipo PIX">
-                    <select value={ed.pix_tipo} onChange={e=>SE('pix_tipo',e.target.value)} style={SEL}>
-                      <option value="">Nenhum</option>
-                      <option value="cpf">CPF</option>
-                      <option value="telefone">Telefone</option>
-                      <option value="email">E-mail</option>
-                      <option value="chave_aleatoria">Chave Aleatória</option>
-                    </select>
-                  </L>
-                  <L label="Chave PIX"><input value={ed.pix_chave} onChange={e=>SE('pix_chave',e.target.value)} style={INP} /></L>
-                </div>
-              </div>
-
-              {/* VT */}
-              <div>
-                <div style={{ fontWeight:700,fontSize:12,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10 }}>🚌 Vale Transporte</div>
-                <div style={{ display:'flex',flexDirection:'column',gap:10 }}>
-                  <L label="Modalidade VT">
-                    <select value={ed.vt_modalidade} onChange={e=>{
-                      SE('vt_modalidade',e.target.value)
-                      setEdVtTrechosIda([]); setEdVtTrechosVolta([])
-                    }} style={SEL}>
-                      <option value="nenhum">Não tem VT</option>
-                      <option value="gasolina">Aux. Gasolina</option>
-                      <option value="transporte">Transporte Público</option>
-                    </select>
-                  </L>
-                  {ed.vt_modalidade === 'gasolina' && (
-                    <L label="Valor/dia gasolina (R$)">
-                      <input type="number" value={ed.vt_gasolina_valor_dia} onChange={e=>SE('vt_gasolina_valor_dia',e.target.value)} step="0.01" style={INP} />
-                    </L>
-                  )}
-                  {ed.vt_modalidade === 'transporte' && (<>
-                    <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 }}>
-                      <L label="Empresa Cartão"><input value={ed.vt_cartao_tipo} onChange={e=>SE('vt_cartao_tipo',e.target.value)} style={INP} /></L>
-                      <L label="Nº Cartão"><input value={ed.vt_cartao_numero} onChange={e=>SE('vt_cartao_numero',e.target.value)} style={INP} /></L>
-                    </div>
-                    {/* Trechos IDA */}
-                    <div>
-                      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6 }}>
-                        <span style={{ fontSize:11,fontWeight:700,color:'var(--muted-foreground)' }}>➡️ TRECHOS DE IDA</span>
-                        <button type="button" onClick={()=>setEdVtTrechosIda(p=>[...p,{id:crypto.randomUUID(),nome_linha:'',tipo_veiculo:'onibus',valor:'',tem_integracao:false}])}
-                          style={{ fontSize:11,padding:'2px 8px',borderRadius:5,border:'1px solid #16a34a',background:'#f0fdf4',color:'#15803d',cursor:'pointer' }}>+ Trecho</button>
-                      </div>
-                      {edVtTrechosIda.length===0&&<div style={{ fontSize:11,color:'var(--muted-foreground)',fontStyle:'italic' }}>Nenhum trecho</div>}
-                      {edVtTrechosIda.map((t,i)=>(
-                        <div key={t.id} style={{ background:'var(--muted)',borderRadius:6,padding:'8px 10px',marginBottom:6,display:'grid',gridTemplateColumns:'1fr 100px 80px auto',gap:8,alignItems:'end' }}>
-                          <L label="Linha">
-                            <input value={t.nome_linha} onChange={e=>setEdVtTrechosIda(p=>p.map((x,j)=>j===i?{...x,nome_linha:e.target.value}:x))} style={INP} />
-                          </L>
-                          <L label="Veículo">
-                            <select value={t.tipo_veiculo} onChange={e=>setEdVtTrechosIda(p=>p.map((x,j)=>j===i?{...x,tipo_veiculo:e.target.value}:x))} style={SEL}>
-                              {[['onibus','Ônibus'],['metro','Metrô'],['trem','Trem'],['brt','BRT'],['outro','Outro']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
-                            </select>
-                          </L>
-                          <L label="Valor">
-                            <input type="number" step="0.01" value={t.valor} onChange={e=>setEdVtTrechosIda(p=>p.map((x,j)=>j===i?{...x,valor:e.target.value}:x))} style={INP} />
-                          </L>
-                          <button type="button" onClick={()=>setEdVtTrechosIda(p=>p.filter((_,j)=>j!==i))}
-                            style={{ height:38,padding:'0 8px',borderRadius:5,border:'1px solid var(--destructive)',background:'transparent',cursor:'pointer',color:'var(--destructive)' }}>✕</button>
-                        </div>
-                      ))}
-                    </div>
-                    {/* Trechos VOLTA */}
-                    <div>
-                      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6 }}>
-                        <span style={{ fontSize:11,fontWeight:700,color:'var(--muted-foreground)' }}>⬅️ TRECHOS DE VOLTA</span>
-                        <button type="button" onClick={()=>setEdVtTrechosVolta(p=>[...p,{id:crypto.randomUUID(),nome_linha:'',tipo_veiculo:'onibus',valor:'',tem_integracao:false}])}
-                          style={{ fontSize:11,padding:'2px 8px',borderRadius:5,border:'1px solid #16a34a',background:'#f0fdf4',color:'#15803d',cursor:'pointer' }}>+ Trecho</button>
-                      </div>
-                      {edVtTrechosVolta.length===0&&<div style={{ fontSize:11,color:'var(--muted-foreground)',fontStyle:'italic' }}>Nenhum trecho</div>}
-                      {edVtTrechosVolta.map((t,i)=>(
-                        <div key={t.id} style={{ background:'var(--muted)',borderRadius:6,padding:'8px 10px',marginBottom:6,display:'grid',gridTemplateColumns:'1fr 100px 80px auto',gap:8,alignItems:'end' }}>
-                          <L label="Linha">
-                            <input value={t.nome_linha} onChange={e=>setEdVtTrechosVolta(p=>p.map((x,j)=>j===i?{...x,nome_linha:e.target.value}:x))} style={INP} />
-                          </L>
-                          <L label="Veículo">
-                            <select value={t.tipo_veiculo} onChange={e=>setEdVtTrechosVolta(p=>p.map((x,j)=>j===i?{...x,tipo_veiculo:e.target.value}:x))} style={SEL}>
-                              {[['onibus','Ônibus'],['metro','Metrô'],['trem','Trem'],['brt','BRT'],['outro','Outro']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
-                            </select>
-                          </L>
-                          <L label="Valor">
-                            <input type="number" step="0.01" value={t.valor} onChange={e=>setEdVtTrechosVolta(p=>p.map((x,j)=>j===i?{...x,valor:e.target.value}:x))} style={INP} />
-                          </L>
-                          <button type="button" onClick={()=>setEdVtTrechosVolta(p=>p.filter((_,j)=>j!==i))}
-                            style={{ height:38,padding:'0 8px',borderRadius:5,border:'1px solid var(--destructive)',background:'transparent',cursor:'pointer',color:'var(--destructive)' }}>✕</button>
-                        </div>
-                      ))}
-                    </div>
-                  </>)}
-                </div>
-              </div>
-
-              {/* Obs */}
-              <div>
-                <label style={{ fontSize:10,fontWeight:700,color:'var(--muted-foreground)',display:'block',marginBottom:5,textTransform:'uppercase' }}>Observações</label>
-                <textarea value={ed.observacoes} onChange={e=>SE('observacoes',e.target.value)} rows={2}
-                  style={{ width:'100%',border:'1px solid var(--border)',borderRadius:7,padding:'8px 10px',fontSize:12,boxSizing:'border-box',background:'var(--input)',color:'var(--foreground)',resize:'vertical' }} />
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div style={{ padding:'14px 22px',borderTop:'1px solid var(--border)',display:'flex',justifyContent:'flex-end',gap:10 }}>
-              <Button variant="outline" onClick={()=>setModalApr(null)}>Cancelar</Button>
-              <Button onClick={aprovar} disabled={aprovando.has(modalApr.id) || !ed.nome.trim()}
-                style={{ background:'#15803d',color:'#fff',gap:6 }}>
-                {aprovando.has(modalApr.id)?'⏳ Cadastrando…':'✓ Confirmar e Cadastrar Colaborador'}
-              </Button>
+        const SV = ({ t, children }: { t: string; children: React.ReactNode }) => (
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:9, fontWeight:800, textTransform:'uppercase', letterSpacing:'.07em',
+              color:'#fff', background:'#1e3a5f', padding:'3px 8px', borderRadius:'3px 3px 0 0' }}>{t}</div>
+            <div style={{ border:'1px solid #e5e7eb', borderTop:'none', borderRadius:'0 0 5px 5px', overflow:'hidden' }}>
+              {children}
             </div>
           </div>
-        </div>
-      )}
+        )
+        const Row = ({ a, av, b, bv }: { a:string; av:string; b?:string; bv?:string }) => (
+          <div style={{ display:'grid', gridTemplateColumns: b ? '1fr 1fr' : '1fr', borderBottom:'1px solid #e5e7eb' }}>
+            <div style={{ display:'flex' }}>
+              <span style={{ width:130, padding:'6px 8px', background:'#f9fafb', fontSize:11, fontWeight:700, color:'#374151', flexShrink:0 }}>{a}</span>
+              <span style={{ padding:'6px 8px', fontSize:12 }}>{av}</span>
+            </div>
+            {b && (
+              <div style={{ display:'flex', borderLeft:'1px solid #e5e7eb' }}>
+                <span style={{ width:130, padding:'6px 8px', background:'#f9fafb', fontSize:11, fontWeight:700, color:'#374151', flexShrink:0 }}>{b}</span>
+                <span style={{ padding:'6px 8px', fontSize:12 }}>{bv}</span>
+              </div>
+            )}
+          </div>
+        )
+
+        return (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:300,
+            display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+            <div style={{ background:'var(--background)', borderRadius:14, width:'100%', maxWidth:720,
+              maxHeight:'92vh', display:'flex', flexDirection:'column', overflow:'hidden',
+              boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+              {/* Header */}
+              <div style={{ padding:'16px 20px 12px', borderBottom:'1px solid var(--border)',
+                display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <div>
+                  <div style={{ fontWeight:800, fontSize:16 }}>👷 {d.nome ?? '—'}</div>
+                  <div style={{ fontSize:12, color:'var(--muted-foreground)', marginTop:2, display:'flex', gap:8 }}>
+                    {ob && <span>🏗️ {ob.nome}</span>}
+                    <span style={{ background:badge.bg, color:badge.cor, borderRadius:5, padding:'1px 7px', fontWeight:700, fontSize:11 }}>{badge.label}</span>
+                    <span style={{ color:'var(--muted-foreground)' }}>Enviado {new Date(modalVer.criado_em).toLocaleString('pt-BR')}</span>
+                  </div>
+                </div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <Button size="sm" onClick={() => gerarPDF(modalVer, funcoes, obras)}
+                    style={{ background:'#1e3a5f', color:'#fff', height:32, fontSize:12 }}>
+                    🖨️ Imprimir / PDF
+                  </Button>
+                  <button onClick={() => setModalVer(null)}
+                    style={{ border:'none', background:'none', cursor:'pointer', fontSize:18, color:'var(--muted-foreground)', padding:'0 4px' }}>✕</button>
+                </div>
+              </div>
+
+              {/* Corpo scrollável */}
+              <div style={{ overflowY:'auto', flex:1, padding:'16px 20px' }}>
+                <SV t="Identificação">
+                  <Row a="Nome" av={fmt(d.nome)} />
+                  <Row a="CPF" av={fmt(d.cpf)} b="RG" bv={fmt(d.rg)} />
+                  <Row a="PIS / NIT" av={fmt(d.pis_nit)} b="Nascimento" bv={fmtDate(d.data_nascimento)} />
+                  <Row a="Sexo" av={sexo[d.genero ?? ''] ?? fmt(d.genero)} b="Estado Civil" bv={civil[d.estado_civil ?? ''] ?? fmt(d.estado_civil)} />
+                  <Row a="Telefone" av={fmt(d.telefone)} b="E-mail" bv={fmt(d.email)} />
+                  <Row a="CTPS Nº" av={fmt(d.ctps_numero)} b="Série" bv={fmt(d.ctps_serie)} />
+                </SV>
+
+                <SV t="Endereço">
+                  <Row a="Endereço" av={fmt(d.endereco)} />
+                  <Row a="Cidade" av={fmt(d.cidade)} b="UF" bv={fmt(d.estado)} />
+                  <Row a="CEP" av={fmt(d.cep)} />
+                </SV>
+
+                <SV t="Contrato">
+                  <Row a="Função" av={fn?.nome ?? '—'} b="Tipo" bv={contr[d.tipo_contrato ?? ''] ?? fmt(d.tipo_contrato)} />
+                  <Row a="Data de Admissão" av={fmtDate(d.data_admissao)} b="Obra" bv={ob?.nome ?? '—'} />
+                </SV>
+
+                <SV t="Dados Bancários">
+                  <Row a="Banco" av={fmt(d.banco)} b="Tipo de Conta" bv={tconta[d.tipo_conta ?? ''] ?? fmt(d.tipo_conta)} />
+                  <Row a="Agência" av={fmt(d.agencia)} b="Conta" bv={fmt(d.conta)} />
+                  <Row a="Tipo PIX" av={fmt(d.pix_tipo)} b="Chave PIX" bv={fmt(d.pix_chave)} />
+                </SV>
+
+                <SV t="Vale Transporte">
+                  <Row a="Modalidade" av={vtLabel[d.vt_modalidade ?? 'nenhum'] ?? fmt(d.vt_modalidade)} />
+                  {d.vt_modalidade === 'gasolina' && (
+                    <Row a="Valor diário" av={d.vt_gasolina_valor_dia ? `R$ ${parseFloat(d.vt_gasolina_valor_dia).toFixed(2)}` : '—'} />
+                  )}
+                  {d.vt_modalidade === 'transporte' && (<>
+                    <Row a="Empresa Cartão" av={fmt(d.vt_cartao_tipo)} b="Nº Cartão" bv={fmt(d.vt_cartao_numero)} />
+                    <Row a="Trechos de Ida" av={fmt(d.vt_trecho_ida)} />
+                    <Row a="Trechos de Volta" av={fmt(d.vt_trecho_volta)} />
+                  </>)}
+                </SV>
+
+                {d.observacoes && (
+                  <SV t="Observações">
+                    <Row a="Obs." av={d.observacoes} />
+                  </SV>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)',
+                display:'flex', justifyContent:'space-between', alignItems:'center', gap:10 }}>
+                <div style={{ fontSize:11, color:'var(--muted-foreground)' }}>
+                  ℹ️ Cadastre manualmente no sistema após conferir os dados
+                </div>
+                <div style={{ display:'flex', gap:8 }}>
+                  {modalVer.status === 'pendente' && (
+                    <Button size="sm" onClick={() => { marcarAprovado(modalVer.id); setModalVer(null) }}
+                      style={{ height:32, fontSize:12, background:'#15803d', color:'#fff' }}>
+                      ✓ Marcar como Aprovado
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" onClick={() => setModalVer(null)} style={{ height:32, fontSize:12 }}>Fechar</Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Modal Recusa ── */}
       {recusaId && (
-        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16 }}>
-          <div style={{ background:'var(--background)',borderRadius:14,width:'100%',maxWidth:400,padding:22,boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-            <div style={{ fontWeight:800,fontSize:16,marginBottom:14 }}>✗ Recusar Solicitação</div>
-            <label style={{ fontSize:12,fontWeight:700,display:'block',marginBottom:6,color:'var(--muted-foreground)' }}>Motivo da recusa (opcional)</label>
-            <textarea value={motivoRecusa} onChange={e=>setMotivoRecusa(e.target.value)} rows={3}
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:300,
+          display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ background:'var(--background)', borderRadius:14, width:'100%', maxWidth:400,
+            padding:22, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontWeight:800, fontSize:16, marginBottom:12 }}>✗ Recusar Solicitação</div>
+            <label style={{ fontSize:12, fontWeight:700, display:'block', marginBottom:6, color:'var(--muted-foreground)' }}>
+              Motivo (opcional)
+            </label>
+            <textarea value={motivoRecusa} onChange={e => setMotivoRecusa(e.target.value)} rows={3}
               placeholder="Explique o motivo da recusa…"
-              style={{ width:'100%',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',fontSize:13,boxSizing:'border-box',background:'var(--input)',color:'var(--foreground)',marginBottom:14 }} />
-            <div style={{ display:'flex',justifyContent:'flex-end',gap:10 }}>
-              <Button variant="outline" onClick={()=>setRecusaId(null)}>Cancelar</Button>
-              <Button onClick={recusar} style={{ background:'#dc2626',color:'#fff' }}>✗ Confirmar Recusa</Button>
+              style={{ width:'100%', border:'1px solid var(--border)', borderRadius:8, padding:'8px 10px',
+                fontSize:13, boxSizing:'border-box', background:'var(--input)', color:'var(--foreground)', marginBottom:14 }} />
+            <div style={{ display:'flex', justifyContent:'flex-end', gap:10 }}>
+              <Button variant="outline" onClick={() => setRecusaId(null)}>Cancelar</Button>
+              <Button onClick={recusar} style={{ background:'#dc2626', color:'#fff' }}>✗ Confirmar Recusa</Button>
             </div>
           </div>
         </div>
@@ -896,6 +891,7 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
     </div>
   )
 }
+
 
 // ─── COMPONENTE PRINCIPAL ─────────────────────────────────────────────────────
 export default function Colaboradores() {

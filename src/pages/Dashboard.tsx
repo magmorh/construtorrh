@@ -8,6 +8,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  Cell,
   ResponsiveContainer,
 } from 'recharts'
 import {
@@ -166,7 +167,7 @@ export default function Dashboard() {
           0
         )
 
-        // Colaboradores por obra — agrupamento client-side
+        // Colaboradores por obra — agrupamento client-side (todas as obras)
         const obraCount: Record<string, number> = {}
         ;(colabPorObraRes.data ?? []).forEach((c: { obras: { nome: string }[] | { nome: string } | null }) => {
           const obraObj = Array.isArray(c.obras) ? c.obras[0] : c.obras
@@ -175,7 +176,6 @@ export default function Dashboard() {
         })
         const colabPorObra: ColaboradoresPorObra[] = Object.entries(obraCount)
           .sort((a, b) => b[1] - a[1])
-          .slice(0, 5)
           .map(([obra, total]) => ({ obra, total }))
 
         // Últimos acidentes — flatten join
@@ -284,11 +284,11 @@ export default function Dashboard() {
 
       {/* ── Gráfico + Obras recentes ───────────────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        {/* Gráfico de barras — colaboradores por obra */}
+        {/* Gráfico de linhas — colaboradores por obra */}
         <Card className="xl:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold">
-              Colaboradores Ativos por Obra (Top 5)
+              👷 Colaboradores Ativos por Obra
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
@@ -296,49 +296,55 @@ export default function Dashboard() {
               <p className="text-sm text-muted-foreground py-8 text-center">
                 Nenhum dado disponível
               </p>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart
-                  data={d.colabPorObra}
-                  margin={{ top: 4, right: 16, left: -10, bottom: 4 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="obra"
-                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval={0}
-                    width={80}
-                    tickFormatter={(v: string) =>
-                      v.length > 12 ? v.slice(0, 12) + '…' : v
-                    }
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
-                    tickLine={false}
-                    axisLine={false}
-                    allowDecimals={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: 8,
-                      fontSize: 12,
-                    }}
-                    cursor={{ fill: 'hsl(var(--accent)/0.08)' }}
-                    formatter={(value: number) => [value, 'Colaboradores']}
-                  />
-                  <Bar
-                    dataKey="total"
-                    radius={[4, 4, 0, 0]}
-                    fill="hsl(var(--primary))"
-                    maxBarSize={48}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
+            ) : (() => {
+              const CORES = ['#6366f1','#f59e0b','#10b981','#ef4444','#3b82f6','#ec4899','#14b8a6','#f97316']
+
+              return (
+                <ResponsiveContainer width="100%" height={Math.max(180, d.colabPorObra.length * 46)}>
+                  <BarChart
+                    layout="vertical"
+                    data={d.colabPorObra}
+                    margin={{ top: 4, right: 40, left: 8, bottom: 4 }}
+                    barCategoryGap="28%"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                    <XAxis
+                      type="number"
+                      allowDecimals={false}
+                      tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="obra"
+                      width={130}
+                      tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v: string) => v.length > 18 ? v.slice(0, 18) + '…' : v}
+                    />
+                    <Tooltip
+                      isAnimationActive={false}
+                      cursor={{ fill: 'transparent' }}
+                      contentStyle={{
+                        background: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: 8,
+                        fontSize: 12,
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                      }}
+                      formatter={(value: number) => [`${value} colaborador(es)`, 'Total']}
+                    />
+                    <Bar dataKey="total" radius={[0, 6, 6, 0]} maxBarSize={28} isAnimationActive={false}>
+                      {d.colabPorObra.map((_, i) => (
+                        <Cell key={i} fill={CORES[i % CORES.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )
+            })()}
           </CardContent>
         </Card>
 

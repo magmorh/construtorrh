@@ -5,6 +5,7 @@ import {
   Search, Building2, X,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/hooks/useAuth'
 import { formatCurrency } from '@/lib/utils'
 import { calcINSS, calcIR, fetchTabelasEncargos, type FaixaINSS, type FaixaIR } from '@/lib/encargos'
 import { PageHeader, EmptyState, LoadingSkeleton } from '@/components/Shared'
@@ -48,6 +49,23 @@ interface LancItem {
   inss: number
   ir: number
   liquido: number
+  // ── campos gravados no banco ao aprovar (snapshot) ──
+  vh_usado: number          // valor/hora no momento do cálculo
+  vt_diario_usado: number   // VT/dia no momento do cálculo
+  // snap do banco (se já aprovado anteriormente)
+  snap_valor_total:   number | null
+  snap_liquido:       number | null
+  snap_valor_horas:   number | null
+  snap_valor_dsr:     number | null
+  snap_valor_premio:  number | null
+  snap_valor_producao:number | null
+  snap_inss:          number | null
+  snap_ir:            number | null
+  snap_desconto_vt:   number | null
+  snap_desconto_adiant: number | null
+  snap_faltas:        number | null
+  snap_valor_hora:    number | null
+  snap_fechado_em:    string | null
 }
 
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
@@ -66,6 +84,7 @@ export default function FechamentoPonto() {
   const [mes, setMes] = useState(hoje.getMonth() + 1)
   const [busca, setBusca] = useState('')
 
+  const { user } = useAuth()
   const [lancamentos, setLancamentos] = useState<LancItem[]>([])
   const [loading, setLoading] = useState(false)
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
@@ -88,6 +107,10 @@ export default function FechamentoPonto() {
       .from('ponto_lancamentos')
       .select(`
         id, colaborador_id, obra_id, mes_referencia, data_inicio, data_fim, status,
+        snap_valor_hora, snap_horas_normais, snap_horas_extras, snap_valor_horas,
+        snap_valor_producao, snap_valor_dsr, snap_valor_premio, snap_valor_total,
+        snap_faltas, snap_vt_diario, snap_desconto_vt, snap_desconto_adiant,
+        snap_inss, snap_ir, snap_liquido, snap_fechado_em,
         colaboradores(nome, chapa, tipo_contrato, funcao_id, vale_transporte, vt_dados, funcoes(nome)),
         obras(nome)
       `)
@@ -204,11 +227,66 @@ export default function FechamentoPonto() {
 
     const lista: LancItem[] = lancsRaw.map((l: any) => {
       const colab = l.colaboradores
+      const tipo  = colab?.tipo_contrato ?? 'clt'
       const horasAgg = mapaHoras[l.id] ?? { norm: 0, extra: 0, dias: 0, diasDatas: new Set() }
-      const vh = getVH(colab?.funcao_id ?? null, colab?.tipo_contrato ?? 'clt')
+
+      // ══ TRAVA DE SNAPSHOT ══════════════════════════════════════════════════
+      // Lançamentos já aprovados/liberados/pagos usam EXCLUSIVAMENTE os valores
+      // gravados no banco no momento do fechamento. Nenhuma alteração posterior
+      // em valor/hora, horário da obra ou playbook afeta registros fechados.
+      const jaFechado = l.status !== 'em_fechamento' && l.snap_valor_total != null
+      if (jaFechado) {
+        return {
+          id: l.id,
+          colaborador_id: l.colaborador_id,
+          colaborador_nome: colab?.nome ?? '—',
+          colaborador_chapa: colab?.chapa ?? null,
+          funcao_nome: colab?.funcoes?.nome ?? '—',
+          funcao_id: colab?.funcao_id ?? null,
+          tipo_contrato: tipo,
+          obra_id: l.obra_id,
+          obra_nome: l.obras?.nome ?? '—',
+          mes_referencia: l.mes_referencia,
+          data_inicio: l.data_inicio,
+          data_fim: l.data_fim,
+          status: l.status,
+          horas_normais:  l.snap_horas_normais  ?? horasAgg.norm,
+          horas_extras:   l.snap_horas_extras   ?? horasAgg.extra,
+          valor_horas:    l.snap_valor_horas    ?? 0,
+          valor_producao: l.snap_valor_producao ?? 0,
+          valor_dsr:      l.snap_valor_dsr      ?? 0,
+          valor_premio:   l.snap_valor_premio   ?? 0,
+          valor_total:    l.snap_valor_total     ?? 0,
+          dias_trabalhados: horasAgg.dias,
+          faltas:         l.snap_faltas          ?? 0,
+          desconto_vt:    l.snap_desconto_vt     ?? 0,
+          desconto_adiant:l.snap_desconto_adiant ?? 0,
+          valor_vt_dia:   l.snap_vt_diario       ?? 0,
+          inss:           l.snap_inss            ?? 0,
+          ir:             l.snap_ir              ?? 0,
+          liquido:        l.snap_liquido         ?? 0,
+          vh_usado:       l.snap_valor_hora      ?? 0,
+          vt_diario_usado:l.snap_vt_diario       ?? 0,
+          snap_valor_total:    l.snap_valor_total,
+          snap_liquido:        l.snap_liquido,
+          snap_valor_horas:    l.snap_valor_horas,
+          snap_valor_dsr:      l.snap_valor_dsr,
+          snap_valor_premio:   l.snap_valor_premio,
+          snap_valor_producao: l.snap_valor_producao,
+          snap_inss:           l.snap_inss,
+          snap_ir:             l.snap_ir,
+          snap_desconto_vt:    l.snap_desconto_vt,
+          snap_desconto_adiant:l.snap_desconto_adiant,
+          snap_faltas:         l.snap_faltas,
+          snap_valor_hora:     l.snap_valor_hora,
+          snap_fechado_em:     l.snap_fechado_em,
+        } as LancItem
+      }
+      // ══ FIM TRAVA — abaixo: cálculo ao vivo apenas para em_fechamento ══════
+
+      const vh = getVH(colab?.funcao_id ?? null, tipo)
       const valorHoras = horasAgg.norm * vh + horasAgg.extra * vh * 1.5
       const valorProd  = mapaProd[l.id] ?? 0
-      const tipo = colab?.tipo_contrato ?? 'clt'
 
       let valorTotal = 0
       let dsr = 0
@@ -288,6 +366,23 @@ export default function FechamentoPonto() {
         inss,
         ir,
         liquido,
+        // campos para snapshot
+        vh_usado: vh,
+        vt_diario_usado: vtDiario,
+        // snap do banco (nulos se ainda não aprovado)
+        snap_valor_total:    l.snap_valor_total    ?? null,
+        snap_liquido:        l.snap_liquido        ?? null,
+        snap_valor_horas:    l.snap_valor_horas    ?? null,
+        snap_valor_dsr:      l.snap_valor_dsr      ?? null,
+        snap_valor_premio:   l.snap_valor_premio   ?? null,
+        snap_valor_producao: l.snap_valor_producao ?? null,
+        snap_inss:           l.snap_inss           ?? null,
+        snap_ir:             l.snap_ir             ?? null,
+        snap_desconto_vt:    l.snap_desconto_vt    ?? null,
+        snap_desconto_adiant:l.snap_desconto_adiant?? null,
+        snap_faltas:         l.snap_faltas         ?? null,
+        snap_valor_hora:     l.snap_valor_hora     ?? null,
+        snap_fechado_em:     l.snap_fechado_em     ?? null,
       }
     })
     setLancamentos(lista)
@@ -333,13 +428,36 @@ export default function FechamentoPonto() {
   const pagos       = lancamentos.filter(l => l.status === 'pago')
 
   // ── Aprovar lançamento (em_fechamento → aprovado) ────────────────────────
+  // ── Aprovar + gravar snapshot imutável dos valores calculados ────────────
   async function aprovarLanc(id: string) {
+    const lanc = lancamentos.find(l => l.id === id)
+    if (!lanc) return
     setSaving(true)
-    const { error } = await supabase.from('ponto_lancamentos')
-      .update({ status: 'aprovado' }).eq('id', id)
+    const { error } = await supabase.from('ponto_lancamentos').update({
+      status: 'aprovado',
+      // ──── SNAPSHOT: valores congelados no momento do fechamento ────────────
+      snap_valor_hora:      lanc.vh_usado,
+      snap_horas_normais:   lanc.horas_normais,
+      snap_horas_extras:    lanc.horas_extras,
+      snap_valor_horas:     lanc.valor_horas,
+      snap_valor_producao:  lanc.valor_producao,
+      snap_valor_dsr:       lanc.valor_dsr,
+      snap_valor_premio:    lanc.valor_premio,
+      snap_valor_total:     lanc.valor_total,
+      snap_faltas:          lanc.faltas,
+      snap_vt_diario:       lanc.vt_diario_usado,
+      snap_desconto_vt:     lanc.desconto_vt,
+      snap_desconto_adiant: lanc.desconto_adiant,
+      snap_inss:            lanc.inss,
+      snap_ir:              lanc.ir,
+      snap_liquido:         lanc.liquido,
+      snap_fechado_em:      new Date().toISOString(),
+      snap_fechado_por:     user?.email ?? 'sistema',
+      // ─────────────────────────────────────────────────────────────────────
+    }).eq('id', id)
     setSaving(false)
-    if (error) toast.error('Erro ao aprovar')
-    else { toast.success('Lançamento aprovado!'); fetchLancamentos(mesRef) }
+    if (error) toast.error('Erro ao aprovar: ' + error.message)
+    else { toast.success('✅ Lançamento aprovado e valores congelados!'); fetchLancamentos(mesRef) }
   }
 
   // ── Liberar para pagamento (aprovado → liberado) ───────────────────────────
@@ -494,6 +612,13 @@ export default function FechamentoPonto() {
                             <TableCell className="text-center" style={{ fontSize: 12 }}>{lanc.dias_trabalhados}</TableCell>
                             {/* ── Composição do Salário ── */}
                             <TableCell style={{ minWidth: 300 }}>
+                              {/* Indicador de snapshot */}
+                              {lanc.snap_fechado_em && (
+                                <div title={`Valores congelados em ${new Date(lanc.snap_fechado_em).toLocaleString('pt-BR')} · R$ ${lanc.snap_valor_hora?.toFixed(4)}/h`}
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0', borderRadius: 5, padding: '1px 6px', marginBottom: 4, cursor: 'default' }}>
+                                  🔒 valores congelados · R${lanc.snap_valor_hora?.toFixed(2)}/h
+                                </div>
+                              )}
                               {ehCLT ? (
                                 // CLT — idêntico ao card do Ponto:
                                 // 💵 Salário  R$ 4.500,00

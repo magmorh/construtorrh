@@ -169,6 +169,79 @@ export default function Ponto() {
   // Modal recusa
   const [modalRecusa, setModalRecusa] = useState<{lancId:string;motivo:string}|null>(null)
 
+  // ── Painel Portal (importação de ponto lançado pelo encarregado) ──────────
+  const [modalPortal, setModalPortal] = useState(false)
+  const [portalObraFiltro, setPortalObraFiltro] = useState('')
+  const [portalDados, setPortalDados] = useState<{
+    id:string; colaborador_id:string; colab_nome:string; data:string
+    status:string; horas_extra:number; horas_falta:number; observacoes:string|null
+    sincronizado_em:string|null
+  }[]>([])
+  const [loadingPortal, setLoadingPortal] = useState(false)
+  const [importandoPortal, setImportandoPortal] = useState<Set<string>>(new Set())
+
+  async function fetchPortalPonto(obraId?: string) {
+    setLoadingPortal(true)
+    const q = supabase
+      .from('portal_ponto_diario')
+      .select('id,colaborador_id,data,status,horas_extra,horas_falta,observacoes,sincronizado_em,colaboradores(nome),obra_id')
+      .gte('data', `${mesRef}-01`)
+      .lte('data', `${mesRef}-31`)
+      .order('data')
+    if (obraId) q.eq('obra_id', obraId)
+    const { data: d } = await q
+    setPortalDados((d ?? []).map((r: any) => ({
+      id: r.id, colaborador_id: r.colaborador_id, colab_nome: r.colaboradores?.nome ?? '—',
+      data: r.data, status: r.status, horas_extra: r.horas_extra ?? 0,
+      horas_falta: r.horas_falta ?? 0, observacoes: r.observacoes ?? null,
+      sincronizado_em: r.sincronizado_em,
+    })))
+    setLoadingPortal(false)
+  }
+
+  async function importarDiaPortal(portalId: string, colabId: string, data: string, status: string, heExtra: number, hfFalta: number, obs: string|null) {
+    // Encontra o lançamento do colaborador que cobre essa data
+    const lancColab = lancamentos.filter(l => l.obra_id === portalObraFiltro)
+    const lanc = lancColab.find(l => l.data_inicio <= data && data <= l.data_fim)
+    if (!lanc) { toast.error(`Sem lançamento para ${data} — crie o lançamento antes`); return }
+
+    setImportandoPortal(prev => new Set([...prev, portalId]))
+    // Verifica se já existe registro para esse dia
+    const { data: existing } = await supabase.from('registro_ponto')
+      .select('id').eq('lancamento_id', lanc.id).eq('colaborador_id', colabId).eq('data', data).single()
+
+    const presente = status === 'presente' || status === 'meio_periodo'
+    const falta    = status === 'falta' || status === 'falta_justificada'
+
+    const payload = {
+      lancamento_id: lanc.id, colaborador_id: colabId, obra_id: lanc.obra_id,
+      data, presente, falta,
+      he_entrada: '', he_saida: String(heExtra || 0),
+      hora_entrada: '', saida_almoco: '', retorno_almoco: '', hora_saida: '',
+      justificativa: obs ?? '',
+    }
+
+    if (existing?.id) {
+      await supabase.from('registro_ponto').update(payload).eq('id', existing.id)
+    } else {
+      await supabase.from('registro_ponto').insert(payload)
+    }
+    // Marca como sincronizado
+    await supabase.from('portal_ponto_diario').update({ sincronizado_em: new Date().toISOString(), lancamento_id: lanc.id }).eq('id', portalId)
+
+    setImportandoPortal(prev => { const s = new Set(prev); s.delete(portalId); return s })
+    toast.success(`Dia ${data.slice(8)}/${data.slice(5,7)} importado!`)
+    fetchPortalPonto(portalObraFiltro || undefined)
+    if (colabSel) fetchTudo(colabSel, ano, mes)
+  }
+
+  async function importarTodosPortal() {
+    const pendentes = portalDados.filter(r => !r.sincronizado_em)
+    for (const r of pendentes) {
+      await importarDiaPortal(r.id, r.colaborador_id, r.data, r.status, r.horas_extra, r.horas_falta, r.observacoes)
+    }
+  }
+
   // Contagem de lançamentos por colaborador no mês (para sidebar)
   const [contadoresLanc, setContadoresLanc] = useState<Record<string,number>>({})
 
@@ -847,6 +920,11 @@ export default function Ponto() {
                 <button onClick={mesSeguinte} style={{border:'1px solid var(--border)',borderRadius:5,background:'none',cursor:'pointer',padding:'3px 7px',display:'flex'}}><ChevronRight size={13}/></button>
               </div>
               <Button variant="outline" size="sm" onClick={()=>window.print()} style={{gap:4,height:30,fontSize:12}}><Printer size={12}/></Button>
+              <Button variant="outline" size="sm"
+                onClick={()=>{ setPortalObraFiltro(''); setModalPortal(true); fetchPortalPonto() }}
+                style={{gap:4,height:30,fontSize:12,borderColor:'#3b82f6',color:'#1d4ed8',background:'#eff6ff'}}>
+                📲 Portal
+              </Button>
               <Button size="sm"
                 disabled={!colabSel||lancamentos.some(l=>['rascunho','recusado','aguardando_aprovacao'].includes(l.status))}
                 title={lancamentos.some(l=>['rascunho','recusado','aguardando_aprovacao'].includes(l.status))?'Envie os lançamentos em aberto para o Fechamento antes de criar um novo':undefined}
@@ -1431,6 +1509,89 @@ export default function Ponto() {
         </div>
       )
     })()}
+    {/* ─── Modal Portal: importação de ponto do encarregado ────────────── */}
+    {modalPortal && (
+      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+        <div style={{background:'var(--background)',borderRadius:16,width:'100%',maxWidth:760,maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
+          <div style={{padding:'18px 22px 14px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:17}}>📲 Ponto Registrado no Portal</div>
+              <div style={{fontSize:12,color:'var(--muted-foreground)',marginTop:2}}>{mesRef} — dados lançados pelo encarregado no app móvel</div>
+            </div>
+            <button onClick={()=>setModalPortal(false)} style={{border:'none',background:'none',cursor:'pointer',padding:4}}><X size={18}/></button>
+          </div>
+          <div style={{padding:'12px 22px',borderBottom:'1px solid var(--border)',display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+            <select value={portalObraFiltro} onChange={e=>{setPortalObraFiltro(e.target.value);fetchPortalPonto(e.target.value||undefined)}}
+              style={{height:34,border:'1px solid var(--border)',borderRadius:7,padding:'0 10px',fontSize:13,background:'var(--input)',color:'var(--foreground)',minWidth:200}}>
+              <option value="">Todas as obras</option>
+              {obras.map(o=><option key={o.id} value={o.id}>{o.nome}</option>)}
+            </select>
+            <div style={{fontSize:12,flex:1,display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+              {portalDados.filter(r=>!r.sincronizado_em).length>0&&<span style={{background:'#fef3c7',color:'#b45309',borderRadius:5,padding:'2px 8px',fontWeight:700}}>⏳ {portalDados.filter(r=>!r.sincronizado_em).length} pendente(s)</span>}
+              {portalDados.filter(r=>r.sincronizado_em).length>0&&<span style={{background:'#dcfce7',color:'#15803d',borderRadius:5,padding:'2px 8px',fontWeight:700}}>✓ {portalDados.filter(r=>r.sincronizado_em).length} importado(s)</span>}
+            </div>
+            {portalDados.some(r=>!r.sincronizado_em)&&(
+              <Button size="sm" onClick={importarTodosPortal} style={{gap:4,height:32,fontSize:12,background:'#1e3a5f',color:'#fff'}}>⬇ Importar Todos</Button>
+            )}
+          </div>
+          <div style={{overflowY:'auto',flex:1,padding:'12px 22px 20px'}}>
+            {loadingPortal?(
+              <div style={{textAlign:'center',padding:40,color:'var(--muted-foreground)'}}>Carregando…</div>
+            ):portalDados.length===0?(
+              <div style={{textAlign:'center',padding:40,color:'var(--muted-foreground)'}}>
+                <div style={{fontSize:32,marginBottom:8}}>📭</div>Nenhum ponto lançado no portal neste mês
+              </div>
+            ):(
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                <thead><tr style={{background:'var(--muted)'}}>
+                  {['Data','Colaborador','Status','H+','H−','Obs','Situação',''].map(h=>(
+                    <th key={h} style={{...TH,textAlign:'left',padding:'8px 10px'}}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {portalDados.map(r=>{
+                    const [y,m,d]=r.data.split('-');const dataBR=`${d}/${m}`
+                    const jaSync=!!r.sincronizado_em;const importando=importandoPortal.has(r.id)
+                    const SC:Record<string,{bg:string;cor:string;label:string}>={
+                      presente:{bg:'#dcfce7',cor:'#15803d',label:'Presente'},
+                      falta:{bg:'#fee2e2',cor:'#dc2626',label:'Falta'},
+                      meio_periodo:{bg:'#fef3c7',cor:'#b45309',label:'Meio Período'},
+                      falta_justificada:{bg:'#f3f4f6',cor:'#6b7280',label:'Falta Justif.'},
+                    }
+                    const sc=SC[r.status]??{bg:'#f3f4f6',cor:'#374151',label:r.status}
+                    return(
+                      <tr key={r.id} style={{borderBottom:'1px solid var(--border)',background:jaSync?'var(--muted)':'var(--background)',opacity:importando?0.6:1}}>
+                        <td style={{padding:'7px 10px',fontFamily:'monospace',fontWeight:700}}>{dataBR}</td>
+                        <td style={{padding:'7px 10px',fontWeight:600,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.colab_nome}</td>
+                        <td style={{padding:'7px 10px'}}><span style={{background:sc.bg,color:sc.cor,borderRadius:5,padding:'2px 7px',fontSize:11,fontWeight:700}}>{sc.label}</span></td>
+                        <td style={{padding:'7px 10px',textAlign:'center',color:'#1d4ed8',fontWeight:700}}>{r.horas_extra>0?`+${r.horas_extra}h`:'—'}</td>
+                        <td style={{padding:'7px 10px',textAlign:'center',color:'#dc2626',fontWeight:700}}>{r.horas_falta>0?`-${r.horas_falta}h`:'—'}</td>
+                        <td style={{padding:'7px 10px',fontSize:11,color:'var(--muted-foreground)',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={r.observacoes??''}>{r.observacoes||'—'}</td>
+                        <td style={{padding:'7px 10px'}}>
+                          {jaSync?<span style={{background:'#dcfce7',color:'#15803d',borderRadius:5,padding:'2px 7px',fontSize:11,fontWeight:700}}>✓ Importado</span>
+                                 :<span style={{background:'#fef3c7',color:'#b45309',borderRadius:5,padding:'2px 7px',fontSize:11,fontWeight:700}}>⏳ Pendente</span>}
+                        </td>
+                        <td style={{padding:'7px 10px'}}>
+                          {!jaSync&&(
+                            <button onClick={()=>importarDiaPortal(r.id,r.colaborador_id,r.data,r.status,r.horas_extra,r.horas_falta,r.observacoes)} disabled={importando}
+                              style={{background:'#1e3a5f',color:'#fff',border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:700,cursor:importando?'wait':'pointer',whiteSpace:'nowrap'}}>
+                              {importando?'…':'⬇ Importar'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div style={{padding:'10px 22px',borderTop:'1px solid var(--border)',fontSize:11,color:'var(--muted-foreground)'}}>
+            💡 "Importar" grava o dia no lançamento existente que cobre aquela data. Crie o lançamento antes se necessário.
+          </div>
+        </div>
+      </div>
+    )}
     </>
   )
 }

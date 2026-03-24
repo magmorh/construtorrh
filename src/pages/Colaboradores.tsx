@@ -480,9 +480,168 @@ function FuncoesTab() {
   )
 }
 
+// ─── SOLICITAÇÕES DO PORTAL ───────────────────────────────────────────────────
+function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Funcao[] }) {
+  const [rows, setRows]     = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filtroStatus, setFiltroStatus] = useState<'pendente'|'aprovado'|'recusado'|'todos'>('pendente')
+  const [aprovando, setAprovando] = useState<Set<string>>(new Set())
+  const [modalApr, setModalApr] = useState<any | null>(null) // solicitação para aprovar
+
+  const fetch = useCallback(async () => {
+    setLoading(true)
+    const q = supabase.from('portal_solicitacoes').select('*').eq('tipo', 'novo_colaborador').order('criado_em', { ascending: false })
+    if (filtroStatus !== 'todos') q.eq('status', filtroStatus)
+    const { data } = await q
+    setRows(data ?? [])
+    setLoading(false)
+  }, [filtroStatus])
+
+  useEffect(() => { fetch() }, [fetch])
+
+  async function aprovar(s: any) {
+    setAprovando(prev => new Set([...prev, s.id]))
+    // Cria colaborador no sistema
+    const d = s.dados ?? {}
+    const { data: novoColab, error } = await supabase.from('colaboradores').insert({
+      nome: d.nome, cpf: d.cpf || null, telefone: d.telefone || null,
+      funcao_id: d.funcao_id || null, tipo_contrato: d.tipo_contrato || 'clt',
+      data_admissao: d.data_admissao || null, obra_id: modalApr?.obra_id_sel || null,
+      status: 'ativo',
+    }).select('id').single()
+    if (!error && novoColab?.id) {
+      await supabase.from('portal_solicitacoes').update({
+        status: 'aprovado', sincronizado_em: new Date().toISOString(), colaborador_id: novoColab.id,
+      }).eq('id', s.id)
+      toast.success(`${d.nome} cadastrado com sucesso!`)
+    } else {
+      toast.error('Erro ao criar colaborador: ' + error?.message)
+    }
+    setAprovando(prev => { const ss = new Set(prev); ss.delete(s.id); return ss })
+    setModalApr(null); fetch()
+  }
+
+  async function recusar(id: string, obs: string) {
+    await supabase.from('portal_solicitacoes').update({ status: 'recusado', observacoes_admin: obs }).eq('id', id)
+    toast.success('Solicitação recusada')
+    setModalApr(null); fetch()
+  }
+
+  const statusBadge = (s: string) => {
+    if (s === 'aprovado') return { bg: '#dcfce7', cor: '#15803d', label: '✓ Aprovado' }
+    if (s === 'recusado') return { bg: '#fee2e2', cor: '#dc2626', label: '✗ Recusado' }
+    return { bg: '#fef3c7', cor: '#b45309', label: '⏳ Pendente' }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>📥 Solicitações de Cadastro</div>
+          <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>Cadastros solicitados pelos encarregados via Portal da Obra</div>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {(['pendente','aprovado','recusado','todos'] as const).map(s => (
+            <button key={s} onClick={() => setFiltroStatus(s)}
+              style={{ height: 32, padding: '0 12px', border: `1px solid ${filtroStatus===s?'var(--primary)':'var(--border)'}`,
+                borderRadius: 7, background: filtroStatus===s?'var(--primary)':'var(--card)', cursor: 'pointer',
+                fontWeight: 600, fontSize: 12, color: filtroStatus===s?'#fff':'var(--foreground)' }}>
+              {s === 'pendente' ? '⏳ Pendentes' : s === 'aprovado' ? '✓ Aprovadas' : s === 'recusado' ? '✗ Recusadas' : 'Todas'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 48, color: 'var(--muted-foreground)' }}>Carregando…</div>
+      ) : rows.length === 0 ? (
+        <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: 48, textAlign: 'center', color: 'var(--muted-foreground)' }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
+          Nenhuma solicitação {filtroStatus !== 'todos' ? `com status "${filtroStatus}"` : ''}
+        </div>
+      ) : (
+        <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+          {rows.map((r, i) => {
+            const d = r.dados ?? {}
+            const badge = statusBadge(r.status)
+            const fn = funcoes.find(f => f.id === d.funcao_id)
+            return (
+              <div key={r.id} style={{ padding: '14px 18px', borderTop: i > 0 ? '1px solid var(--border)' : 'none', display: 'flex', gap: 14, alignItems: 'center' }}>
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg,#1e3a5f,#2d6a4f)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 14, flexShrink: 0 }}>
+                  {(d.nome ?? '?').slice(0, 2).toUpperCase()}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{d.nome ?? '—'}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {d.cpf && <span>CPF: {d.cpf}</span>}
+                    {fn && <span>🏷️ {fn.nome}</span>}
+                    {d.tipo_contrato && <span>📋 {d.tipo_contrato.toUpperCase()}</span>}
+                    {d.data_admissao && <span>📅 Admissão: {new Date(d.data_admissao + 'T12:00:00').toLocaleDateString('pt-BR')}</span>}
+                    {d.telefone && <span>📞 {d.telefone}</span>}
+                  </div>
+                  {d.observacoes && <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 4, fontStyle: 'italic' }}>{d.observacoes}</div>}
+                  <div style={{ fontSize: 10, color: 'var(--muted-foreground)', marginTop: 4 }}>
+                    Enviado {new Date(r.criado_em).toLocaleString('pt-BR')}
+                    {r.observacoes_admin && <span style={{ marginLeft: 8, background: '#fee2e2', color: '#dc2626', borderRadius: 4, padding: '1px 5px' }}>Admin: {r.observacoes_admin}</span>}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <span style={{ background: badge.bg, color: badge.cor, borderRadius: 6, padding: '3px 9px', fontSize: 11, fontWeight: 700 }}>{badge.label}</span>
+                  {r.status === 'pendente' && (
+                    <>
+                      <Button size="sm" onClick={() => setModalApr({ ...r, obra_id_sel: '' })}
+                        style={{ gap: 4, height: 30, fontSize: 12, background: '#15803d', color: '#fff' }}>
+                        ✓ Aprovar
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => recusar(r.id, 'Recusado pelo administrador')}
+                        style={{ gap: 4, height: 30, fontSize: 12, borderColor: '#dc2626', color: '#dc2626' }}>
+                        ✗ Recusar
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Modal aprovação */}
+      {modalApr && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'var(--background)', borderRadius: 16, width: '100%', maxWidth: 460, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 16 }}>✓ Aprovar Solicitação</div>
+            <div style={{ background: 'var(--muted)', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+              <div style={{ fontWeight: 700 }}>👷 {modalApr.dados?.nome}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 4 }}>
+                {funcoes.find(f => f.id === modalApr.dados?.funcao_id)?.nome ?? 'Função não informada'}
+              </div>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 6, color: 'var(--muted-foreground)', textTransform: 'uppercase' }}>Vincular à Obra</label>
+              <select value={modalApr.obra_id_sel} onChange={e => setModalApr((m: any) => ({ ...m, obra_id_sel: e.target.value }))}
+                style={{ width: '100%', height: 42, border: '1px solid var(--border)', borderRadius: 8, padding: '0 12px', fontSize: 13, background: 'var(--input)', color: 'var(--foreground)' }}>
+                <option value="">Sem obra (definir depois)</option>
+                {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <Button variant="outline" onClick={() => setModalApr(null)}>Cancelar</Button>
+              <Button onClick={() => aprovar(modalApr)} disabled={aprovando.has(modalApr.id)}
+                style={{ background: '#15803d', color: '#fff' }}>
+                {aprovando.has(modalApr.id) ? '⏳ Cadastrando…' : '✓ Confirmar e Cadastrar'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── COMPONENTE PRINCIPAL ─────────────────────────────────────────────────────
 export default function Colaboradores() {
-  const [pageTab, setPageTab] = useState<'colaboradores' | 'funcoes'>('colaboradores')
+  const [pageTab, setPageTab] = useState<'colaboradores' | 'funcoes' | 'solicitacoes'>('colaboradores')
 
   const [rows, setRows]     = useState<ColaboradorRow[]>([])
   const [funcoes, setFuncoes] = useState<Funcao[]>([])
@@ -1016,20 +1175,23 @@ export default function Colaboradores() {
     <div>
       {/* Tabs de página */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 24 }}>
-        {(['colaboradores', 'funcoes'] as const).map(t => (
+        {(['colaboradores', 'funcoes', 'solicitacoes'] as const).map(t => (
           <button key={t} onClick={() => setPageTab(t)} style={{
             padding: '10px 20px', fontSize: 14, fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer',
             borderBottom: pageTab === t ? '2px solid var(--primary)' : '2px solid transparent',
             color: pageTab === t ? 'var(--primary)' : 'var(--muted-foreground)',
             marginBottom: -1, transition: 'color 120ms',
           }}>
-            {t === 'colaboradores' ? '👷 Colaboradores' : '🏷️ Funções & Cargos'}
+            {t === 'colaboradores' ? '👷 Colaboradores' : t === 'funcoes' ? '🏷️ Funções & Cargos' : '📥 Solicitações do Portal'}
           </button>
         ))}
       </div>
 
       {/* ── ABA FUNÇÕES ─────────────────────────────────────────────────── */}
       {pageTab === 'funcoes' && <FuncoesTab />}
+
+      {/* ── ABA SOLICITAÇÕES DO PORTAL ──────────────────────────────────── */}
+      {pageTab === 'solicitacoes' && <SolicitacoesPortalTab obras={obras} funcoes={funcoes} />}
 
       {/* ── ABA COLABORADORES ───────────────────────────────────────────── */}
       {pageTab === 'colaboradores' && (

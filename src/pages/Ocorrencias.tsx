@@ -213,8 +213,108 @@ function DocBadge({ url, nome }: { url: string | null; nome: string | null }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-type Aba = 'acidentes' | 'atestados' | 'advertencias'
+type Aba = 'acidentes' | 'atestados' | 'advertencias' | 'portal'
 
+// ─── ABA OCORRÊNCIAS DO PORTAL ────────────────────────────────────────────────
+function OcorrenciasPortalTab({ obras, colaboradores }: { obras: {id:string;nome:string}[]; colaboradores: {id:string;nome:string;chapa:string}[] }) {
+  const [rows, setRows]       = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filtroObra, setFiltroObra] = useState('')
+  const [sincronizando, setSincronizando] = useState<Set<string>>(new Set())
+
+  const TIPOS_LABEL: Record<string,string> = {
+    ocorrencia:'Ocorrência', acidente:'Acidente', quase_acidente:'Quase Acidente', epi:'EPI/Segurança', disciplinar:'Disciplinar'
+  }
+  const GRAV_COR: Record<string,{bg:string;cor:string}> = {
+    baixa:{bg:'#dcfce7',cor:'#15803d'}, media:{bg:'#fef3c7',cor:'#b45309'},
+    alta:{bg:'#fee2e2',cor:'#dc2626'},  critica:{bg:'#ede9fe',cor:'#7c3aed'},
+  }
+
+  const fetchRows = useCallback(async () => {
+    setLoading(true)
+    const q = supabase.from('portal_ocorrencias').select('*,colaboradores(nome)').order('criado_em', { ascending: false })
+    if (filtroObra) q.eq('obra_id', filtroObra)
+    const { data } = await q
+    setRows(data ?? [])
+    setLoading(false)
+  }, [filtroObra])
+
+  useEffect(() => { fetchRows() }, [fetchRows])
+
+  async function sincronizar(r: any) {
+    setSincronizando(prev => new Set([...prev, r.id]))
+    // Cria na tabela de acidentes se for acidente, caso contrário apenas marca como sincronizado
+    if (r.tipo === 'acidente' || r.tipo === 'quase_acidente') {
+      await supabase.from('acidentes').insert({
+        colaborador_id: r.colaborador_id ?? null,
+        obra_id: r.obra_id,
+        data_ocorrencia: r.data,
+        tipo: r.tipo === 'acidente' ? 'com_afastamento' : 'sem_afastamento',
+        descricao: `[PORTAL] ${r.titulo}${r.descricao ? ' — ' + r.descricao : ''}`,
+        gravidade: r.gravidade,
+      })
+    }
+    await supabase.from('portal_ocorrencias').update({ sincronizado_em: new Date().toISOString() }).eq('id', r.id)
+    toast.success('Ocorrência sincronizada!')
+    setSincronizando(prev => { const s = new Set(prev); s.delete(r.id); return s })
+    fetchRows()
+  }
+
+  return (
+    <div>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16, flexWrap:'wrap', gap:10 }}>
+        <div>
+          <div style={{ fontWeight:800, fontSize:16 }}>📲 Ocorrências do Portal</div>
+          <div style={{ fontSize:12, color:'var(--muted-foreground)' }}>Registradas pelo encarregado no app móvel</div>
+        </div>
+        <select value={filtroObra} onChange={e => setFiltroObra(e.target.value)}
+          style={{ height:34, border:'1px solid var(--border)', borderRadius:7, padding:'0 12px', fontSize:13, background:'var(--input)', color:'var(--foreground)' }}>
+          <option value="">Todas as obras</option>
+          {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+        </select>
+      </div>
+      {loading ? (
+        <div style={{ textAlign:'center', padding:40, color:'var(--muted-foreground)' }}>Carregando…</div>
+      ) : rows.length === 0 ? (
+        <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:40, textAlign:'center', color:'var(--muted-foreground)' }}>
+          <div style={{ fontSize:32, marginBottom:8 }}>📭</div>Nenhuma ocorrência registrada no portal
+        </div>
+      ) : (
+        <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden' }}>
+          {rows.map((r, i) => {
+            const gc = GRAV_COR[r.gravidade] ?? { bg:'#f3f4f6', cor:'#374151' }
+            const jaSync = !!r.sincronizado_em
+            const sync = sincronizando.has(r.id)
+            return (
+              <div key={r.id} style={{ padding:'14px 18px', borderTop:i>0?'1px solid var(--border)':'none', display:'flex', gap:12, alignItems:'center' }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:4 }}>
+                    <span style={{ fontWeight:700, fontSize:14 }}>{TIPOS_LABEL[r.tipo] ?? r.tipo} — {r.titulo}</span>
+                    <span style={{ background:gc.bg, color:gc.cor, borderRadius:5, padding:'2px 7px', fontSize:11, fontWeight:700 }}>{r.gravidade?.charAt(0).toUpperCase()+r.gravidade?.slice(1)}</span>
+                    {jaSync && <span style={{ background:'#dcfce7', color:'#15803d', borderRadius:5, padding:'2px 7px', fontSize:11, fontWeight:700 }}>✓ Sincronizado</span>}
+                  </div>
+                  {r.colaboradores?.nome && <div style={{ fontSize:12, color:'var(--muted-foreground)' }}>👤 {r.colaboradores.nome}</div>}
+                  {r.descricao && <div style={{ fontSize:11, color:'var(--muted-foreground)', marginTop:3, fontStyle:'italic' }}>{r.descricao}</div>}
+                  <div style={{ fontSize:10, color:'var(--muted-foreground)', marginTop:4 }}>
+                    📅 {new Date(r.data).toLocaleDateString('pt-BR')} · Registrado {new Date(r.criado_em).toLocaleString('pt-BR')}
+                  </div>
+                </div>
+                {!jaSync && (
+                  <button onClick={() => sincronizar(r)} disabled={sync}
+                    style={{ background:'#1e3a5f', color:'#fff', border:'none', borderRadius:8, padding:'6px 14px', fontSize:12, fontWeight:700, cursor:sync?'wait':'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+                    {sync ? '⏳…' : '🔄 Sincronizar'}
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── PRINCIPAL ────────────────────────────────────────────────────────────────
 export default function Ocorrencias() {
   const [aba, setAba] = useState<Aba>('acidentes')
   const { permissions } = useProfile()
@@ -496,6 +596,7 @@ export default function Ocorrencias() {
           { key: 'acidentes',    icon: <AlertTriangle size={13} />, label: 'Acidentes' },
           { key: 'atestados',    icon: <Stethoscope size={13} />,  label: 'Atestados' },
           { key: 'advertencias', icon: <FileWarning size={13} />,  label: 'Advertências' },
+          { key: 'portal',       icon: <span style={{fontSize:12}}>📲</span>,          label: 'Do Portal' },
         ] as const).map(t => (
           <button key={t.key} style={tabStyle(aba === t.key)} onClick={() => setAba(t.key)}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{t.icon}{t.label}</span>
@@ -690,6 +791,11 @@ export default function Ocorrencias() {
             </Table>
           </div>
         )
+      )}
+
+      {/* ══ ABA DO PORTAL ══ */}
+      {aba === 'portal' && (
+        <OcorrenciasPortalTab obras={obras} colaboradores={colaboradores} />
       )}
 
       {/* ══ MODAL ACIDENTE ══ */}

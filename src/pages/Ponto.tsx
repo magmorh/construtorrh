@@ -562,6 +562,14 @@ export default function Ponto() {
     setSaving(false)
     if(errs.length){toast.error('Erro: '+errs[0]);return}
     toast.success('Ponto salvo!')
+    // ── Congelar valor/hora no próprio lançamento ao salvar ─────────────────
+    // Garante que futuras edições na tabela de funções NÃO alteram este ponto.
+    if(valorHora > 0){
+      await supabase.from('ponto_lancamentos')
+        .update({ valor_hora_snapshot: valorHora })
+        .eq('id', lancId)
+        .is('valor_hora_snapshot', null)  // só grava se ainda não tiver (mantém o original)
+    }
     // Recarregar para obter IDs dos registros inseridos
     if(colabSel)fetchTudo(colabSel,ano,mes)
   }
@@ -927,10 +935,21 @@ export default function Ponto() {
                         {tot.suspensoes>0&&<span style={{color:'#dc2626',marginLeft:8}}>⛔ {tot.suspensoes} suspensão</span>}
                       </div>
                     </div>
-                    {/* Mini totais */}
-                    {valorHoraEfetivo>0&&<div style={{fontSize:12,fontWeight:700,color:'#15803d',textAlign:'right'}}>
-                      {formatCurrency((fmtDecimal(tot.normais)*valorHoraEfetivo)+(fmtDecimal(tot.extras50)*valorHoraEfetivo*1.5))}
-                    </div>}
+                    {/* Mini totais com DSR por lançamento */}
+                    {valorHoraEfetivo>0&&(()=>{
+                      const vHorasLanc = fmtDecimal(tot.normais)*valorHoraEfetivo + fmtDecimal(tot.extras50)*valorHoraEfetivo*1.5
+                      // DSR individual deste lançamento (só CLT)
+                      const ehCLTLanc = colabSel?.tipo_contrato === 'clt'
+                      const duLanc = ehCLTLanc ? diasUteisPeriodo(lanc.data_inicio, lanc.data_fim, feriados) : 0
+                      const domLanc = ehCLTLanc ? domingosFeriadosPeriodo(lanc.data_inicio, lanc.data_fim, feriados) : 0
+                      const dsrLanc = ehCLTLanc && duLanc > 0 && domLanc > 0 ? (vHorasLanc / duLanc) * domLanc : 0
+                      return(
+                        <div style={{textAlign:'right'}}>
+                          <div style={{fontSize:12,fontWeight:700,color:'#15803d'}}>{formatCurrency(vHorasLanc + dsrLanc)}</div>
+                          {dsrLanc>0&&<div style={{fontSize:10,color:'#0369a1',fontWeight:600}}>DSR: {formatCurrency(dsrLanc)}</div>}
+                        </div>
+                      )
+                    })()}
                     {/* Badge status */}
                     {(() => {
                       const cfg:{[k:string]:{bg:string;color:string;label:string}}={

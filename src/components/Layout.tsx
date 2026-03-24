@@ -40,7 +40,7 @@ const NAV_GROUPS = [
   {
     label: 'Financeiro',
     items: [
-      { to: '/ponto',            label: 'Ponto',           icon: Clock },
+      { to: '/ponto',            label: 'Ponto',            icon: Clock },
       { to: '/vt',               label: 'Vale Transporte',  icon: Bus },
       { to: '/adiantamentos',    label: 'Adiantamentos',    icon: Wallet },
       { to: '/premios',          label: 'Prêmios',          icon: Award },
@@ -138,7 +138,7 @@ export function Layout({ children }: LayoutProps) {
                 // Esconde item adminOnly para não-admins
                 if (adminOnly && role !== 'admin') return null
                 // Esconde Financeiro para role=obra
-                const isFinanceiro = ['/ponto','/pagamentos','/premios','/vt','/provisoes','/encargos'].includes(to)
+                const isFinanceiro = ['/ponto','/vt','/adiantamentos','/premios','/fechamento-ponto','/pagamentos','/encargos','/provisoes'].includes(to)
                 if (isFinanceiro && !roleMeta.canViewFinanceiro) return null
 
                 return (

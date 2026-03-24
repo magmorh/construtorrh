@@ -492,6 +492,8 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
 
   // ── campos editáveis do modal de aprovação ──────────────────────────────────
   const [ed, setEd] = useState<Record<string,string>>({})
+  const [edVtTrechosIda,   setEdVtTrechosIda]   = useState<VtTrecho[]>([])
+  const [edVtTrechosVolta, setEdVtTrechosVolta] = useState<VtTrecho[]>([])
   const SE = (k: string, v: string) => setEd(p => ({ ...p, [k]: v }))
 
   function abrirModal(r: any) {
@@ -506,11 +508,20 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
       data_admissao: d.data_admissao ?? new Date().toISOString().slice(0,10),
       banco: d.banco ?? '', agencia: d.agencia ?? '', conta: d.conta ?? '',
       tipo_conta: d.tipo_conta ?? 'corrente', pix_tipo: d.pix_tipo ?? '', pix_chave: d.pix_chave ?? '',
-      vt_modalidade: d.vt_modalidade ?? 'nenhum', vt_gasolina_valor_dia: d.vt_gasolina_valor_dia ?? '',
+      vt_modalidade: d.vt_modalidade ?? 'nenhum',
+      vt_gasolina_valor_dia: String(d.vt_gasolina_valor_dia ?? ''),
       vt_cartao_tipo: d.vt_cartao_tipo ?? '', vt_cartao_numero: d.vt_cartao_numero ?? '',
-      vt_trecho_ida: d.vt_trecho_ida ?? '', vt_trecho_volta: d.vt_trecho_volta ?? '',
       obra_id: '', observacoes: d.observacoes ?? '',
     })
+    // VT trechos — suporta tanto o formato antigo (string) quanto novo (array)
+    setEdVtTrechosIda(
+      Array.isArray(d.vt_trechos_ida) ? d.vt_trechos_ida :
+      (d.vt_trecho_ida ? [{ id: crypto.randomUUID(), nome_linha: d.vt_trecho_ida, tipo_veiculo: 'onibus', valor: '', tem_integracao: false }] : [])
+    )
+    setEdVtTrechosVolta(
+      Array.isArray(d.vt_trechos_volta) ? d.vt_trechos_volta :
+      (d.vt_trecho_volta ? [{ id: crypto.randomUUID(), nome_linha: d.vt_trecho_volta, tipo_veiculo: 'onibus', valor: '', tem_integracao: false }] : [])
+    )
     setModalApr(r)
   }
 
@@ -544,6 +555,10 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
       vt_modalidade: ed.vt_modalidade || 'nenhum',
       vt_gasolina_valor_dia: ed.vt_gasolina_valor_dia ? parseFloat(ed.vt_gasolina_valor_dia) : null,
       vt_cartao_tipo: ed.vt_cartao_tipo || null, vt_cartao_numero: ed.vt_cartao_numero || null,
+      // Salva VT dados estruturados igual ao sistema
+      vt_dados: (ed.vt_modalidade === 'transporte' && (edVtTrechosIda.length > 0 || edVtTrechosVolta.length > 0))
+        ? { trechos_ida: edVtTrechosIda, trechos_volta: edVtTrechosVolta }
+        : null,
       observacoes: ed.observacoes || null,
       status: 'ativo',
     }).select('id').single()
@@ -735,15 +750,20 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
                   <L label="Banco"><input value={ed.banco} onChange={e=>SE('banco',e.target.value)} style={INP} /></L>
                   <L label="Tipo Conta">
                     <select value={ed.tipo_conta} onChange={e=>SE('tipo_conta',e.target.value)} style={SEL}>
-                      <option value="corrente">Corrente</option><option value="poupanca">Poupança</option>
+                      <option value="corrente">Corrente</option>
+                      <option value="poupanca">Poupança</option>
+                      <option value="salario">Conta Salário</option>
                     </select>
                   </L>
                   <L label="Agência"><input value={ed.agencia} onChange={e=>SE('agencia',e.target.value)} style={INP} /></L>
                   <L label="Conta"><input value={ed.conta} onChange={e=>SE('conta',e.target.value)} style={INP} /></L>
                   <L label="Tipo PIX">
                     <select value={ed.pix_tipo} onChange={e=>SE('pix_tipo',e.target.value)} style={SEL}>
-                      <option value="">Nenhum</option><option value="cpf">CPF</option>
-                      <option value="telefone">Telefone</option><option value="email">E-mail</option><option value="aleatoria">Aleatória</option>
+                      <option value="">Nenhum</option>
+                      <option value="cpf">CPF</option>
+                      <option value="telefone">Telefone</option>
+                      <option value="email">E-mail</option>
+                      <option value="chave_aleatoria">Chave Aleatória</option>
                     </select>
                   </L>
                   <L label="Chave PIX"><input value={ed.pix_chave} onChange={e=>SE('pix_chave',e.target.value)} style={INP} /></L>
@@ -753,23 +773,79 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
               {/* VT */}
               <div>
                 <div style={{ fontWeight:700,fontSize:12,color:'var(--muted-foreground)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10 }}>🚌 Vale Transporte</div>
-                <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 }}>
-                  <L label="Modalidade VT" col="1/-1">
-                    <select value={ed.vt_modalidade} onChange={e=>SE('vt_modalidade',e.target.value)} style={SEL}>
-                      <option value="nenhum">Não tem VT</option><option value="cartao">Cartão VT</option>
-                      <option value="gasolina">Reembolso Gasolina</option><option value="dinheiro">Dinheiro</option>
+                <div style={{ display:'flex',flexDirection:'column',gap:10 }}>
+                  <L label="Modalidade VT">
+                    <select value={ed.vt_modalidade} onChange={e=>{
+                      SE('vt_modalidade',e.target.value)
+                      setEdVtTrechosIda([]); setEdVtTrechosVolta([])
+                    }} style={SEL}>
+                      <option value="nenhum">Não tem VT</option>
+                      <option value="gasolina">Aux. Gasolina</option>
+                      <option value="transporte">Transporte Público</option>
                     </select>
                   </L>
                   {ed.vt_modalidade === 'gasolina' && (
-                    <L label="Valor/dia gasolina" col="1/-1">
+                    <L label="Valor/dia gasolina (R$)">
                       <input type="number" value={ed.vt_gasolina_valor_dia} onChange={e=>SE('vt_gasolina_valor_dia',e.target.value)} step="0.01" style={INP} />
                     </L>
                   )}
-                  {(ed.vt_modalidade === 'cartao' || ed.vt_modalidade === 'dinheiro') && (<>
-                    <L label="Empresa Cartão"><input value={ed.vt_cartao_tipo} onChange={e=>SE('vt_cartao_tipo',e.target.value)} style={INP} /></L>
-                    <L label="Nº Cartão"><input value={ed.vt_cartao_numero} onChange={e=>SE('vt_cartao_numero',e.target.value)} style={INP} /></L>
-                    <L label="Trecho Ida" col="1/-1"><input value={ed.vt_trecho_ida} onChange={e=>SE('vt_trecho_ida',e.target.value)} style={INP} /></L>
-                    <L label="Trecho Volta" col="1/-1"><input value={ed.vt_trecho_volta} onChange={e=>SE('vt_trecho_volta',e.target.value)} style={INP} /></L>
+                  {ed.vt_modalidade === 'transporte' && (<>
+                    <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 }}>
+                      <L label="Empresa Cartão"><input value={ed.vt_cartao_tipo} onChange={e=>SE('vt_cartao_tipo',e.target.value)} style={INP} /></L>
+                      <L label="Nº Cartão"><input value={ed.vt_cartao_numero} onChange={e=>SE('vt_cartao_numero',e.target.value)} style={INP} /></L>
+                    </div>
+                    {/* Trechos IDA */}
+                    <div>
+                      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6 }}>
+                        <span style={{ fontSize:11,fontWeight:700,color:'var(--muted-foreground)' }}>➡️ TRECHOS DE IDA</span>
+                        <button type="button" onClick={()=>setEdVtTrechosIda(p=>[...p,{id:crypto.randomUUID(),nome_linha:'',tipo_veiculo:'onibus',valor:'',tem_integracao:false}])}
+                          style={{ fontSize:11,padding:'2px 8px',borderRadius:5,border:'1px solid #16a34a',background:'#f0fdf4',color:'#15803d',cursor:'pointer' }}>+ Trecho</button>
+                      </div>
+                      {edVtTrechosIda.length===0&&<div style={{ fontSize:11,color:'var(--muted-foreground)',fontStyle:'italic' }}>Nenhum trecho</div>}
+                      {edVtTrechosIda.map((t,i)=>(
+                        <div key={t.id} style={{ background:'var(--muted)',borderRadius:6,padding:'8px 10px',marginBottom:6,display:'grid',gridTemplateColumns:'1fr 100px 80px auto',gap:8,alignItems:'end' }}>
+                          <L label="Linha">
+                            <input value={t.nome_linha} onChange={e=>setEdVtTrechosIda(p=>p.map((x,j)=>j===i?{...x,nome_linha:e.target.value}:x))} style={INP} />
+                          </L>
+                          <L label="Veículo">
+                            <select value={t.tipo_veiculo} onChange={e=>setEdVtTrechosIda(p=>p.map((x,j)=>j===i?{...x,tipo_veiculo:e.target.value}:x))} style={SEL}>
+                              {[['onibus','Ônibus'],['metro','Metrô'],['trem','Trem'],['brt','BRT'],['outro','Outro']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                            </select>
+                          </L>
+                          <L label="Valor">
+                            <input type="number" step="0.01" value={t.valor} onChange={e=>setEdVtTrechosIda(p=>p.map((x,j)=>j===i?{...x,valor:e.target.value}:x))} style={INP} />
+                          </L>
+                          <button type="button" onClick={()=>setEdVtTrechosIda(p=>p.filter((_,j)=>j!==i))}
+                            style={{ height:38,padding:'0 8px',borderRadius:5,border:'1px solid var(--destructive)',background:'transparent',cursor:'pointer',color:'var(--destructive)' }}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Trechos VOLTA */}
+                    <div>
+                      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6 }}>
+                        <span style={{ fontSize:11,fontWeight:700,color:'var(--muted-foreground)' }}>⬅️ TRECHOS DE VOLTA</span>
+                        <button type="button" onClick={()=>setEdVtTrechosVolta(p=>[...p,{id:crypto.randomUUID(),nome_linha:'',tipo_veiculo:'onibus',valor:'',tem_integracao:false}])}
+                          style={{ fontSize:11,padding:'2px 8px',borderRadius:5,border:'1px solid #16a34a',background:'#f0fdf4',color:'#15803d',cursor:'pointer' }}>+ Trecho</button>
+                      </div>
+                      {edVtTrechosVolta.length===0&&<div style={{ fontSize:11,color:'var(--muted-foreground)',fontStyle:'italic' }}>Nenhum trecho</div>}
+                      {edVtTrechosVolta.map((t,i)=>(
+                        <div key={t.id} style={{ background:'var(--muted)',borderRadius:6,padding:'8px 10px',marginBottom:6,display:'grid',gridTemplateColumns:'1fr 100px 80px auto',gap:8,alignItems:'end' }}>
+                          <L label="Linha">
+                            <input value={t.nome_linha} onChange={e=>setEdVtTrechosVolta(p=>p.map((x,j)=>j===i?{...x,nome_linha:e.target.value}:x))} style={INP} />
+                          </L>
+                          <L label="Veículo">
+                            <select value={t.tipo_veiculo} onChange={e=>setEdVtTrechosVolta(p=>p.map((x,j)=>j===i?{...x,tipo_veiculo:e.target.value}:x))} style={SEL}>
+                              {[['onibus','Ônibus'],['metro','Metrô'],['trem','Trem'],['brt','BRT'],['outro','Outro']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                            </select>
+                          </L>
+                          <L label="Valor">
+                            <input type="number" step="0.01" value={t.valor} onChange={e=>setEdVtTrechosVolta(p=>p.map((x,j)=>j===i?{...x,valor:e.target.value}:x))} style={INP} />
+                          </L>
+                          <button type="button" onClick={()=>setEdVtTrechosVolta(p=>p.filter((_,j)=>j!==i))}
+                            style={{ height:38,padding:'0 8px',borderRadius:5,border:'1px solid var(--destructive)',background:'transparent',cursor:'pointer',color:'var(--destructive)' }}>✕</button>
+                        </div>
+                      ))}
+                    </div>
                   </>)}
                 </div>
               </div>

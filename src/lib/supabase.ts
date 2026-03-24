@@ -279,13 +279,16 @@ export interface ValeTransporte {
   created_at: string
   colaborador_id: string
   competencia: string
+  data_inicio: string | null   // período parcial: início
+  data_fim: string | null      // período parcial: fim
   tipo: 'cartao' | 'dinheiro' | 'combustivel' | 'outro' | null
   valor: number | null
   dias_trabalhados: number
   desconto_colaborador: number | null
   valor_empresa: number | null
+  descontar_6pct: boolean      // empresa desconta 6% do salário?
   observacoes: string | null
-  colaboradores?: Pick<Colaborador, 'id' | 'nome' | 'chapa'> & { salario?: number | null }
+  colaboradores?: Pick<Colaborador, 'id' | 'nome' | 'chapa'> & { salario?: number | null; vt_dados?: Record<string,unknown> | null }
 }
 
 export interface ProvisaoFgts {

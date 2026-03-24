@@ -114,7 +114,7 @@ export default function FechamentoPonto() {
         colaboradores(nome, chapa, tipo_contrato, funcao_id, vale_transporte, vt_dados, funcoes(nome)),
         obras(nome)
       `)
-      .in('status', ['em_fechamento', 'aprovado', 'liberado', 'pago'])
+      .in('status', ['em_fechamento', 'aprovado', 'liberado', 'pago', 'rascunho', 'recusado'])
       .eq('mes_referencia', mr)
       .order('data_inicio')
 
@@ -234,7 +234,7 @@ export default function FechamentoPonto() {
       // Lançamentos já aprovados/liberados/pagos usam EXCLUSIVAMENTE os valores
       // gravados no banco no momento do fechamento. Nenhuma alteração posterior
       // em valor/hora, horário da obra ou playbook afeta registros fechados.
-      const jaFechado = l.status !== 'em_fechamento' && l.snap_valor_total != null
+      const jaFechado = !['em_fechamento','rascunho','recusado'].includes(l.status) && l.snap_valor_total != null
       if (jaFechado) {
         return {
           id: l.id,
@@ -424,7 +424,7 @@ export default function FechamentoPonto() {
   }, [lancamentos, busca])
 
   const totalGeral = useMemo(() => lancamentos.reduce((s, l) => s + l.valor_total, 0), [lancamentos])
-  const pendentes   = lancamentos.filter(l => ['em_fechamento','aprovado','liberado'].includes(l.status))
+  const pendentes   = lancamentos.filter(l => ['em_fechamento','aprovado','liberado','rascunho'].includes(l.status))
   const pagos       = lancamentos.filter(l => l.status === 'pago')
 
   // ── Aprovar lançamento (em_fechamento → aprovado) ────────────────────────
@@ -475,11 +475,11 @@ export default function FechamentoPonto() {
     if (!motivoRecusa.trim()) { toast.error('Informe o motivo'); return }
     setSaving(true)
     const { error } = await supabase.from('ponto_lancamentos').update({
-      status: 'recusado', motivo_recusa: motivoRecusa,
+      status: 'rascunho', motivo_recusa: motivoRecusa,  // volta para rascunho no Ponto
     }).eq('id', id)
     setSaving(false)
     if (error) { toast.error('Erro: ' + error.message); return }
-    toast.success('Lançamento devolvido para edição')
+    toast.success('⚠️ Lançamento devolvido para edição no Ponto')
     setModalRecusar(null); setMotivoRecusa('')
     fetchLancamentos(mesRef)
   }
@@ -490,6 +490,7 @@ export default function FechamentoPonto() {
     aprovado:     { bg: '#dcfce7', color: '#15803d', label: '✅ Aprovado' },
     liberado:     { bg: '#fef3c7', color: '#b45309', label: '💜 Ag. Pagamento' },
     pago:         { bg: '#ede9fe', color: '#6d28d9', label: '💰 Pago' },
+    rascunho:     { bg: '#f1f5f9', color: '#475569', label: '↩ Devolvido p/ Edição' },
     recusado:     { bg: '#fee2e2', color: '#dc2626', label: '❌ Recusado' },
   }
 
@@ -731,9 +732,14 @@ export default function FechamentoPonto() {
                                     </Button>
                                     <Button size="sm" variant="outline" style={{ height: 26, fontSize: 11, borderColor: '#dc2626', color: '#dc2626' }}
                                       onClick={() => { setModalRecusar(lanc.id); setMotivoRecusa('') }}>
-                                      ✕ Recusar
+                                      ✕ Devolver
                                     </Button>
                                   </>
+                                )}
+                                {(lanc.status === 'rascunho' || lanc.status === 'recusado') && (
+                                  <span style={{ fontSize: 10, color: '#6b7280', fontStyle: 'italic' }}>
+                                    ↩ Aguardando edição no Ponto
+                                  </span>
                                 )}
                               </div>
                             </TableCell>

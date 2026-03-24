@@ -152,7 +152,7 @@ export default function Pagamentos() {
     setLoadingLancs(true)
     const { data } = await supabase
       .from('ponto_lancamentos')
-      .select('id, colaborador_id, obra_id, mes_referencia, data_inicio, data_fim, status, motivo_recusa, data_pagamento, obs_pagamento, colaboradores(nome, chapa, tipo_contrato), obras(nome)')
+      .select('id, colaborador_id, obra_id, mes_referencia, data_inicio, data_fim, status, motivo_recusa, data_pagamento, obs_pagamento, snap_liquido, snap_valor_total, snap_inss, snap_ir, snap_desconto_vt, snap_desconto_adiant, colaboradores(nome, chapa, tipo_contrato), obras(nome)')
       .in('status', ['liberado', 'pago'])
       .order('mes_referencia', { ascending: false })
     setLancsPendentes(data ?? [])
@@ -318,8 +318,8 @@ export default function Pagamentos() {
     return l.status === 'pago' && matchNome && matchMes && matchDtIni && matchDtFim
   })
 
-  const totalAgendado  = lancsAgendados.reduce((s: number, l: any) => s + (l.valor_liquido ?? 0), 0)
-  const totalRealizado = lancsRealizados.reduce((s: number, l: any) => s + (l.valor_liquido ?? 0), 0)
+  const totalAgendado  = lancsAgendados.reduce((s: number, l: any) => s + (l.snap_liquido ?? l.valor_liquido ?? 0), 0)
+  const totalRealizado = lancsRealizados.reduce((s: number, l: any) => s + (l.snap_liquido ?? l.valor_liquido ?? 0), 0)
 
   return (
     <div style={{ padding: 24 }}>
@@ -429,6 +429,7 @@ export default function Pagamentos() {
                   <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, color: '#92400e' }}>Obra</th>
                   <th style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>Período</th>
                   <th style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 700, color: '#92400e' }}>Competência</th>
+                  <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#92400e' }}>💵 Líquido</th>
                   <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#92400e' }}>Ações</th>
                 </tr>
               </thead>
@@ -448,6 +449,9 @@ export default function Pagamentos() {
                         {l.mes_referencia?.slice(5)}/{l.mes_referencia?.slice(0,4)}
                       </span>
                     </td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, fontSize: 13, color: '#15803d' }}>
+                      {l.snap_liquido ? formatCurrency(l.snap_liquido) : '—'}
+                    </td>
                     <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                       <button
                         style={{ height: 28, padding: '0 12px', fontSize: 11, borderRadius: 6, border: 'none', background: '#7c3aed', color: '#fff', cursor: 'pointer', fontWeight: 600 }}
@@ -460,7 +464,7 @@ export default function Pagamentos() {
               </tbody>
               <tfoot>
                 <tr style={{ background: '#fef3c7', borderTop: '2px solid #fde68a', fontWeight: 700 }}>
-                  <td colSpan={4} style={{ padding: '9px 14px', fontSize: 12 }}>Total agendado — {lancsAgendados.length} lançamento(s)</td>
+                  <td colSpan={5} style={{ padding: '9px 14px', fontSize: 12 }}>Total agendado — {lancsAgendados.length} lançamento(s)</td>
                   <td style={{ padding: '9px 14px', textAlign: 'right', fontSize: 13, color: '#b45309' }}>{formatCurrency(totalAgendado)}</td>
                 </tr>
               </tfoot>
@@ -488,6 +492,7 @@ export default function Pagamentos() {
                   <th style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 700, color: '#14532d' }}>Período</th>
                   <th style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 700, color: '#14532d' }}>Data Pgto</th>
                   <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, color: '#14532d' }}>Obs</th>
+                  <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#14532d' }}>💵 Líquido</th>
                   <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#14532d' }}>Ações</th>
                 </tr>
               </thead>
@@ -507,8 +512,11 @@ export default function Pagamentos() {
                         {l.data_pagamento ? l.data_pagamento.slice(8)+'/'+l.data_pagamento.slice(5,7)+'/'+l.data_pagamento.slice(0,4) : '—'}
                       </span>
                     </td>
-                    <td style={{ padding: '10px 14px', fontSize: 11, color: '#6b7280', maxWidth: 180 }}>
+                    <td style={{ padding: '10px 14px', fontSize: 11, color: '#6b7280', maxWidth: 160 }}>
                       {l.obs_pagamento ?? '—'}
+                    </td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, fontSize: 13, color: '#15803d' }}>
+                      {l.snap_liquido ? formatCurrency(l.snap_liquido) : '—'}
                     </td>
                     <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                       <button
@@ -522,7 +530,7 @@ export default function Pagamentos() {
               </tbody>
               <tfoot>
                 <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0', fontWeight: 700 }}>
-                  <td colSpan={5} style={{ padding: '9px 14px', fontSize: 12 }}>Total realizado — {lancsRealizados.length} lançamento(s)</td>
+                  <td colSpan={6} style={{ padding: '9px 14px', fontSize: 12 }}>Total realizado — {lancsRealizados.length} lançamento(s)</td>
                   <td style={{ padding: '9px 14px', textAlign: 'right', fontSize: 13, color: '#15803d' }}>{formatCurrency(totalRealizado)}</td>
                 </tr>
               </tfoot>

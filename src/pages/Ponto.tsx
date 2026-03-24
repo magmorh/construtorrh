@@ -31,7 +31,7 @@ interface PlaybookItem {
 interface Lancamento {
   id: string; obra_id: string; obra_nome: string
   mes_referencia: string; data_inicio: string; data_fim: string
-  status: 'rascunho'|'aguardando_aprovacao'|'aprovado'|'recusado'
+  status: 'rascunho'|'aguardando_aprovacao'|'em_fechamento'|'aprovado'|'recusado'|'liberado'|'pago'
   motivo_recusa: string | null
 }
 type TipoEvento = 'atestado' | 'suspensao' | 'outro_lancamento' | null
@@ -514,7 +514,8 @@ export default function Ponto() {
   async function salvarLanc(lancId:string){
     if(!colabSel)return
     const lanc=lancamentos.find(l=>l.id===lancId)
-    if(lanc&&lanc.status!=='rascunho'&&lanc.status!=='recusado'){toast.error('Ponto em aprovação ou aprovado não pode ser editado');return}
+    const statusEditavel=['rascunho','recusado']
+    if(lanc&&!statusEditavel.includes(lanc.status)){toast.error('Ponto em fechamento ou aprovado não pode ser editado');return}
     setSaving(true)
     const dias=diasMap[lancId]??[]
     const upserts=dias.filter(d=>d.presente||d.falta||d.id).map(d=>{
@@ -556,8 +557,8 @@ export default function Ponto() {
     if(!colabSel||!novoLancObraId||!novoLancInicio||!novoLancFim){toast.error('Preencha todos os campos');return}
     if(novoLancInicio>novoLancFim){toast.error('Data de início deve ser anterior à data de fim');return}
     // Bloquear se houver lançamento em rascunho ou recusado (precisa aprovar antes)
-    const temAberto=lancamentos.some(l=>l.status==='rascunho'||l.status==='recusado')
-    if(temAberto){toast.error('Finalize (aprove) os lançamentos em aberto antes de criar um novo');return}
+    const temAberto=lancamentos.some(l=>l.status==='rascunho'||l.status==='recusado'||l.status==='aguardando_aprovacao')
+    if(temAberto){toast.error('Finalize os lançamentos em aberto (envie para Fechamento) antes de criar um novo');return}
     const lancsPorObra=lancamentos.filter(l=>l.obra_id===novoLancObraId).length
     if(lancsPorObra>=2){toast.error('Esta obra já tem 2 lançamentos neste mês');return}
     const diasNovos=new Set(expandRange(novoLancInicio,novoLancFim))
@@ -589,7 +590,7 @@ export default function Ponto() {
 
   async function excluirLancamento(id:string){
     const lanc=lancamentos.find(l=>l.id===id)
-    if(lanc&&lanc.status!=='rascunho'&&lanc.status!=='recusado'){toast.error('Lançamento em aprovação ou aprovado não pode ser excluído');return}
+    if(lanc&&!['rascunho','recusado'].includes(lanc.status)){toast.error('Apenas lançamentos em rascunho ou recusados podem ser excluídos');return}
     setModalExcluir(id)
   }
 
@@ -611,7 +612,8 @@ export default function Ponto() {
     if(error){toast.error('Erro: '+error.message);return}
     const msgs:Record<string,string>={
       aguardando_aprovacao:'Enviado para aprovação!',
-      aprovado:'Ponto aprovado!',
+      em_fechamento:'✅ Ponto enviado para o Fechamento!',
+      aprovado:'✅ Ponto aprovado!',
       recusado:'Ponto recusado — devolvido para edição',
     }
     toast.success(msgs[status]??'Atualizado')
@@ -776,8 +778,8 @@ export default function Ponto() {
               </div>
               <Button variant="outline" size="sm" onClick={()=>window.print()} style={{gap:4,height:30,fontSize:12}}><Printer size={12}/></Button>
               <Button size="sm"
-                disabled={!colabSel||lancamentos.some(l=>l.status==='rascunho'||l.status==='recusado')}
-                title={lancamentos.some(l=>l.status==='rascunho'||l.status==='recusado')?'Aprove os lançamentos em aberto antes de criar um novo':undefined}
+                disabled={!colabSel||lancamentos.some(l=>['rascunho','recusado','aguardando_aprovacao'].includes(l.status))}
+                title={lancamentos.some(l=>['rascunho','recusado','aguardando_aprovacao'].includes(l.status))?'Envie os lançamentos em aberto para o Fechamento antes de criar um novo':undefined}
                 onClick={()=>{setNovoLancObraId('');setNovoLancInicio('');setNovoLancFim('');setModalLanc(true)}}
                 style={{gap:4,height:30,fontSize:12}}>
                 <Plus size={12}/> Novo Lançamento
@@ -915,9 +917,12 @@ export default function Ponto() {
                     {/* Badge status */}
                     {(() => {
                       const cfg:{[k:string]:{bg:string;color:string;label:string}}={
-                        rascunho:{bg:'#f1f5f9',color:'#475569',label:'Rascunho'},
+                        rascunho:{bg:'#f1f5f9',color:'#475569',label:'📝 Rascunho'},
                         aguardando_aprovacao:{bg:'#fef3c7',color:'#92400e',label:'⏳ Aguardando'},
+                        em_fechamento:{bg:'#ede9fe',color:'#6d28d9',label:'📋 Em Fechamento'},
                         aprovado:{bg:'#dcfce7',color:'#15803d',label:'✅ Aprovado'},
+                        liberado:{bg:'#dbeafe',color:'#1d4ed8',label:'💜 Ag. Pagamento'},
+                        pago:{bg:'#d1fae5',color:'#065f46',label:'💰 Pago'},
                         recusado:{bg:'#fee2e2',color:'#b91c1c',label:'❌ Recusado'},
                       }
                       const s=cfg[lanc.status]??cfg.rascunho
@@ -937,7 +942,7 @@ export default function Ponto() {
                         </Button>
                       )}
                       {lanc.status==='rascunho'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#16a34a',color:'#15803d',background:'#f0fdf4'}} disabled={saving} onClick={async()=>{await salvarLanc(lanc.id);await mudarStatus(lanc.id,'aguardando_aprovacao')}}>✔ Salvar e Aprovar</Button>}
-                      {lanc.status==='aguardando_aprovacao'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#16a34a',color:'#15803d'}} onClick={()=>mudarStatus(lanc.id,'aprovado')}>✅ Confirmar</Button>}
+                      {lanc.status==='aguardando_aprovacao'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#7c3aed',color:'#6d28d9',background:'#faf5ff'}} onClick={()=>mudarStatus(lanc.id,'em_fechamento')}>📋 Enviar p/ Fechamento</Button>}
                       {lanc.status==='aguardando_aprovacao'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#dc2626',color:'#dc2626'}} onClick={()=>setModalRecusa({lancId:lanc.id,motivo:''})}>❌ Recusar</Button>}
                       {lanc.status==='recusado'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#16a34a',color:'#15803d',background:'#f0fdf4'}} disabled={saving} onClick={async()=>{await salvarLanc(lanc.id);await mudarStatus(lanc.id,'aguardando_aprovacao')}}>↩ Salvar e Reenviar</Button>}
                       {(lanc.status==='rascunho'||lanc.status==='recusado')&&<Button size="sm" variant="ghost" style={{height:26,width:26,padding:0,color:'var(--destructive)'}} onClick={()=>excluirLancamento(lanc.id)}><Trash2 size={12}/></Button>}
@@ -1004,7 +1009,7 @@ export default function Ponto() {
                         </thead>
                         <tbody>
                           {diasLanc.map((d,idx)=>{
-                            const fds=isFDS(d.data); const calc=calcDia(d); const lancBloq=lanc.status!=='rascunho'&&lanc.status!=='recusado'
+                            const fds=isFDS(d.data); const calc=calcDia(d); const lancBloq=!['rascunho','recusado'].includes(lanc.status)
                             const bg=d.evento==='suspensao'?'rgba(239,68,68,0.09)':d.evento==='atestado'?'rgba(59,130,246,0.09)':fds?'rgba(100,100,100,0.04)':d.falta?'rgba(239,68,68,0.05)':d.presente?'rgba(22,163,74,0.03)':'transparent'
                             return(
                               <tr key={d.data} style={{borderBottom:'1px solid var(--border)',background:bg}}>

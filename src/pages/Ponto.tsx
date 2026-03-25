@@ -775,7 +775,8 @@ export default function Ponto() {
         const outroLanc=list.find(l=>l.id===outroId)
         const nomeOutraObra=outroLanc?.obra_nome??'outra obra'
         outroDias.forEach(d=>{
-          if(!diasUsados.has(d.data))diasUsados.set(d.data,nomeOutraObra)
+          // Bloqueia apenas dias que TÊM registro real (id preenchido = ponto salvo)
+          if(d.id && !diasUsados.has(d.data))diasUsados.set(d.data,nomeOutraObra)
         })
       }
       newDiasMap[lanc.id]=await fetchDiasLanc(lanc,colab,horMapFull,diasAtestado,diasSuspensao,diasUsados)
@@ -1423,7 +1424,7 @@ export default function Ponto() {
                       )}
                       {lanc.status==='rascunho'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#16a34a',color:'#15803d',background:'#f0fdf4'}} disabled={saving} onClick={async()=>{await salvarLanc(lanc.id);await mudarStatus(lanc.id,'aguardando_aprovacao')}}>✔ Salvar e Aprovar</Button>}
                       {lanc.status==='aguardando_aprovacao'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#7c3aed',color:'#6d28d9',background:'#faf5ff'}} onClick={()=>mudarStatus(lanc.id,'em_fechamento')}>📋 Enviar p/ Fechamento</Button>}
-                      {lanc.status==='aguardando_aprovacao'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#dc2626',color:'#dc2626'}} onClick={()=>setModalRecusa({lancId:lanc.id,motivo:''})}>❌ Recusar</Button>}
+                      {lanc.status==='aguardando_aprovacao'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#b45309',color:'#b45309',background:'#fef3c7'}} onClick={()=>mudarStatus(lanc.id,'rascunho')}>✏️ Editar</Button>}
                       {lanc.status==='recusado'&&<Button size="sm" variant="outline" style={{height:26,fontSize:11,gap:2,borderColor:'#16a34a',color:'#15803d',background:'#f0fdf4'}} disabled={saving} onClick={async()=>{await salvarLanc(lanc.id);await mudarStatus(lanc.id,'aguardando_aprovacao')}}>↩ Salvar e Reenviar</Button>}
                       {(lanc.status==='rascunho'||lanc.status==='recusado')&&<Button size="sm" variant="ghost" style={{height:26,width:26,padding:0,color:'var(--destructive)'}} onClick={()=>excluirLancamento(lanc.id)}><Trash2 size={12}/></Button>}
                     </div>

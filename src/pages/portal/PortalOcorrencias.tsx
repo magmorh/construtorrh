@@ -95,7 +95,8 @@ export default function PortalOcorrencias() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!descricao.trim()) { setErroMsg('Preencha a descrição da ocorrência.'); return }
+    if (!descricao.trim()) { setErroMsg('⚠️ Preencha o campo DESCRIÇÃO antes de salvar.'); return }
+    if (!obraId) { setErroMsg('⚠️ Nenhuma obra selecionada.'); return }
     setSaving(true); setErroMsg('')
     const base = {
       obra_id: obraId,
@@ -314,14 +315,16 @@ export default function PortalOcorrencias() {
           {/* Descrição */}
           <div>
             {LBL('Descrição *')}
-            <textarea value={descricao} onChange={e=>setDescricao(e.target.value)} required rows={3}
+            <textarea value={descricao} onChange={e=>{ setDescricao(e.target.value); if(e.target.value.trim()) setErroMsg('') }} rows={4}
               placeholder={aba==='acidente'?'Descreva como ocorreu o acidente…':aba==='atestado'?'Motivo do afastamento…':'Detalhes da ocorrência…'}
-              style={{ width:'100%',border:'1px solid #e5e7eb',borderRadius:8,padding:'10px 12px',fontSize:13,boxSizing:'border-box',background:'#fff',resize:'vertical' }}/>
+              style={{ width:'100%',border:`2px solid ${!descricao.trim()?'#fca5a5':'#e5e7eb'}`,borderRadius:8,padding:'10px 12px',fontSize:13,boxSizing:'border-box',background:!descricao.trim()?'#fff5f5':'#fff',resize:'vertical' }}/>
+            {!descricao.trim() && <p style={{ fontSize:11, color:'#dc2626', marginTop:4, fontWeight:600 }}>⚠️ Campo obrigatório — preencha antes de registrar</p>}
           </div>
 
-          <button type="submit" disabled={saving||!descricao.trim()} style={{
+          <button type="submit" disabled={saving} style={{
             height:52,background:saving?'#94a3b8':'#dc2626',color:'#fff',border:'none',borderRadius:12,fontSize:16,fontWeight:700,
             cursor:saving?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+            opacity:1,
           }}>
             {saving?<><Loader2 size={18} className="animate-spin"/>Salvando…</>:<><AlertTriangle size={18}/>Registrar Ocorrência</>}
           </button>

@@ -13,7 +13,7 @@ interface OcorRow {
   hora_acidente?: string | null; local?: string | null; cat_emitida?: boolean | null
   dias_afastamento?: number | null; com_afastamento?: boolean | null; cid?: string | null
   tipo_atestado?: string | null; tipo_adv?: string | null; assinada?: boolean | null
-  dias_suspensao?: number | null; motivo?: string | null
+  dias_suspensao?: number | null; motivo?: string | null; status?: string | null
 }
 
 type AbaOcor = 'acidente' | 'atestado' | 'advertencia' | 'geral' | 'desligamento'
@@ -152,7 +152,7 @@ export default function PortalOcorrencias() {
   const loadHistorico = useCallback(async (oid: string, tipo: AbaOcor) => {
     if (!oid) return
     const q = supabase.from('portal_ocorrencias')
-      .select('id,tipo,gravidade,descricao,criado_em,data_ocorrencia,hora_acidente,local,cat_emitida,dias_afastamento,com_afastamento,cid,tipo_atestado,tipo_adv,assinada,dias_suspensao,sincronizado_em,colaboradores(nome)')
+      .select('id,tipo,gravidade,descricao,criado_em,data_ocorrencia,hora_acidente,local,cat_emitida,dias_afastamento,com_afastamento,cid,tipo_atestado,tipo_adv,assinada,dias_suspensao,sincronizado_em,status,colaboradores(nome)')
       .eq('obra_id', oid)
     if (tipo !== 'geral') q.eq('tipo', tipo)
     q.order('criado_em', { ascending: false }).limit(50)
@@ -276,8 +276,11 @@ export default function PortalOcorrencias() {
     setTimeout(() => { setSucesso(false); setSubAba('historico') }, 1600)
   }
 
-  async function excluir(id: string, sync: string|null) {
-    if (sync) { alert('Esta ocorrência já foi sincronizada e não pode ser excluída aqui.'); return }
+  async function excluir(id: string, sync: string|null, status: string) {
+    if (sync || status === 'aprovado') {
+      alert('Esta ocorrência já foi aprovada pelo RH e não pode mais ser excluída.')
+      return
+    }
     if (!confirm('Excluir esta ocorrência?')) return
     setDeletandoId(id)
     await supabase.from('portal_ocorrencias').delete().eq('id', id)
@@ -671,7 +674,8 @@ export default function PortalOcorrencias() {
               Nenhuma ocorrência registrada ainda
             </div>
           ) : historico.map(h => {
-            const jaSync = !!h.sincronizado_em
+            const jaSync   = !!h.sincronizado_em || h.status === 'aprovado'
+            const recusado = h.status === 'recusado'
             const cNome  = (h as any).colaboradores?.nome ?? '—'
             const gc     = GRAV_COR[h.gravidade ?? ''] ?? {bg:'#f3f4f6', cor:'#374151'}
             const tipoCor: Record<string,string> = { acidente:'#dc2626', atestado:'#2563eb', advertencia:'#ea580c', geral:'#7c3aed' }
@@ -693,10 +697,12 @@ export default function PortalOcorrencias() {
                   </div>
                   <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6 }}>
                     {jaSync
-                      ? <span style={{ background:'#dcfce7', color:'#15803d', borderRadius:5, padding:'2px 8px', fontSize:11, fontWeight:700 }}>✓ Sincronizado</span>
+                      ? <span style={{ background:'#dcfce7', color:'#15803d', borderRadius:5, padding:'2px 8px', fontSize:11, fontWeight:700 }}>✓ Aprovado</span>
+                      : recusado
+                      ? <span style={{ background:'#fee2e2', color:'#dc2626', borderRadius:5, padding:'2px 8px', fontSize:11, fontWeight:700 }}>✗ Recusado</span>
                       : <span style={{ background:'#fef3c7', color:'#b45309', borderRadius:5, padding:'2px 8px', fontSize:11, fontWeight:700 }}>⏳ Pendente</span>}
-                    {!jaSync && (
-                      <button type="button" onClick={() => excluir(h.id, h.sincronizado_em)} disabled={deletandoId===h.id}
+                    {!jaSync && !recusado && (
+                      <button type="button" onClick={() => excluir(h.id, h.sincronizado_em, h.status ?? '')} disabled={deletandoId===h.id}
                         style={{ background:'none', border:'1px solid #fca5a5', borderRadius:6, padding:'3px 8px',
                           cursor:'pointer', display:'flex', alignItems:'center', gap:4, color:'#dc2626', fontSize:11 }}>
                         <Trash2 size={12}/>{deletandoId===h.id ? '…' : 'Excluir'}

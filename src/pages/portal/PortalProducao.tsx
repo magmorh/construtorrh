@@ -98,7 +98,7 @@ export default function PortalProducao() {
   }
 
   async function excluir(id: string, sync: string | null) {
-    if (sync) { alert('Este lançamento já foi sincronizado com o sistema e não pode ser excluído aqui.'); return }
+    if (sync) { alert('Este lançamento já foi aprovado pelo RH e não pode mais ser excluído.'); return }
     if (!confirm('Excluir este lançamento de produção?')) return
     setDeletandoId(id)
     await supabase.from('portal_producao').delete().eq('id', id)

@@ -83,6 +83,7 @@ export default function PortalOcorrencias() {
 
   useEffect(() => { if (!session) { nav('/portal'); return } loadBase() }, [])
   useEffect(() => { if (obraId) { loadColabs(obraId); loadHistorico(obraId, aba) } }, [obraId, aba])
+  useEffect(() => { if (obraId && subAba === 'historico') loadHistorico(obraId, aba) }, [subAba])
 
   function resetForm() {
     setColabId(''); setDataOcor(new Date().toISOString().slice(0,10)); setDescricao(''); setGravidade('leve')
@@ -185,7 +186,7 @@ export default function PortalOcorrencias() {
       )}
 
       {/* ── FORMULÁRIO ── */}
-      {(subAba === 'nova' || aba === 'geral') && aba !== 'geral' && (
+      {subAba === 'nova' && aba !== 'geral' && (
         <form onSubmit={handleSubmit} style={{ padding:'0 16px 32px',display:'flex',flexDirection:'column',gap:14 }}>
           {sucesso && (
             <div style={{ background:'#dcfce7',border:'1px solid #86efac',borderRadius:10,padding:'12px 16px',display:'flex',alignItems:'center',gap:8,color:'#15803d',fontWeight:700 }}>
@@ -315,7 +316,7 @@ export default function PortalOcorrencias() {
       )}
 
       {/* ── HISTÓRICO / GERAL ── */}
-      {(subAba==='historico' || aba==='geral') && (
+      {(subAba === 'historico' || aba === 'geral') && (
         <div style={{ padding:'0 16px 32px' }}>
           {aba==='geral'&&(
             <div style={{ marginBottom:12,fontWeight:700,fontSize:13,color:'var(--muted-foreground)' }}>

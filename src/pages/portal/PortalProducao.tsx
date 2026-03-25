@@ -29,6 +29,7 @@ export default function PortalProducao() {
   const [aba, setAba]                 = useState<'nova' | 'historico'>('nova')
   const [saving, setSaving]           = useState(false)
   const [sucesso, setSucesso]         = useState(false)
+  const [erroMsg, setErroMsg]         = useState('')
   const [deletandoId, setDeletandoId] = useState<string|null>(null)
 
   // Formulário
@@ -73,12 +74,10 @@ export default function PortalProducao() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!colabId || !playbookId || !quantidade) return
-    setSaving(true)
+    setSaving(true); setErroMsg('')
 
     // Encontra lançamento que cobre dataRef
     const lanc = lancamentos.find(l => l.data_inicio <= dataRef && dataRef <= l.data_fim)
-
-    const pb = playbook.find(p => p.id === playbookId)
 
     const { error } = await supabase.from('portal_producao').insert({
       obra_id: obraId, colaborador_id: colabId,
@@ -89,11 +88,13 @@ export default function PortalProducao() {
       lancamento_id: lanc?.id ?? null,
     })
     setSaving(false)
-    if (!error) {
-      setSucesso(true); setQuantidade(''); setObs('')
-      loadHistorico(obraId)
-      setTimeout(() => { setSucesso(false); setAba('historico') }, 1600)
+    if (error) {
+      setErroMsg('Erro ao salvar: ' + error.message)
+      return
     }
+    setSucesso(true); setQuantidade(''); setObs(''); setErroMsg('')
+    loadHistorico(obraId)
+    setTimeout(() => { setSucesso(false); setAba('historico') }, 1600)
   }
 
   async function excluir(id: string, sync: string | null) {
@@ -145,6 +146,11 @@ export default function PortalProducao() {
           {sucesso && (
             <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 8, color: '#15803d', fontWeight: 700 }}>
               <CheckCircle2 size={18} /> Produção lançada com sucesso!
+            </div>
+          )}
+          {erroMsg && (
+            <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 10, padding: '12px 16px', color: '#dc2626', fontWeight: 700, fontSize: 13 }}>
+              ⚠️ {erroMsg}
             </div>
           )}
 

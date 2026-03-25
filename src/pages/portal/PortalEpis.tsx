@@ -74,13 +74,18 @@ export default function PortalEpis() {
     const itensValidos = itens.filter(x => x.nome.trim())
     if (!itensValidos.length) return
     setSaving(true)
-    await supabase.from('portal_epi_solicitacoes').insert({
+    const { error } = await supabase.from('portal_epi_solicitacoes').insert({
       obra_id: obraId,
       colaborador_id: colabId || null,
       portal_usuario_id: session?.id,
+      status: 'pendente',
       urgencia, itens: itensValidos, observacoes: obs || null,
     })
     setSaving(false)
+    if (error) {
+      alert('Erro ao enviar solicitação: ' + error.message)
+      return
+    }
     setSucesso(true)
     setItens([novoItem()]); setObs(''); setColabId(''); setUrgencia('normal')
     fetchHistorico()

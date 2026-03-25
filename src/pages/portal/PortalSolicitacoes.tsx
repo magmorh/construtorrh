@@ -159,12 +159,15 @@ export default function PortalSolicitacoes() {
     const { error } = await supabase.from('portal_solicitacoes').insert({
       obra_id: obraId, tipo: 'novo_colaborador', dados,
       portal_usuario_id: session?.id,
+      status: 'pendente',
     })
     setSaving(false)
-    if (!error) {
-      setSucesso(true); reset(); fetchHistorico()
-      setTimeout(() => { setSucesso(false); setAba('historico') }, 1800)
+    if (error) {
+      alert('Erro ao enviar solicitação: ' + error.message)
+      return
     }
+    setSucesso(true); reset(); fetchHistorico()
+    setTimeout(() => { setSucesso(false); setAba('historico') }, 1800)
   }
 
   const badge = (s: string) => {

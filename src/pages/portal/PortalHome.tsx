@@ -62,9 +62,10 @@ export default function PortalHome() {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {[
-            { icon: <ClipboardList size={26} color="#1e3a5f" />, label: 'Lançar Ponto', sub: 'Presenças do dia', to: '/portal/ponto', bg: '#eff6ff', border: '#bfdbfe' },
-            { icon: <AlertTriangle size={26} color="#dc2626" />, label: 'Ocorrência', sub: 'Registrar evento', to: '/portal/ocorrencias', bg: '#fef2f2', border: '#fecaca' },
-            { icon: <UserPlus size={26} color="#15803d" />, label: 'Solicitar Colaborador', sub: 'Novo funcionário', to: '/portal/solicitacoes', bg: '#f0fdf4', border: '#bbf7d0' },
+            { icon: <ClipboardList size={26} color="#1e3a5f" />, label: 'Lançar Ponto',  sub: 'Presenças do dia',  to: '/portal/ponto',        bg: '#eff6ff', border: '#bfdbfe' },
+            { icon: <AlertTriangle size={26} color="#dc2626" />, label: 'Ocorrência',    sub: 'Registrar evento',  to: '/portal/ocorrencias',  bg: '#fef2f2', border: '#fecaca' },
+            { icon: <UserPlus size={26} color="#15803d" />,      label: 'Cadastro',      sub: 'Novo colaborador',  to: '/portal/solicitacoes', bg: '#f0fdf4', border: '#bbf7d0' },
+            { icon: <span style={{fontSize:26}}>🦺</span>,       label: 'Solicitar EPI', sub: 'Equipamentos',      to: '/portal/epis',         bg: '#fff7ed', border: '#fed7aa' },
           ].map(a => (
             <div key={a.to} onClick={() => nav(a.to)}
               style={{

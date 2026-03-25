@@ -574,8 +574,16 @@ export default function ValeTransportePage() {
 
   // ─── Lançar em Lote: cria VT mês completo para todos sem VT da lista ────
   async function handleLancarLote() {
-    // Colaboradores SEM VT na lista atualmente filtrada
-    const semVT = colabsFiltrados.filter(c => statusVTColab(c.id) === 'sem')
+    // Colaboradores SEM VT — filtra por obra (sem filtro de status para não perder ninguém)
+    const colabsParaLoteFunc = colaboradores.filter(c => {
+      if (c.data_admissao) {
+        const ultimoDiaMes = `${competencia}-31`
+        if (c.data_admissao > ultimoDiaMes) return false
+      }
+      if (obraFiltro !== 'todas' && c.obra_id !== obraFiltro) return false
+      return true
+    })
+    const semVT = colabsParaLoteFunc.filter(c => statusVTColab(c.id) === 'sem')
     if (semVT.length === 0) { toast.error('Nenhum colaborador sem VT nesta seleção'); return }
     setSavingLancarLote(true)
 
@@ -1376,8 +1384,17 @@ export default function ValeTransportePage() {
 
       {/* ══ MODAL LANÇAR EM LOTE ══ */}
       {modalLancarLote && (() => {
-        const semVT = colabsFiltrados.filter(c => statusVTColab(c.id) === 'sem')
-        const comVT = colabsFiltrados.filter(c => statusVTColab(c.id) !== 'sem')
+        // Usa TODOS os colaboradores ativos filtrados pela obra (igual à sidebar, sem filtro de status)
+        const colabsParaLote = colaboradores.filter(c => {
+          if (c.data_admissao) {
+            const ultimoDiaMes = `${competencia}-31`
+            if (c.data_admissao > ultimoDiaMes) return false
+          }
+          if (obraFiltro !== 'todas' && c.obra_id !== obraFiltro) return false
+          return true
+        })
+        const semVT = colabsParaLote.filter(c => statusVTColab(c.id) === 'sem')
+        const comVT = colabsParaLote.filter(c => statusVTColab(c.id) !== 'sem')
         const semConfig = semVT.filter(c => !c.vt_valor_diario || c.vt_valor_diario <= 0)
         const aptos = semVT.filter(c => c.vt_valor_diario && c.vt_valor_diario > 0)
         const totalEstimado = aptos.reduce((s, c) => s + (c.vt_valor_diario! * diasUteisMes.length), 0)
@@ -1392,7 +1409,8 @@ export default function ValeTransportePage() {
                   <h3 style={{ fontWeight: 800, fontSize: 16, margin: 0 }}>Lançar VT em Lote</h3>
                 </div>
                 <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0 }}>
-                  Cria VT do mês completo ({diasUteisMes.length} dias úteis) para todos os colaboradores <strong>sem VT</strong> na lista atual.
+                  Cria VT do mês completo ({diasUteisMes.length} dias úteis) para colaboradores <strong>sem VT</strong>
+                  {obraFiltro !== 'todas' ? <> · <strong style={{color:'#7c3aed'}}>📍 {obras.find(o=>o.id===obraFiltro)?.nome ?? ''}</strong></> : ' de todas as obras'}.
                 </p>
               </div>
 

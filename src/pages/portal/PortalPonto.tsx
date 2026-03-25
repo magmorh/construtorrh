@@ -238,10 +238,18 @@ export default function PortalPonto() {
     if (win) { win.document.write(html); win.document.close() }
   }
 
-  // ── Filtro por data_admissao ───────────────────────────────────────────────
-  const colaboradoresVisiveis = colaboradores.filter(c =>
-    !c.data_admissao || c.data_admissao <= dataSel
-  )
+  // ── Filtro por data_admissao + agrupa por função ───────────────────────────
+  const colaboradoresVisiveis = useMemo(() => {
+    const filtrados = colaboradores.filter(c => !c.data_admissao || c.data_admissao <= dataSel)
+    // Ordenar por função depois por nome
+    return [...filtrados].sort((a, b) => {
+      const fa = (a.funcao ?? 'Sem função').toLowerCase()
+      const fb = (b.funcao ?? 'Sem função').toLowerCase()
+      if (fa < fb) return -1
+      if (fa > fb) return 1
+      return a.nome.localeCompare(b.nome)
+    })
+  }, [colaboradores, dataSel])
 
   const totalPresentes  = colaboradoresVisiveis.filter(c => pontos[c.id]?.status === 'presente').length
   const totalFaltas     = colaboradoresVisiveis.filter(c => pontos[c.id]?.status === 'falta' || pontos[c.id]?.status === 'falta_justificada').length
@@ -315,7 +323,7 @@ export default function PortalPonto() {
           ))}
         </div>
 
-        {/* Lista */}
+        {/* Lista agrupada por função */}
         <div style={{ padding:'0 16px 16px' }}>
           {loading ? (
             <div style={{ textAlign:'center', padding:32, color:'#9ca3af' }}>
@@ -325,7 +333,13 @@ export default function PortalPonto() {
             <div style={{ background:'#fff', borderRadius:12, padding:24, textAlign:'center', color:'#9ca3af' }}>
               Nenhum colaborador ativo nesta obra para esta data
             </div>
-          ) : colaboradoresVisiveis.map(c => {
+          ) : (() => {
+            // Agrupar por função mantendo ordem
+            let lastFuncao = ''
+            return colaboradoresVisiveis.map(c => {
+            const funcaoLabel = c.funcao ?? 'Sem função'
+            const showHeader  = funcaoLabel !== lastFuncao
+            if (showHeader) lastFuncao = funcaoLabel
             const p       = pontos[c.id]
             const isSaving = saving.has(c.id)
             const isEdit   = editandoId === c.id
@@ -334,7 +348,14 @@ export default function PortalPonto() {
             const obraConflito = conflito ? (obrasData.find(o=>o.id===conflito)?.nome ?? 'outra obra') : null
 
             return (
-              <div key={c.id} style={{
+              <React.Fragment key={c.id}>
+                {/* Separador de função */}
+                {showHeader && (
+                  <div style={{ marginBottom:6, marginTop: lastFuncao !== funcaoLabel ? 4 : 0, padding:'4px 8px', background:'#1e3a5f', borderRadius:8, fontSize:11, fontWeight:700, color:'#93c5fd', textTransform:'uppercase', letterSpacing:'0.05em' }}>
+                    👷 {funcaoLabel}
+                  </div>
+                )}
+              <div style={{
                 background:'#fff', borderRadius:14,
                 border:`2px solid ${obraConflito ? '#fca5a5' : (cfg?.bg ?? '#e5e7eb')}`,
                 marginBottom:10, overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,0.06)',
@@ -402,8 +423,10 @@ export default function PortalPonto() {
                   </div>
                 )}
               </div>
+              </React.Fragment>
             )
-          })}
+          })
+          })()}
         </div>
       </>)}
 
@@ -431,14 +454,26 @@ export default function PortalPonto() {
             <input type="date" value={dataSel} onChange={e => setDataSel(e.target.value)} style={INP}/>
           </div>
 
-          {/* Colaborador */}
+          {/* Colaborador — agrupado por função */}
           <div>
             <label style={{ fontSize:12, fontWeight:700, color:'#374151', display:'block', marginBottom:6, textTransform:'uppercase' }}>Colaborador</label>
             <select value={avulsoColabId} onChange={e => setAvulsoColabId(e.target.value)} style={SEL}>
               <option value="">Selecione…</option>
-              {avulsoColabs.map(c => (
-                <option key={c.id} value={c.id}>{c.nome}{c.chapa ? ` (${c.chapa})` : ''}</option>
-              ))}
+              {(() => {
+                const sorted = [...avulsoColabs].sort((a,b) => {
+                  const fa = (a.funcao ?? 'Sem função').toLowerCase()
+                  const fb = (b.funcao ?? 'Sem função').toLowerCase()
+                  return fa !== fb ? fa.localeCompare(fb) : a.nome.localeCompare(b.nome)
+                })
+                let lastF = ''
+                return sorted.map(c => {
+                  const f = c.funcao ?? 'Sem função'
+                  const elems: React.ReactNode[] = []
+                  if (f !== lastF) { lastF = f; elems.push(<option key={`hdr-${f}`} disabled value="">── {f.toUpperCase()} ──</option>) }
+                  elems.push(<option key={c.id} value={c.id}>{c.nome}{c.chapa ? ` (${c.chapa})` : ''}</option>)
+                  return elems
+                })
+              })()}
             </select>
           </div>
 

@@ -57,6 +57,10 @@ interface LancProducao {
 }
 
 // ─── Utilitários ──────────────────────────────────────────────────────────────
+// Calcula valor monetário a partir dos minutos por tipo de hora
+function calcValorMin(normais:number,extras50:number,extras100:number,vh:number):number {
+  return fmtDecimal(normais)*vh + fmtDecimal(extras50)*vh*1.5 + fmtDecimal(extras100)*vh*2.0
+}
 const DIAS_KEY: Record<number,string> = {1:'seg',2:'ter',3:'qua',4:'qui',5:'sex',6:'sab',0:'dom'}
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
@@ -99,9 +103,10 @@ function domingosFeriadosPeriodo(inicio:string,fim:string,feriadosSet?:Set<strin
   return domingos+feriadosUteis
 }
 
-function calcDia(d:DiaRegistro):{normais:number;extras50:number;total:number} {
-  if(!d.presente||d.falta)return{normais:0,extras50:0,total:0}
-  const isSab=new Date(d.data+'T12:00:00').getDay()===6
+function calcDia(d:DiaRegistro,isFeriado=false):{normais:number;extras50:number;extras100:number;total:number} {
+  if(!d.presente||d.falta)return{normais:0,extras50:0,extras100:0,total:0}
+  const dow=new Date(d.data+'T12:00:00').getDay()
+  const isSab=dow===6
   let horasDia=0
   if(d.hora_entrada&&d.hora_saida){
     let bruto=diffMin(d.hora_entrada,d.hora_saida)
@@ -110,8 +115,13 @@ function calcDia(d:DiaRegistro):{normais:number;extras50:number;total:number} {
     horasDia=Math.max(0,bruto)
   }
   let he=0; if(d.he_entrada&&d.he_saida)he=Math.max(0,diffMin(d.he_entrada,d.he_saida))
+  // Feriado: TODAS as horas têm adicional 100% (2×)
+  if(isFeriado){
+    const total=horasDia+he
+    return{normais:0,extras50:0,extras100:total,total}
+  }
   const normais=isSab?0:horasDia; const extras50=isSab?horasDia+he:he
-  return{normais,extras50,total:normais+extras50}
+  return{normais,extras50,extras100:0,total:normais+extras50}
 }
 
 function emptyDia(colabId:string,lancId:string,obraId:string,data:string):DiaRegistro {
@@ -817,19 +827,19 @@ export default function Ponto() {
 
   // ── Totais globais ────────────────────────────────────────────────────────
   const totaisGlobais = useMemo(()=>{
-    let normais=0,extras50=0,presentes=0
+    let normais=0,extras50=0,extras100=0,presentes=0
     Object.values(diasMap).forEach(dias=>dias.forEach(d=>{
-      const c=calcDia(d);normais+=c.normais;extras50+=c.extras50
+      const c=calcDia(d,feriados.has(d.data));normais+=c.normais;extras50+=c.extras50;extras100+=c.extras100
       if(d.presente&&!d.falta&&d.evento!=='atestado'&&d.evento!=='suspensao')presentes++
     }))
-    return{normais,extras50,total:normais+extras50,presentes}
-  },[diasMap])
+    return{normais,extras50,extras100,total:normais+extras50+extras100,presentes}
+  },[diasMap,feriados])
 
   // valorHoraEfetivo: usa snapshot se existir (lançamento aprovado/fechado),
   // caso contrário usa o valor ao vivo da função. Garante imutabilidade pós-aprovação.
   const valorHoraEfetivo: number = valorHoraCongelado ?? valorHora
 
-  const totalHoras = valorHoraEfetivo>0?(fmtDecimal(totaisGlobais.normais)*valorHoraEfetivo + fmtDecimal(totaisGlobais.extras50)*valorHoraEfetivo*1.5):0
+  const totalHoras = valorHoraEfetivo>0?calcValorMin(totaisGlobais.normais,totaisGlobais.extras50,totaisGlobais.extras100,valorHoraEfetivo):0
   const totalProd  = producoes.reduce((s,p)=>s+p.valor_total,0)
 
   // Valor a receber com regra CLT/autônomo
@@ -838,12 +848,15 @@ export default function Ponto() {
 
   // Autônomo: horas(dias sem prod) + produção. CLT: horas + prêmio se prod>horas
   const horasAutonomoSemProd = useMemo(()=>{
-    let minNorm=0, minExtra=0
+    let minNorm=0,minExtra50=0,minExtra100=0
     Object.values(diasMap).forEach(dias=>dias.forEach(d=>{
-      if(!diasComProd.has(d.data)){const cl=calcDia(d);minNorm+=cl.normais;minExtra+=cl.extras50}
+      if(!diasComProd.has(d.data)){
+        const cl=calcDia(d,feriados.has(d.data))
+        minNorm+=cl.normais;minExtra50+=cl.extras50;minExtra100+=cl.extras100
+      }
     }))
-    return fmtDecimal(minNorm)*valorHoraEfetivo + fmtDecimal(minExtra)*valorHoraEfetivo*1.5
-  },[diasMap,diasComProd,valorHoraEfetivo])
+    return calcValorMin(minNorm,minExtra50,minExtra100,valorHoraEfetivo)
+  },[diasMap,diasComProd,valorHoraEfetivo,feriados])
 
   // DSR — só para CLT, com regra de perda por falta semanal
   // Regra: se houver falta em uma semana (Seg-Sab), o DSR daquele domingo é perdido
@@ -851,8 +864,7 @@ export default function Ponto() {
     if(!colabSel||colabSel.tipo_contrato!=='clt'||valorHoraEfetivo===0){
       return{valor:0,diasUteis:0,domingos:0,baseValor:0,domingosPerdidos:0}
     }
-    const baseValor = fmtDecimal(totaisGlobais.normais)*valorHoraEfetivo
-                    + fmtDecimal(totaisGlobais.extras50)*valorHoraEfetivo*1.5
+    const baseValor = calcValorMin(totaisGlobais.normais,totaisGlobais.extras50,totaisGlobais.extras100,valorHoraEfetivo)
     // Montar set de datas com falta (todos os lançamentos)
     const datasComFalta = new Set<string>()
     Object.values(diasMap).forEach(diasLanc=>
@@ -865,9 +877,9 @@ export default function Ponto() {
       const diasLanc = diasMap[lanc.id] ?? []
       const vHorasLanc = diasLanc.reduce((s,d)=>{
         if(diasComProd.has(d.data)) return s  // dias com produção não entram no cálculo de horas
-        const cl=calcDia(d)
+        const cl=calcDia(d,feriados.has(d.data))
         // calcDia retorna MINUTOS → converter para horas antes de multiplicar pelo valor/hora
-        return s + (fmtDecimal(cl.normais)*valorHoraEfetivo + fmtDecimal(cl.extras50)*valorHoraEfetivo*1.5)
+        return s + calcValorMin(cl.normais,cl.extras50,cl.extras100,valorHoraEfetivo)
       },0)
       const res = calcDSRComFaltas(vHorasLanc, lanc.data_inicio, lanc.data_fim, datasComFalta, feriados)
       dsrTotal += res.dsr
@@ -949,7 +961,7 @@ export default function Ponto() {
     setSaving(true)
     const dias=diasMap[lancId]??[]
     const upserts=dias.filter(d=>d.presente||d.falta||d.id).map(d=>{
-      const c=calcDia(d)
+      const c=calcDia(d,feriados.has(d.data))
       return{
         ...(d.id?{id:d.id}:{}),
         lancamento_id:lancId,colaborador_id:d.colaborador_id,
@@ -957,7 +969,7 @@ export default function Ponto() {
         hora_entrada:d.hora_entrada||null,saida_almoco:d.saida_almoco||null,
         retorno_almoco:d.retorno_almoco||null,hora_saida:d.hora_saida||null,
         he_entrada:d.he_entrada||null,he_saida:d.he_saida||null,
-        horas_trabalhadas:fmtDecimal(c.normais),horas_extras:fmtDecimal(c.extras50),
+        horas_trabalhadas:fmtDecimal(c.normais),horas_extras:fmtDecimal(c.extras50)+fmtDecimal(c.extras100),
         falta:d.falta,justificativa:d.justificativa||null,
       }
     })
@@ -1119,15 +1131,15 @@ export default function Ponto() {
   // ── Totais por lançamento ─────────────────────────────────────────────────
   function totaisLanc(lancId:string){
     const dias=diasMap[lancId]??[]
-    let normais=0,extras50=0,presentes=0,faltas=0,atestados=0,suspensoes=0
+    let normais=0,extras50=0,extras100=0,presentes=0,faltas=0,atestados=0,suspensoes=0
     dias.forEach(d=>{
-      const c=calcDia(d);normais+=c.normais;extras50+=c.extras50
+      const c=calcDia(d,feriados.has(d.data));normais+=c.normais;extras50+=c.extras50;extras100+=c.extras100
       if(d.presente&&!d.falta)presentes++
       if(d.falta)faltas++
       if(d.evento==='atestado'&&!isFDS(d.data))atestados++
       if(d.evento==='suspensao')suspensoes++
     })
-    return{normais,extras50,total:normais+extras50,presentes,faltas,atestados,suspensoes}
+    return{normais,extras50,extras100,total:normais+extras50+extras100,presentes,faltas,atestados,suspensoes}
   }
 
   function mesAnterior(){if(mes===1){setAno(a=>a-1);setMes(12)}else setMes(m=>m-1)}
@@ -1283,7 +1295,10 @@ export default function Ponto() {
                     })();
 
                 const cards=[
-                  {label:'⏱ Total de Horas',value:fmtHHMM(totaisGlobais.total),sub:`${fmtHHMM(totaisGlobais.normais)} norm + ${fmtHHMM(totaisGlobais.extras50)} extras`,color:'#1d4ed8'},
+                  {label:'⏱ Total de Horas',value:fmtHHMM(totaisGlobais.total),sub:(()=>{
+                    const s=`${fmtHHMM(totaisGlobais.normais)} norm + ${fmtHHMM(totaisGlobais.extras50)} ext50`
+                    return totaisGlobais.extras100>0 ? s+` + ${fmtHHMM(totaisGlobais.extras100)} feriado` : s.replace(' ext50',' extras')
+                  })(),color:'#1d4ed8'},
                   {label:'💰 Valor das Horas',value:valorHoraEfetivo>0?(valorHoraCongelado!=null?`🔒 R$ ${valorHoraEfetivo.toFixed(2)}/h`:`R$ ${valorHoraEfetivo.toFixed(2)}/h`):'Sem tabela',sub:valorHoraEfetivo>0?(valorHoraCongelado!=null?`Valor congelado · ${formatCurrency(totalHoras)} no período`:formatCurrency(totalHoras)+' no período'):'Cadastre em Funções → valor/hora',color:valorHoraEfetivo>0?(valorHoraCongelado!=null?'#0369a1':'#15803d'):'#9ca3af'},
                   {label:'🏗️ Produção',value:totalProd>0?formatCurrency(totalProd):'—',sub:subProd,color:'#b45309'},
                 ]
@@ -1390,8 +1405,8 @@ export default function Ponto() {
                       const diasLancAtual = diasMap[lanc.id] ?? []
                       const vHorasLanc = diasLancAtual.reduce((s,d)=>{
                         if(diasComProd.has(d.data)) return s
-                        const cl=calcDia(d)
-                        return s + (fmtDecimal(cl.normais)*valorHoraEfetivo + fmtDecimal(cl.extras50)*valorHoraEfetivo*1.5)
+                        const cl=calcDia(d,feriados.has(d.data))
+                        return s + calcValorMin(cl.normais,cl.extras50,cl.extras100,valorHoraEfetivo)
                       },0)
                       // DSR individual com regra de falta semanal
                       const ehCLTLanc = colabSel?.tipo_contrato === 'clt'
@@ -1503,11 +1518,11 @@ export default function Ponto() {
                         </thead>
                         <tbody>
                           {diasLanc.map((d,idx)=>{
-                            const fds=isFDS(d.data); const calc=calcDia(d); const lancBloq=!['rascunho','recusado'].includes(lanc.status)
-                            const bg=d.evento==='suspensao'?'rgba(239,68,68,0.09)':d.evento==='atestado'?'rgba(59,130,246,0.09)':fds?'rgba(100,100,100,0.04)':d.falta?'rgba(239,68,68,0.05)':d.presente?'rgba(22,163,74,0.03)':'transparent'
+                            const fds=isFDS(d.data); const eFeriado=feriados.has(d.data); const calc=calcDia(d,eFeriado); const lancBloq=!['rascunho','recusado'].includes(lanc.status)
+                            const bg=d.evento==='suspensao'?'rgba(239,68,68,0.09)':d.evento==='atestado'?'rgba(59,130,246,0.09)':eFeriado&&d.presente?'rgba(245,158,11,0.12)':fds?'rgba(100,100,100,0.04)':d.falta?'rgba(239,68,68,0.05)':d.presente?'rgba(22,163,74,0.03)':'transparent'
                             return(
                               <tr key={d.data} style={{borderBottom:'1px solid var(--border)',background:bg}}>
-                                <td style={{...TD,fontWeight:700,textAlign:'center',color:fds?'#9ca3af':undefined}}>{diaSemana(d.data)}</td>
+                                <td style={{...TD,fontWeight:700,textAlign:'center',color:eFeriado?'#d97706':fds?'#9ca3af':undefined}}>{diaSemana(d.data)}{eFeriado&&<span title='Feriado - adicional 100%' style={{fontSize:9,marginLeft:2}}>🎌</span>}</td>
                                 <td style={{...TD,textAlign:'center',fontFamily:'monospace',fontWeight:600}}>{d.data.slice(8)}/{d.data.slice(5,7)}</td>
                                 <td style={{...TD,textAlign:'center'}}>
                                   {d.evento==='atestado'?<span title="Afastamento">🩺</span>
@@ -1527,7 +1542,7 @@ export default function Ponto() {
                                 <td style={{...TD,background:'rgba(45,90,158,0.04)'}}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.he_entrada} onChange={v=>updDia(lanc.id,idx,'he_entrada',v)}/></td>
                                 <td style={{...TD,background:'rgba(45,90,158,0.04)'}}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.he_saida} onChange={v=>updDia(lanc.id,idx,'he_saida',v)}/></td>
                                 <td style={{...TD,textAlign:'center',fontWeight:600,color:calc.normais>0?'#15803d':'#9ca3af',background:'rgba(22,163,74,0.05)'}}>{calc.normais>0?fmtHHMM(calc.normais):'—'}</td>
-                                <td style={{...TD,textAlign:'center',fontWeight:600,color:calc.extras50>0?'#1d4ed8':'#9ca3af',background:'rgba(45,90,158,0.05)'}}>{calc.extras50>0?fmtHHMM(calc.extras50)+'*':'—'}</td>
+                                <td style={{...TD,textAlign:'center',fontWeight:600,color:calc.extras100>0?'#dc2626':calc.extras50>0?'#1d4ed8':'#9ca3af',background:calc.extras100>0?'rgba(220,38,38,0.06)':'rgba(45,90,158,0.05)'}}>{calc.extras100>0 ? fmtHHMM(calc.extras100)+'🔴' : calc.extras50>0 ? fmtHHMM(calc.extras50)+'*' : '—'}</td>
                                 <td style={{...TD,textAlign:'center',fontWeight:700,background:'rgba(0,0,0,0.03)'}}>{calc.total>0?fmtHHMM(calc.total):'—'}</td>
                                 <td style={{...TD,textAlign:'right',fontWeight:700,background:'rgba(74,26,122,0.05)',color:'#6d28d9',fontSize:11}}>
                                   {d.evento==='atestado'||d.evento==='suspensao'||d.falta
@@ -1537,7 +1552,7 @@ export default function Ponto() {
                                     : d.presente&&calc.total>0
                                     ? (() => {
                                         const ehAuto=colabSel?.tipo_contrato==='autonomo'||colabSel?.tipo_contrato==='pj'
-                                        const vHoras=fmtDecimal(calc.normais)*valorHoraEfetivo + fmtDecimal(calc.extras50)*valorHoraEfetivo*1.5
+                                        const vHoras=calcValorMin(calc.normais,calc.extras50,calc.extras100,valorHoraEfetivo)
                                         // Autônomo: se este dia foi marcado na produção → mostra prod proporcional; senão → horas
                                         if(ehAuto&&diasComProd.has(d.data)&&prodPorDia>0){
                                           return <span title={`Dia marcado na produção: ${formatCurrency(prodPorDia)}`} style={{cursor:'default',color:'#b45309',fontWeight:700}}>
@@ -1574,17 +1589,17 @@ export default function Ponto() {
                             <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(0,0,0,0.2)'}}>{fmtHHMM(tot.total)}</td>
                             <td style={{padding:'7px 8px',textAlign:'right',background:'rgba(74,26,122,0.4)',color:'#e9d5ff',fontWeight:700,fontSize:11}}>
                               {(() => {
-                                const vHoras=fmtDecimal(tot.normais)*valorHoraEfetivo + fmtDecimal(tot.extras50)*valorHoraEfetivo*1.5
+                                const vHoras=calcValorMin(tot.normais,tot.extras50,tot.extras100,valorHoraEfetivo)
                                 const ehAuto=colabSel?.tipo_contrato==='autonomo'||colabSel?.tipo_contrato==='pj'
                                 if(vHoras===0&&totalProdLancamento===0)return '—'
                                 if(ehAuto){
                                   // Autônomo: calcular horas só dos dias SEM produção neste lançamento
                                   const diasLancamento=diasMap[lanc.id]??[]
-                                  let minNormLanc=0, minExtraLanc=0
+                                  let minNormLanc=0,minExtra50Lanc=0,minExtra100Lanc=0
                                   diasLancamento.forEach(d=>{
-                                    if(!diasComProd.has(d.data)){const cl=calcDia(d);minNormLanc+=cl.normais;minExtraLanc+=cl.extras50}
+                                    if(!diasComProd.has(d.data)){const cl=calcDia(d,feriados.has(d.data));minNormLanc+=cl.normais;minExtra50Lanc+=cl.extras50;minExtra100Lanc+=cl.extras100}
                                   })
-                                  const horasLancSemProd=fmtDecimal(minNormLanc)*valorHoraEfetivo + fmtDecimal(minExtraLanc)*valorHoraEfetivo*1.5
+                                  const horasLancSemProd=calcValorMin(minNormLanc,minExtra50Lanc,minExtra100Lanc,valorHoraEfetivo)
                                   const vTotalAuto=horasLancSemProd+totalProdLancamento
                                   return <span title={`Horas(sem prod): ${formatCurrency(horasLancSemProd)} + Prod: ${formatCurrency(totalProdLancamento)}`}>
                                     {formatCurrency(vTotalAuto)}
@@ -1595,7 +1610,7 @@ export default function Ponto() {
                                 // usar calcDSRComFaltas para consistência
                                 const _duLanc=diasUteisPeriodo(lanc.data_inicio,lanc.data_fim,feriados)
                                 const _domLanc=domingosFeriadosPeriodo(lanc.data_inicio,lanc.data_fim,feriados)
-                                const extrasLanc=fmtDecimal(tot.extras50)*valorHoraEfetivo*1.5
+                                const extrasLanc=fmtDecimal(tot.extras50)*valorHoraEfetivo*1.5 + fmtDecimal(tot.extras100)*valorHoraEfetivo*2.0
                                 const dsrLanc=_duLanc>0&&_domLanc>0&&extrasLanc>0?(extrasLanc/_duLanc)*_domLanc:0
                                 const totalLanc=vHoras+dsrLanc
                                 return <span title={`Horas: ${formatCurrency(vHoras)}${dsrLanc>0?' + DSR: '+formatCurrency(dsrLanc):''}`}>

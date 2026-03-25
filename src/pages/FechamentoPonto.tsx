@@ -101,6 +101,7 @@ export default function FechamentoPonto() {
   const [motivoEstorno, setMotivoEstorno] = useState('')
 
   // Modal confirmar pagamento
+  const [modalLiberar, setModalLiberar] = useState<LancItem | null>(null)
 
   const mesRef = `${ano}-${String(mes).padStart(2, '0')}`
 
@@ -450,14 +451,20 @@ export default function FechamentoPonto() {
   const pendentes   = lancamentos.filter(l => ['em_fechamento','aprovado','liberado','rascunho'].includes(l.status))
   const pagos       = lancamentos.filter(l => l.status === 'pago')
 
-  // ── Aprovar lançamento (em_fechamento → aprovado) ────────────────────────
-  // ── Aprovar + gravar snapshot imutável dos valores calculados ────────────
-  async function aprovarLanc(id: string) {
+  // ── Aprovar → abre popup de confirmação com resumo ──────────────────────
+  function abrirModalLiberar(id: string) {
     const lanc = lancamentos.find(l => l.id === id)
+    if (!lanc) return
+    setModalLiberar(lanc)
+  }
+
+  // ── Confirmar: aprovar + liberar direto (em_fechamento → liberado) ────────
+  async function confirmarLiberar() {
+    const lanc = modalLiberar
     if (!lanc) return
     setSaving(true)
     const { error } = await supabase.from('ponto_lancamentos').update({
-      status: 'aprovado',
+      status: 'liberado',   // pula 'aprovado' → vai direto para aguardando pagamento
       // ──── SNAPSHOT: valores congelados no momento do fechamento ────────────
       snap_valor_hora:      lanc.vh_usado,
       snap_horas_normais:   lanc.horas_normais,
@@ -476,21 +483,18 @@ export default function FechamentoPonto() {
       snap_liquido:         lanc.liquido,
       snap_fechado_em:      new Date().toISOString(),
       snap_fechado_por:     user?.email ?? 'sistema',
-      // ─────────────────────────────────────────────────────────────────────
-    }).eq('id', id)
+    }).eq('id', lanc.id)
     setSaving(false)
-    if (error) toast.error('Erro ao aprovar: ' + error.message)
-    else { toast.success('✅ Lançamento aprovado e valores congelados!'); fetchLancamentos(mesRef) }
+    if (error) { toast.error('Erro ao liberar: ' + error.message); return }
+    toast.success('✅ Aprovado e liberado para pagamento!')
+    setModalLiberar(null)
+    fetchLancamentos(mesRef)
   }
 
-  // ── Liberar para pagamento (aprovado → liberado) ───────────────────────────
+  // ── Liberar para pagamento (aprovado → liberado) — legado p/ status 'aprovado' existente ──
   async function liberarParaPagamento(id: string) {
-    setSaving(true)
-    const { error } = await supabase.from('ponto_lancamentos')
-      .update({ status: 'liberado' }).eq('id', id)
-    setSaving(false)
-    if (error) toast.error('Erro ao liberar')
-    else { toast.success('Liberado para pagamento! Vá até Pagamentos para efetivar.'); fetchLancamentos(mesRef) }
+    const lanc = lancamentos.find(l => l.id === id)
+    if (lanc) { setModalLiberar(lanc); return }
   }
 
   // ── Estornar lançamento (liberado → em_fechamento) ─────────────────────────
@@ -824,8 +828,8 @@ export default function FechamentoPonto() {
                                   <>
                                     <Button size="sm" style={{ height: 26, fontSize: 11, background: '#15803d', color: '#fff' }}
                                       disabled={saving}
-                                      onClick={() => aprovarLanc(lanc.id)}>
-                                      ✅ Aprovar
+                                      onClick={() => abrirModalLiberar(lanc.id)}>
+                                      ✅ Aprovar e Liberar
                                     </Button>
                                     <Button size="sm" variant="outline" style={{ height: 26, fontSize: 11, borderColor: '#dc2626', color: '#dc2626' }}
                                       onClick={() => { setModalRecusar(lanc.id); setMotivoRecusa('') }}>
@@ -838,7 +842,7 @@ export default function FechamentoPonto() {
                                     <Button size="sm" variant="outline" style={{ height: 26, fontSize: 11, borderColor: '#7c3aed', color: '#7c3aed' }}
                                       disabled={saving}
                                       onClick={() => liberarParaPagamento(lanc.id)}>
-                                      💜 Liberar p/ Pgto
+                                      💜 Ver Resumo
                                     </Button>
                                     <Button size="sm" variant="outline" style={{ height: 26, fontSize: 11, borderColor: '#dc2626', color: '#dc2626' }}
                                       onClick={() => { setModalRecusar(lanc.id); setMotivoRecusa('') }}>
@@ -948,6 +952,112 @@ export default function FechamentoPonto() {
                 onClick={() => recusarLanc(modalRecusar)}>
                 {saving ? 'Salvando…' : '❌ Confirmar Recusa'}
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODAL APROVAR E LIBERAR — resumo de pagamento ═══ */}
+      {modalLiberar && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:80,
+          display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ background:'var(--background)', borderRadius:16, width:'100%', maxWidth:480,
+            boxShadow:'0 24px 80px rgba(0,0,0,0.35)', overflow:'hidden' }}>
+
+            {/* Header */}
+            <div style={{ background:'#15803d', padding:'16px 20px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <div>
+                <div style={{ color:'#fff', fontWeight:900, fontSize:16 }}>✅ Confirmar Liberação para Pagamento</div>
+                <div style={{ color:'#bbf7d0', fontSize:12, marginTop:2 }}>Revise os valores antes de confirmar</div>
+              </div>
+            </div>
+
+            {/* Identidade */}
+            <div style={{ padding:'16px 20px 0' }}>
+              <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:10, padding:'10px 14px', marginBottom:14 }}>
+                <div style={{ fontWeight:900, fontSize:15, color:'#14532d' }}>
+                  {modalLiberar.colaborador_nome}
+                  {modalLiberar.colaborador_chapa && (
+                    <span style={{ fontSize:11, fontWeight:500, color:'#6b7280', marginLeft:8 }}>
+                      {modalLiberar.colaborador_chapa}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize:12, color:'#374151', marginTop:2 }}>
+                  {modalLiberar.funcao_nome} · {modalLiberar.tipo_contrato.toUpperCase()} · {modalLiberar.obra_nome}
+                </div>
+                <div style={{ fontSize:11, color:'#6b7280', marginTop:2 }}>
+                  {modalLiberar.mes_referencia} · {modalLiberar.data_inicio} → {modalLiberar.data_fim}
+                </div>
+              </div>
+
+              {/* Tabela de valores */}
+              <div style={{ display:'flex', flexDirection:'column', gap:0, borderRadius:10, overflow:'hidden', border:'1px solid #e5e7eb' }}>
+                {/* Bruto */}
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                  padding:'9px 14px', background:'#f9fafb', borderBottom:'1px solid #f3f4f6' }}>
+                  <span style={{ fontSize:13, color:'#374151' }}>💰 Total a Receber (bruto)</span>
+                  <span style={{ fontSize:13, fontWeight:700, color:'#111' }}>{formatCurrency(modalLiberar.valor_total)}</span>
+                </div>
+                {/* Faltas — informativo */}
+                {modalLiberar.faltas > 0 && (
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                    padding:'7px 14px', background:'#fff7ed', borderBottom:'1px solid #fed7aa' }}>
+                    <span style={{ fontSize:12, color:'#92400e' }}>📅 Faltas: {modalLiberar.faltas} dia{modalLiberar.faltas!==1?'s':''}</span>
+                    <span style={{ fontSize:11, color:'#92400e' }}>(descontado no bruto)</span>
+                  </div>
+                )}
+                {/* Descontos */}
+                {modalLiberar.desconto_vt > 0 && (
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                    padding:'9px 14px', background:'#fff', borderBottom:'1px solid #f3f4f6' }}>
+                    <span style={{ fontSize:13, color:'#374151' }}>🚌 - Vale Transporte</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'#dc2626' }}>- {formatCurrency(modalLiberar.desconto_vt)}</span>
+                  </div>
+                )}
+                {modalLiberar.inss > 0 && (
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                    padding:'9px 14px', background:'#f9fafb', borderBottom:'1px solid #f3f4f6' }}>
+                    <span style={{ fontSize:13, color:'#374151' }}>🏛️ - INSS</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'#dc2626' }}>- {formatCurrency(modalLiberar.inss)}</span>
+                  </div>
+                )}
+                {modalLiberar.ir > 0 && (
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                    padding:'9px 14px', background:'#fff', borderBottom:'1px solid #f3f4f6' }}>
+                    <span style={{ fontSize:13, color:'#374151' }}>📋 - IR Retido</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'#dc2626' }}>- {formatCurrency(modalLiberar.ir)}</span>
+                  </div>
+                )}
+                {modalLiberar.desconto_adiant > 0 && (
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                    padding:'9px 14px', background:'#fdf4ff', borderBottom:'1px solid #f3f4f6' }}>
+                    <span style={{ fontSize:13, color:'#374151' }}>💳 - Adiantamento (-AD)</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'#7c3aed' }}>- {formatCurrency(modalLiberar.desconto_adiant)}</span>
+                  </div>
+                )}
+                {/* Líquido */}
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                  padding:'12px 14px', background:'#1e3a5f' }}>
+                  <span style={{ fontSize:14, fontWeight:800, color:'#fff' }}>💵 Líquido a Pagar</span>
+                  <span style={{ fontSize:17, fontWeight:900, color:'#86efac' }}>{formatCurrency(modalLiberar.liquido)}</span>
+                </div>
+              </div>
+
+              {/* Botões */}
+              <div style={{ display:'flex', gap:10, marginTop:16, marginBottom:20 }}>
+                <button onClick={() => setModalLiberar(null)}
+                  style={{ flex:1, height:40, borderRadius:8, border:'1px solid #e5e7eb',
+                    background:'#f9fafb', color:'#374151', fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                  Cancelar
+                </button>
+                <button onClick={confirmarLiberar} disabled={saving}
+                  style={{ flex:2, height:40, borderRadius:8, border:'none',
+                    background: saving ? '#9ca3af' : '#15803d',
+                    color:'#fff', fontWeight:800, fontSize:13, cursor: saving?'not-allowed':'pointer' }}>
+                  {saving ? 'Processando…' : '✅ Confirmar e Liberar para Pagamento'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { useProfile } from '@/hooks/useProfile'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Users, AlertTriangle, ShieldCheck, FileImage, RefreshCw, Download, X, Check, Eye, FileBarChart2 } from 'lucide-react'
+import { Users, AlertTriangle, ShieldCheck, FileImage, RefreshCw, Download, X, Check, Eye, FileBarChart2, FileText } from 'lucide-react'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
 interface Obra      { id: string; nome: string }
@@ -372,14 +372,25 @@ function TabCadastros({ obras, funcoes, perfil }: { obras: Obra[]; funcoes: Func
   )
 }
 
-// ─── aba: Ocorrências ─────────────────────────────────────────────────────────
-function TabOcorrencias({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
-  const [rows,   setRows]   = useState<any[]>([])
-  const [load,   setLoad]   = useState(true)
-  const [filtro, setFiltro] = useState<'pendente'|'todos'>('pendente')
-  const [modal,  setModal]  = useState<any|null>(null)
+// ─── HELPERS compartilhados ───────────────────────────────────────────────────
+function stBadge(s: string) {
+  if (s === 'aprovado'   || s === 'atendido' || s === 'processado')
+    return { bg:'#dcfce7', cor:'#15803d', label:'✓ Aprovado' }
+  if (s === 'recusado'   || s === 'descartado')
+    return { bg:'#fee2e2', cor:'#dc2626', label:'✗ Recusado' }
+  return { bg:'#fef3c7', cor:'#b45309', label:'⏳ Pendente' }
+}
 
-  const fetch = useCallback(async () => {
+// ─── aba: Ocorrências ─────────────────────────────────────────────────────────
+function TabOcorrencias({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab[]; perfil: any }) {
+  const [rows,       setRows]       = useState<any[]>([])
+  const [load,       setLoad]       = useState(true)
+  const [filtro,     setFiltro]     = useState<'pendente'|'todos'>('pendente')
+  const [modal,      setModal]      = useState<any|null>(null)
+  const [recusaId,   setRecusaId]   = useState<string|null>(null)
+  const [motivoRec,  setMotivoRec]  = useState('')
+
+  const doFetch = useCallback(async () => {
     setLoad(true)
     const q = supabase.from('portal_ocorrencias').select('*').order('criado_em', { ascending: false })
     if (filtro === 'pendente') q.is('sincronizado_em', null)
@@ -388,31 +399,100 @@ function TabOcorrencias({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
     setLoad(false)
   }, [filtro])
 
-  useEffect(() => { fetch() }, [fetch])
+  useEffect(() => { doFetch() }, [doFetch])
 
-  async function marcarSincronizado(id: string) {
-    await supabase.from('portal_ocorrencias').update({ sincronizado_em: new Date().toISOString() }).eq('id', id)
-    toast.success('Marcada como lançada no sistema')
-    fetch()
+  async function aprovar(id: string) {
+    const nome = perfil?.username ?? perfil?.email ?? 'RH'
+    await supabase.from('portal_ocorrencias').update({
+      sincronizado_em: new Date().toISOString(),
+      aprovado_por: perfil?.id, aprovado_nome: nome,
+    }).eq('id', id)
+    toast.success('Ocorrência aprovada')
+    doFetch()
+    if (modal?.id === id) setModal(null)
+  }
+
+  async function recusar(id: string) {
+    await supabase.from('portal_ocorrencias').update({
+      status: 'recusado', motivo_recusa: motivoRec || 'Sem motivo informado',
+    }).eq('id', id)
+    toast.success('Ocorrência recusada')
+    setRecusaId(null); setMotivoRec('')
+    doFetch()
+  }
+
+  function gerarPDF(r: any) {
+    const ob = obras.find(o => o.id === r.obra_id)?.nome ?? '—'
+    const co = colabs.find(c => c.id === r.colaborador_id)?.nome ?? '—'
+    const tipoLabel: Record<string,string> = { acidente:'🚨 Acidente', atestado:'🏥 Atestado', advertencia:'⚠️ Advertência', geral:'📋 Geral' }
+    const titulo = tipoLabel[r.tipo] ?? r.tipo
+
+    const campos = [
+      ['Tipo',             titulo],
+      ['Colaborador',      co],
+      ['Obra',             ob],
+      ['Data Ocorrência',  r.data_ocorrencia ? new Date(r.data_ocorrencia+'T12:00:00').toLocaleDateString('pt-BR') : ''],
+      ['Hora',             r.hora_acidente],
+      ['Local',            r.local],
+      ['Gravidade',        r.gravidade],
+      ['CAT Emitida',      r.cat_emitida != null ? (r.cat_emitida ? 'Sim' : 'Não') : ''],
+      ['Tipo de Acidente', r.tipo_acidente],
+      ['Tipo de Atestado', r.tipo_atestado],
+      ['Dias Afastamento', r.dias_afastamento],
+      ['CID',              r.cid],
+      ['Médico',           r.medico],
+      ['Tipo Advertência', r.tipo_adv],
+      ['Dias Suspensão',   r.dias_suspensao],
+      ['Assinada',         r.assinada != null ? (r.assinada ? 'Sim' : 'Não') : ''],
+      ['Motivo',           r.motivo],
+      ['Observações',      r.observacoes],
+      ['Enviado em',       new Date(r.criado_em).toLocaleString('pt-BR')],
+    ].filter(([,v]) => v)
+
+    const linhas = campos.map(([l,v]) =>
+      `<tr><td style="width:160px;font-weight:700;color:#4b5563;padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px">${l}</td>
+       <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px">${v}</td></tr>`
+    ).join('')
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${titulo}</title>
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:28px;color:#111}
+    h1{font-size:18px;color:#1e3a5f;margin-bottom:4px}.sub{font-size:11px;color:#6b7280;margin-bottom:20px}
+    table{width:100%;border-collapse:collapse}
+    .ass{display:flex;gap:60px;margin-top:32px}.ass>div{flex:1;text-align:center;font-size:11px;color:#6b7280}
+    .linha{border-top:1px solid #9ca3af;margin-top:28px;margin-bottom:6px}
+    @media print{body{padding:16px}}</style></head><body>
+    <h1>📋 Ocorrência — ${titulo}</h1>
+    <div class="sub">Gerado em ${new Date().toLocaleString('pt-BR')} — ConstrutorRH</div>
+    <table><tbody>${linhas}</tbody></table>
+    <div class="ass">
+      <div><div class="linha"></div>Colaborador / Assinatura</div>
+      <div><div class="linha"></div>Responsável RH / Carimbo</div>
+    </div>
+    <script>window.onload=()=>{window.print()}<\/script></body></html>`
+
+    const win = window.open('','_blank','width=850,height=700')
+    if (win) { win.document.write(html); win.document.close() }
   }
 
   const tipoColor: Record<string,string> = { acidente:'#dc2626', atestado:'#f97316', advertencia:'#7c3aed', geral:'#0284c7' }
   const tipoLabel: Record<string,string> = { acidente:'🚨 Acidente', atestado:'🏥 Atestado', advertencia:'⚠️ Advertência', geral:'📋 Geral' }
+  const isPendente = (r: any) => !r.sincronizado_em && r.status !== 'recusado'
 
   return (
     <div>
+      {/* barra de filtros */}
       <div style={{ display:'flex', gap:6, marginBottom:16, flexWrap:'wrap' }}>
         {(['pendente','todos'] as const).map(f => (
           <button key={f} onClick={() => setFiltro(f)} style={{
-            height:32, padding:'0 12px', borderRadius:7, cursor:'pointer', fontWeight:600, fontSize:12,
+            height:32, padding:'0 14px', borderRadius:7, cursor:'pointer', fontWeight:600, fontSize:12,
             border:`1px solid ${filtro===f?'var(--primary)':'var(--border)'}`,
             background:filtro===f?'var(--primary)':'var(--card)',
             color:filtro===f?'#fff':'var(--foreground)',
           }}>
-            {f==='pendente'?'⏳ Pendentes (não lançadas)':'Todas'}
+            {f==='pendente'?'⏳ Pendentes':'Todas'}
           </button>
         ))}
-        <button onClick={fetch} style={{ height:32, width:32, borderRadius:7, border:'1px solid var(--border)', background:'var(--card)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <button onClick={doFetch} style={{ height:32, width:32, borderRadius:7, border:'1px solid var(--border)', background:'var(--card)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
           <RefreshCw size={14}/>
         </button>
       </div>
@@ -420,39 +500,50 @@ function TabOcorrencias({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
       {load ? <div style={{ textAlign:'center', padding:48, color:'var(--muted-foreground)' }}>Carregando…</div>
       : rows.length === 0 ? (
         <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:48, textAlign:'center', color:'var(--muted-foreground)' }}>
-          <div style={{ fontSize:32, marginBottom:8 }}>✅</div>Nenhuma ocorrência pendente
+          <div style={{ fontSize:32, marginBottom:8 }}>✅</div>Nenhuma ocorrência {filtro==='pendente'?'pendente':'registrada'}
         </div>
       ) : (
         <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden' }}>
           {rows.map((r, i) => {
-            const ob = obras.find(o => o.id === r.obra_id)
-            const co = colabs.find(c => c.id === r.colaborador_id)
+            const ob  = obras.find(o => o.id === r.obra_id)
+            const co  = colabs.find(c => c.id === r.colaborador_id)
             const cor = tipoColor[r.tipo] ?? '#6b7280'
+            const b   = r.sincronizado_em
+              ? { bg:'#dcfce7', cor:'#15803d', label:'✓ Aprovado' }
+              : r.status === 'recusado'
+              ? { bg:'#fee2e2', cor:'#dc2626', label:'✗ Recusado' }
+              : { bg:'#fef3c7', cor:'#b45309', label:'⏳ Pendente' }
             return (
               <div key={r.id} style={{ padding:'12px 18px', borderTop:i>0?'1px solid var(--border)':'none', display:'flex', gap:12, alignItems:'center' }}>
-                <div style={{ width:8, height:40, borderRadius:4, background:cor, flexShrink:0 }}/>
+                <div style={{ width:6, height:44, borderRadius:4, background:cor, flexShrink:0 }}/>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
                     <span style={{ fontWeight:700, fontSize:13 }}>{tipoLabel[r.tipo] ?? r.tipo}</span>
                     {co && <span style={{ fontSize:12, color:'var(--muted-foreground)' }}>· {co.nome}</span>}
-                    {ob && <span style={{ fontSize:11, background:'#eff6ff', color:'#1d4ed8', borderRadius:4, padding:'1px 5px' }}>{ob.nome}</span>}
+                    {ob && <span style={{ fontSize:11, background:'#eff6ff', color:'#1d4ed8', borderRadius:4, padding:'1px 6px' }}>{ob.nome}</span>}
                   </div>
                   <div style={{ fontSize:11, color:'var(--muted-foreground)', marginTop:3, display:'flex', gap:10, flexWrap:'wrap' }}>
                     {r.data_ocorrencia && <span>📅 {new Date(r.data_ocorrencia+'T12:00:00').toLocaleDateString('pt-BR')}</span>}
-                    {r.motivo && <span>"{r.motivo}"</span>}
+                    {r.motivo && <span style={{ fontStyle:'italic' }}>"{r.motivo}"</span>}
                   </div>
                   <div style={{ fontSize:10, color:'var(--muted-foreground)', marginTop:2 }}>
                     Enviado {new Date(r.criado_em).toLocaleString('pt-BR')}
-                    {r.sincronizado_em && <span style={{ color:'#15803d', marginLeft:6 }}>✓ Lançado {new Date(r.sincronizado_em).toLocaleDateString('pt-BR')}</span>}
+                    {r.aprovado_nome && <span style={{ color:'#15803d', marginLeft:6 }}>✓ {r.aprovado_nome}</span>}
+                    {r.motivo_recusa  && <span style={{ color:'#dc2626', marginLeft:6 }}>✗ {r.motivo_recusa}</span>}
                   </div>
                 </div>
-                <div style={{ display:'flex', gap:6, flexShrink:0 }}>
-                  <Button size="sm" variant="outline" onClick={() => setModal(r)} style={{ height:30, fontSize:12 }}><Eye size={13}/></Button>
-                  {!r.sincronizado_em && (
-                    <Button size="sm" onClick={() => marcarSincronizado(r.id)} style={{ height:30, fontSize:12, background:'#15803d', color:'#fff' }}>
-                      <Check size={13}/> Lançar
+                <div style={{ display:'flex', gap:5, alignItems:'center', flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }}>
+                  <span style={{ background:b.bg, color:b.cor, borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:700 }}>{b.label}</span>
+                  <Button size="sm" variant="outline" onClick={() => setModal(r)} style={{ height:28, fontSize:12, padding:'0 8px' }}><Eye size={12}/></Button>
+                  <Button size="sm" variant="outline" onClick={() => gerarPDF(r)} style={{ height:28, fontSize:12, padding:'0 8px' }}><FileText size={12}/></Button>
+                  {isPendente(r) && <>
+                    <Button size="sm" onClick={() => aprovar(r.id)} style={{ height:28, fontSize:12, background:'#15803d', color:'#fff', padding:'0 10px' }}>
+                      <Check size={12}/> Aprovar
                     </Button>
-                  )}
+                    <Button size="sm" variant="outline" onClick={() => { setRecusaId(r.id); setMotivoRec('') }} style={{ height:28, fontSize:12, padding:'0 8px', borderColor:'#dc2626', color:'#dc2626' }}>
+                      <X size={12}/> Recusar
+                    </Button>
+                  </>}
                 </div>
               </div>
             )
@@ -460,45 +551,67 @@ function TabOcorrencias({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
         </div>
       )}
 
-      {/* Modal detalhe ocorrência */}
+      {/* Modal detalhe */}
       {modal && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
-          <div style={{ background:'var(--background)', borderRadius:14, width:'100%', maxWidth:500, padding:22, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'90vh', overflowY:'auto' }}>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ background:'var(--background)', borderRadius:14, width:'100%', maxWidth:520, padding:22, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'92vh', overflowY:'auto' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
               <div style={{ fontWeight:800, fontSize:16 }}>{tipoLabel[modal.tipo] ?? modal.tipo}</div>
               <button onClick={() => setModal(null)} style={{ border:'none', background:'none', cursor:'pointer', fontSize:20, color:'var(--muted-foreground)' }}>✕</button>
             </div>
             {[
-              ['Obra',       obras.find(o => o.id === modal.obra_id)?.nome],
-              ['Colaborador',colabs.find(c => c.id === modal.colaborador_id)?.nome],
-              ['Data',       modal.data_ocorrencia ? new Date(modal.data_ocorrencia+'T12:00:00').toLocaleDateString('pt-BR') : null],
-              ['Hora',       modal.hora_acidente],
-              ['Local',      modal.local],
-              ['Gravidade',  modal.gravidade],
-              ['CAT Emitida',modal.cat_emitida ? 'Sim' : modal.cat_emitida === false ? 'Não' : null],
-              ['Tipo Acidente', modal.tipo_acidente],
-              ['Tipo Atestado', modal.tipo_atestado],
+              ['Obra',           obras.find(o => o.id === modal.obra_id)?.nome],
+              ['Colaborador',    colabs.find(c => c.id === modal.colaborador_id)?.nome],
+              ['Data',           modal.data_ocorrencia ? new Date(modal.data_ocorrencia+'T12:00:00').toLocaleDateString('pt-BR') : null],
+              ['Hora',           modal.hora_acidente],
+              ['Local',          modal.local],
+              ['Gravidade',      modal.gravidade],
+              ['CAT Emitida',    modal.cat_emitida != null ? (modal.cat_emitida ? 'Sim' : 'Não') : null],
+              ['Tipo Acidente',  modal.tipo_acidente],
+              ['Tipo Atestado',  modal.tipo_atestado],
               ['Dias Afastamento', modal.dias_afastamento],
-              ['CID',        modal.cid],
-              ['Médico',     modal.medico],
-              ['Tipo Advert.',modal.tipo_adv],
+              ['CID',            modal.cid],
+              ['Médico',         modal.medico],
+              ['Tipo Advertência', modal.tipo_adv],
               ['Dias Suspensão', modal.dias_suspensao],
-              ['Assinada',   modal.assinada ? 'Sim' : modal.assinada === false ? 'Não' : null],
-              ['Motivo',     modal.motivo],
-              ['Observações',modal.observacoes],
+              ['Assinada',       modal.assinada != null ? (modal.assinada ? 'Sim' : 'Não') : null],
+              ['Motivo',         modal.motivo],
+              ['Observações',    modal.observacoes],
             ].filter(([,v]) => v != null && v !== '').map(([label, value]) => (
-              <div key={String(label)} style={{ display:'flex', borderBottom:'1px solid var(--border)', padding:'7px 0' }}>
-                <span style={{ width:140, fontSize:11, fontWeight:700, color:'var(--muted-foreground)', flexShrink:0 }}>{label}</span>
+              <div key={String(label)} style={{ display:'flex', borderBottom:'1px solid var(--border)', padding:'6px 0' }}>
+                <span style={{ width:150, fontSize:11, fontWeight:700, color:'var(--muted-foreground)', flexShrink:0 }}>{label}</span>
                 <span style={{ fontSize:12 }}>{String(value)}</span>
               </div>
             ))}
-            <div style={{ display:'flex', justifyContent:'flex-end', marginTop:16, gap:8 }}>
-              {!modal.sincronizado_em && (
-                <Button onClick={() => { marcarSincronizado(modal.id); setModal(null) }} style={{ background:'#15803d', color:'#fff', height:32, fontSize:12 }}>
-                  <Check size={13}/> Marcar como Lançada
+            <div style={{ display:'flex', justifyContent:'flex-end', marginTop:16, gap:8, flexWrap:'wrap' }}>
+              <Button variant="outline" onClick={() => gerarPDF(modal)} style={{ height:32, fontSize:12 }}><FileText size={13}/> PDF</Button>
+              {isPendente(modal) && <>
+                <Button onClick={() => aprovar(modal.id)} style={{ background:'#15803d', color:'#fff', height:32, fontSize:12 }}>
+                  <Check size={13}/> Aprovar
                 </Button>
-              )}
+                <Button variant="outline" onClick={() => { setRecusaId(modal.id); setMotivoRec(''); setModal(null) }} style={{ height:32, fontSize:12, borderColor:'#dc2626', color:'#dc2626' }}>
+                  <X size={13}/> Recusar
+                </Button>
+              </>}
               <Button variant="outline" onClick={() => setModal(null)} style={{ height:32 }}>Fechar</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal recusa */}
+      {recusaId && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:400, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ background:'var(--background)', borderRadius:14, width:'100%', maxWidth:420, padding:22, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontWeight:800, fontSize:16, marginBottom:12, color:'#dc2626' }}>✗ Recusar Ocorrência</div>
+            <div style={{ fontSize:13, color:'var(--muted-foreground)', marginBottom:10 }}>Informe o motivo da recusa (opcional):</div>
+            <textarea value={motivoRec} onChange={e => setMotivoRec(e.target.value)} rows={3} placeholder="Ex: Informações insuficientes…"
+              style={{ width:'100%', borderRadius:8, border:'1px solid var(--border)', padding:'8px 10px', fontSize:13, resize:'vertical', background:'var(--card)', color:'var(--foreground)' }}/>
+            <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:14 }}>
+              <Button variant="outline" onClick={() => setRecusaId(null)} style={{ height:32 }}>Cancelar</Button>
+              <Button onClick={() => recusar(recusaId!)} style={{ background:'#dc2626', color:'#fff', height:32, fontSize:12 }}>
+                <X size={13}/> Confirmar Recusa
+              </Button>
             </div>
           </div>
         </div>
@@ -509,12 +622,14 @@ function TabOcorrencias({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
 
 // ─── aba: EPIs ────────────────────────────────────────────────────────────────
 function TabEpis({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab[]; perfil: any }) {
-  const [rows,   setRows]   = useState<any[]>([])
-  const [load,   setLoad]   = useState(true)
-  const [filtro, setFiltro] = useState<'pendente'|'todos'>('pendente')
-  const [modal,  setModal]  = useState<any|null>(null)
+  const [rows,      setRows]      = useState<any[]>([])
+  const [load,      setLoad]      = useState(true)
+  const [filtro,    setFiltro]    = useState<'pendente'|'todos'>('pendente')
+  const [modal,     setModal]     = useState<any|null>(null)
+  const [recusaId,  setRecusaId]  = useState<string|null>(null)
+  const [motivoRec, setMotivoRec] = useState('')
 
-  const fetch = useCallback(async () => {
+  const doFetch = useCallback(async () => {
     setLoad(true)
     const q = supabase.from('portal_epi_solicitacoes').select('*').order('criado_em', { ascending: false })
     if (filtro === 'pendente') q.eq('status','pendente')
@@ -523,31 +638,77 @@ function TabEpis({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab[]; pe
     setLoad(false)
   }, [filtro])
 
-  useEffect(() => { fetch() }, [fetch])
+  useEffect(() => { doFetch() }, [doFetch])
 
-  async function atender(id: string) {
+  async function aprovar(id: string) {
     const nome = perfil?.username ?? perfil?.email ?? 'RH'
     await supabase.from('portal_epi_solicitacoes').update({
-      status: 'atendido', aprovado_por: perfil?.id, aprovado_em: new Date().toISOString(), aprovado_nome: nome
+      status:'aprovado', aprovado_por:perfil?.id, aprovado_em:new Date().toISOString(), aprovado_nome:nome,
     }).eq('id', id)
-    toast.success('EPI marcado como atendido')
-    fetch()
+    toast.success('EPI aprovado')
+    doFetch()
+    if (modal?.id === id) setModal(null)
+  }
+
+  async function recusar(id: string) {
+    await supabase.from('portal_epi_solicitacoes').update({
+      status:'recusado', motivo_recusa: motivoRec || 'Sem motivo informado',
+    }).eq('id', id)
+    toast.success('EPI recusado')
+    setRecusaId(null); setMotivoRec('')
+    doFetch()
+  }
+
+  function gerarPDF(r: any) {
+    const ob  = obras.find(o => o.id === r.obra_id)?.nome ?? '—'
+    const co  = colabs.find(c => c.id === r.colaborador_id)?.nome ?? 'Toda a equipe'
+    const ugL = (u: string) => u==='critico'?'🔴 Crítico':u==='urgente'?'🟠 Urgente':'🟢 Normal'
+
+    const itensHtml = (r.itens ?? []).map((it: any) =>
+      `<tr><td style="padding:5px 10px;border-bottom:1px solid #e5e7eb;font-size:12px">${it.nome}</td>
+       <td style="padding:5px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;text-align:right;font-weight:700">×${it.quantidade}</td></tr>`
+    ).join('')
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Solicitação de EPI</title>
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:28px;color:#111}
+    h1{font-size:18px;color:#1e3a5f;margin-bottom:4px}.sub{font-size:11px;color:#6b7280;margin-bottom:20px}
+    .info{display:grid;grid-template-columns:140px 1fr;gap:0;margin-bottom:18px}
+    .info .label{font-weight:700;color:#4b5563;padding:5px 0;font-size:12px;border-bottom:1px solid #e5e7eb}
+    .info .val{padding:5px 10px;font-size:12px;border-bottom:1px solid #e5e7eb}
+    table{width:100%;border-collapse:collapse}th{background:#f1f5f9;padding:6px 10px;text-align:left;font-size:11px;font-weight:700}
+    .ass{display:flex;gap:60px;margin-top:32px}.ass>div{flex:1;text-align:center;font-size:11px;color:#6b7280}
+    .linha{border-top:1px solid #9ca3af;margin-top:28px;margin-bottom:6px}
+    @media print{body{padding:16px}}</style></head><body>
+    <h1>🦺 Solicitação de EPI</h1>
+    <div class="sub">Gerado em ${new Date().toLocaleString('pt-BR')} — ConstrutorRH</div>
+    <div class="info">
+      <span class="label">Obra</span><span class="val">${ob}</span>
+      <span class="label">Colaborador</span><span class="val">${co}</span>
+      <span class="label">Urgência</span><span class="val">${ugL(r.urgencia)}</span>
+      ${r.observacoes ? `<span class="label">Observações</span><span class="val">${r.observacoes}</span>` : ''}
+      <span class="label">Enviado em</span><span class="val">${new Date(r.criado_em).toLocaleString('pt-BR')}</span>
+    </div>
+    <table><thead><tr><th>Item / EPI</th><th style="text-align:right">Qtd.</th></tr></thead>
+    <tbody>${itensHtml}</tbody></table>
+    <div class="ass">
+      <div><div class="linha"></div>Solicitante / Assinatura</div>
+      <div><div class="linha"></div>Responsável RH / Carimbo</div>
+    </div>
+    <script>window.onload=()=>{window.print()}<\/script></body></html>`
+
+    const win = window.open('','_blank','width=850,height=700')
+    if (win) { win.document.write(html); win.document.close() }
   }
 
   const ugColor = (u: string) => u==='critico'?'#dc2626':u==='urgente'?'#f97316':'#16a34a'
   const ugLabel = (u: string) => u==='critico'?'🔴 Crítico':u==='urgente'?'🟠 Urgente':'🟢 Normal'
-  const stBadge = (s: string) => {
-    if (s==='atendido'||s==='aprovado') return { bg:'#dcfce7', cor:'#15803d', label:'✓ Atendido' }
-    if (s==='recusado') return { bg:'#fee2e2', cor:'#dc2626', label:'✗ Recusado' }
-    return                    { bg:'#fef3c7', cor:'#b45309', label:'⏳ Pendente' }
-  }
 
   return (
     <div>
       <div style={{ display:'flex', gap:6, marginBottom:16, flexWrap:'wrap' }}>
         {(['pendente','todos'] as const).map(f => (
           <button key={f} onClick={() => setFiltro(f)} style={{
-            height:32, padding:'0 12px', borderRadius:7, cursor:'pointer', fontWeight:600, fontSize:12,
+            height:32, padding:'0 14px', borderRadius:7, cursor:'pointer', fontWeight:600, fontSize:12,
             border:`1px solid ${filtro===f?'var(--primary)':'var(--border)'}`,
             background:filtro===f?'var(--primary)':'var(--card)',
             color:filtro===f?'#fff':'var(--foreground)',
@@ -555,7 +716,7 @@ function TabEpis({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab[]; pe
             {f==='pendente'?'⏳ Pendentes':'Todas'}
           </button>
         ))}
-        <button onClick={fetch} style={{ height:32, width:32, borderRadius:7, border:'1px solid var(--border)', background:'var(--card)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <button onClick={doFetch} style={{ height:32, width:32, borderRadius:7, border:'1px solid var(--border)', background:'var(--card)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
           <RefreshCw size={14}/>
         </button>
       </div>
@@ -563,7 +724,7 @@ function TabEpis({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab[]; pe
       {load ? <div style={{ textAlign:'center', padding:48, color:'var(--muted-foreground)' }}>Carregando…</div>
       : rows.length === 0 ? (
         <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:48, textAlign:'center', color:'var(--muted-foreground)' }}>
-          <div style={{ fontSize:32, marginBottom:8 }}>🦺</div>Nenhuma solicitação de EPI
+          <div style={{ fontSize:32, marginBottom:8 }}>🦺</div>Nenhuma solicitação {filtro==='pendente'?'pendente':'registrada'}
         </div>
       ) : (
         <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden' }}>
@@ -571,36 +732,40 @@ function TabEpis({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab[]; pe
             const ob = obras.find(o => o.id === r.obra_id)
             const co = colabs.find(c => c.id === r.colaborador_id)
             const b  = stBadge(r.status)
+            const pend = r.status === 'pendente'
             return (
               <div key={r.id} style={{ padding:'12px 18px', borderTop:i>0?'1px solid var(--border)':'none', display:'flex', gap:12, alignItems:'center' }}>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', marginBottom:4 }}>
                     <span style={{ fontWeight:700, fontSize:13 }}>🦺 {r.itens?.length ?? 0} item(s)</span>
                     <span style={{ fontSize:11, fontWeight:700, color:ugColor(r.urgencia) }}>{ugLabel(r.urgencia)}</span>
-                    {ob && <span style={{ fontSize:11, background:'#eff6ff', color:'#1d4ed8', borderRadius:4, padding:'1px 5px' }}>{ob.nome}</span>}
+                    {ob && <span style={{ fontSize:11, background:'#eff6ff', color:'#1d4ed8', borderRadius:4, padding:'1px 6px' }}>{ob.nome}</span>}
                     {co && <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>· {co.nome}</span>}
                   </div>
-                  <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-                    {(r.itens ?? []).slice(0, 4).map((it: any, j: number) => (
-                      <span key={j} style={{ background:'#f3f4f6', color:'#374151', borderRadius:5, padding:'2px 7px', fontSize:11 }}>
-                        {it.nome} ×{it.quantidade}
-                      </span>
+                  <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginBottom:4 }}>
+                    {(r.itens ?? []).slice(0,4).map((it: any, j: number) => (
+                      <span key={j} style={{ background:'#f3f4f6', color:'#374151', borderRadius:5, padding:'2px 7px', fontSize:11 }}>{it.nome} ×{it.quantidade}</span>
                     ))}
-                    {(r.itens ?? []).length > 4 && <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>+{r.itens.length - 4}</span>}
+                    {(r.itens ?? []).length > 4 && <span style={{ fontSize:11, color:'var(--muted-foreground)' }}>+{r.itens.length-4} mais</span>}
                   </div>
-                  <div style={{ fontSize:10, color:'var(--muted-foreground)', marginTop:4 }}>
+                  <div style={{ fontSize:10, color:'var(--muted-foreground)' }}>
                     {new Date(r.criado_em).toLocaleString('pt-BR')}
-                    {r.aprovado_nome && <span style={{ marginLeft:6, color:'#15803d' }}>✓ {r.aprovado_nome}</span>}
+                    {r.aprovado_nome && <span style={{ color:'#15803d', marginLeft:6 }}>✓ {r.aprovado_nome}</span>}
+                    {r.motivo_recusa  && <span style={{ color:'#dc2626', marginLeft:6 }}>✗ {r.motivo_recusa}</span>}
                   </div>
                 </div>
-                <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0 }}>
-                  <span style={{ background:b.bg, color:b.cor, borderRadius:6, padding:'3px 9px', fontSize:11, fontWeight:700 }}>{b.label}</span>
-                  <Button size="sm" variant="outline" onClick={() => setModal(r)} style={{ height:30, fontSize:12 }}><Eye size={13}/></Button>
-                  {r.status === 'pendente' && (
-                    <Button size="sm" onClick={() => atender(r.id)} style={{ height:30, fontSize:12, background:'#15803d', color:'#fff' }}>
-                      <Check size={13}/> Atender
+                <div style={{ display:'flex', gap:5, alignItems:'center', flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }}>
+                  <span style={{ background:b.bg, color:b.cor, borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:700 }}>{b.label}</span>
+                  <Button size="sm" variant="outline" onClick={() => setModal(r)} style={{ height:28, fontSize:12, padding:'0 8px' }}><Eye size={12}/></Button>
+                  <Button size="sm" variant="outline" onClick={() => gerarPDF(r)} style={{ height:28, fontSize:12, padding:'0 8px' }}><FileText size={12}/></Button>
+                  {pend && <>
+                    <Button size="sm" onClick={() => aprovar(r.id)} style={{ height:28, fontSize:12, background:'#15803d', color:'#fff', padding:'0 10px' }}>
+                      <Check size={12}/> Aprovar
                     </Button>
-                  )}
+                    <Button size="sm" variant="outline" onClick={() => { setRecusaId(r.id); setMotivoRec('') }} style={{ height:28, fontSize:12, padding:'0 8px', borderColor:'#dc2626', color:'#dc2626' }}>
+                      <X size={12}/> Recusar
+                    </Button>
+                  </>}
                 </div>
               </div>
             )
@@ -608,18 +773,18 @@ function TabEpis({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab[]; pe
         </div>
       )}
 
-      {/* Modal detalhe EPI */}
+      {/* Modal detalhe */}
       {modal && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
-          <div style={{ background:'var(--background)', borderRadius:14, width:'100%', maxWidth:500, padding:22, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'90vh', overflowY:'auto' }}>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ background:'var(--background)', borderRadius:14, width:'100%', maxWidth:500, padding:22, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'92vh', overflowY:'auto' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
               <div style={{ fontWeight:800, fontSize:16 }}>🦺 Solicitação de EPI</div>
               <button onClick={() => setModal(null)} style={{ border:'none', background:'none', cursor:'pointer', fontSize:20, color:'var(--muted-foreground)' }}>✕</button>
             </div>
             <div style={{ marginBottom:12 }}>
-              <div style={{ fontSize:11, fontWeight:700, color:'var(--muted-foreground)', marginBottom:6 }}>ITENS</div>
-              {(modal.itens ?? []).map((it: any, i: number) => (
-                <div key={i} style={{ display:'flex', justifyContent:'space-between', borderBottom:'1px solid var(--border)', padding:'6px 0' }}>
+              <div style={{ fontSize:11, fontWeight:700, color:'var(--muted-foreground)', marginBottom:6, letterSpacing:.5 }}>ITENS SOLICITADOS</div>
+              {(modal.itens ?? []).map((it: any, idx: number) => (
+                <div key={idx} style={{ display:'flex', justifyContent:'space-between', borderBottom:'1px solid var(--border)', padding:'6px 0' }}>
                   <span style={{ fontSize:13 }}>{it.nome}</span>
                   <span style={{ fontSize:12, fontWeight:700 }}>×{it.quantidade}</span>
                 </div>
@@ -636,13 +801,36 @@ function TabEpis({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab[]; pe
                 <span style={{ fontSize:12 }}>{String(v)}</span>
               </div>
             ))}
-            <div style={{ display:'flex', justifyContent:'flex-end', marginTop:16, gap:8 }}>
-              {modal.status === 'pendente' && (
-                <Button onClick={() => { atender(modal.id); setModal(null) }} style={{ background:'#15803d', color:'#fff', height:32, fontSize:12 }}>
-                  <Check size={13}/> Marcar como Atendido
+            <div style={{ display:'flex', justifyContent:'flex-end', marginTop:16, gap:8, flexWrap:'wrap' }}>
+              <Button variant="outline" onClick={() => gerarPDF(modal)} style={{ height:32, fontSize:12 }}><FileText size={13}/> PDF</Button>
+              {modal.status === 'pendente' && <>
+                <Button onClick={() => aprovar(modal.id)} style={{ background:'#15803d', color:'#fff', height:32, fontSize:12 }}>
+                  <Check size={13}/> Aprovar
                 </Button>
-              )}
+                <Button variant="outline" onClick={() => { setRecusaId(modal.id); setMotivoRec(''); setModal(null) }} style={{ height:32, fontSize:12, borderColor:'#dc2626', color:'#dc2626' }}>
+                  <X size={13}/> Recusar
+                </Button>
+              </>}
               <Button variant="outline" onClick={() => setModal(null)} style={{ height:32 }}>Fechar</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal recusa */}
+      {recusaId && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:400, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ background:'var(--background)', borderRadius:14, width:'100%', maxWidth:420, padding:22, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontWeight:800, fontSize:16, marginBottom:12, color:'#dc2626' }}>✗ Recusar Solicitação de EPI</div>
+            <div style={{ fontSize:13, color:'var(--muted-foreground)', marginBottom:10 }}>Informe o motivo (opcional):</div>
+            <textarea value={motivoRec} onChange={e => setMotivoRec(e.target.value)} rows={3}
+              placeholder="Ex: Itens não disponíveis em estoque…"
+              style={{ width:'100%', borderRadius:8, border:'1px solid var(--border)', padding:'8px 10px', fontSize:13, resize:'vertical', background:'var(--card)', color:'var(--foreground)' }}/>
+            <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:14 }}>
+              <Button variant="outline" onClick={() => setRecusaId(null)} style={{ height:32 }}>Cancelar</Button>
+              <Button onClick={() => recusar(recusaId!)} style={{ background:'#dc2626', color:'#fff', height:32, fontSize:12 }}>
+                <X size={13}/> Confirmar Recusa
+              </Button>
             </div>
           </div>
         </div>
@@ -652,13 +840,15 @@ function TabEpis({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab[]; pe
 }
 
 // ─── aba: Documentos ─────────────────────────────────────────────────────────
-function TabDocumentos({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
-  const [rows,   setRows]   = useState<any[]>([])
-  const [load,   setLoad]   = useState(true)
-  const [filtro, setFiltro] = useState<'pendente'|'todos'>('pendente')
-  const [modal,  setModal]  = useState<any|null>(null)
+function TabDocumentos({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab[]; perfil: any }) {
+  const [rows,      setRows]      = useState<any[]>([])
+  const [load,      setLoad]      = useState(true)
+  const [filtro,    setFiltro]    = useState<'pendente'|'todos'>('pendente')
+  const [modal,     setModal]     = useState<any|null>(null)
+  const [recusaId,  setRecusaId]  = useState<string|null>(null)
+  const [motivoRec, setMotivoRec] = useState('')
 
-  const fetch = useCallback(async () => {
+  const doFetch = useCallback(async () => {
     setLoad(true)
     const q = supabase.from('portal_documentos').select('*').order('criado_em', { ascending: false })
     if (filtro === 'pendente') q.eq('status','pendente')
@@ -667,12 +857,68 @@ function TabDocumentos({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
     setLoad(false)
   }, [filtro])
 
-  useEffect(() => { fetch() }, [fetch])
+  useEffect(() => { doFetch() }, [doFetch])
 
-  async function marcarProcessado(id: string) {
-    await supabase.from('portal_documentos').update({ status:'processado' }).eq('id', id)
-    toast.success('Documento marcado como processado')
-    fetch()
+  async function aprovar(id: string) {
+    const nome = perfil?.username ?? perfil?.email ?? 'RH'
+    await supabase.from('portal_documentos').update({
+      status:'aprovado', aprovado_por:perfil?.id, aprovado_em:new Date().toISOString(), aprovado_nome:nome,
+    }).eq('id', id)
+    toast.success('Documento aprovado')
+    doFetch()
+    if (modal?.id === id) setModal(null)
+  }
+
+  async function recusar(id: string) {
+    await supabase.from('portal_documentos').update({
+      status:'recusado', motivo_recusa: motivoRec || 'Sem motivo informado',
+    }).eq('id', id)
+    toast.success('Documento recusado')
+    setRecusaId(null); setMotivoRec('')
+    doFetch()
+  }
+
+  function gerarPDF(r: any) {
+    const ob = obras.find(o => o.id === r.obra_id)?.nome ?? '—'
+    const co = colabs.find(c => c.id === r.colaborador_id)?.nome ?? 'Geral'
+    const tipoLabel: Record<string,string> = {
+      rg:'RG', cpf:'CPF', aso:'ASO / Exame Médico', ctps:'CTPS',
+      comprovante:'Comprovante de Residência', foto:'Foto do Colaborador',
+      certificado:'Certificado / Treinamento', nr:'NR / Segurança', outro:'Outro',
+    }
+
+    const imgHtml = r.arquivo_url && r.arquivo_tipo?.startsWith('image/')
+      ? `<div style="margin:12px 0;text-align:center"><img src="${r.arquivo_url}" style="max-width:100%;max-height:300px;object-fit:contain;border-radius:6px;border:1px solid #e5e7eb"/></div>`
+      : r.arquivo_url
+      ? `<div style="margin:12px 0"><a href="${r.arquivo_url}" style="color:#1e3a5f;font-weight:700">📎 Ver arquivo anexado</a></div>`
+      : ''
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Documento — ${tipoLabel[r.tipo]??r.tipo}</title>
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:28px;color:#111}
+    h1{font-size:18px;color:#1e3a5f;margin-bottom:4px}.sub{font-size:11px;color:#6b7280;margin-bottom:20px}
+    .row{display:flex;border-bottom:1px solid #e5e7eb;padding:6px 0}
+    .row .label{width:160px;font-weight:700;color:#4b5563;font-size:12px;flex-shrink:0}
+    .row .val{font-size:12px}
+    .ass{display:flex;gap:60px;margin-top:32px}.ass>div{flex:1;text-align:center;font-size:11px;color:#6b7280}
+    .linha{border-top:1px solid #9ca3af;margin-top:28px;margin-bottom:6px}
+    @media print{body{padding:16px}}</style></head><body>
+    <h1>📎 Documento — ${tipoLabel[r.tipo]??r.tipo}</h1>
+    <div class="sub">Gerado em ${new Date().toLocaleString('pt-BR')} — ConstrutorRH</div>
+    ${imgHtml}
+    <div class="row"><span class="label">Tipo</span><span class="val">${tipoLabel[r.tipo]??r.tipo}</span></div>
+    <div class="row"><span class="label">Obra</span><span class="val">${ob}</span></div>
+    <div class="row"><span class="label">Colaborador</span><span class="val">${co}</span></div>
+    ${r.descricao?`<div class="row"><span class="label">Descrição</span><span class="val">${r.descricao}</span></div>`:''}
+    ${r.arquivo_nome?`<div class="row"><span class="label">Arquivo</span><span class="val">${r.arquivo_nome}</span></div>`:''}
+    <div class="row"><span class="label">Enviado em</span><span class="val">${new Date(r.criado_em).toLocaleString('pt-BR')}</span></div>
+    <div class="ass">
+      <div><div class="linha"></div>Colaborador / Assinatura</div>
+      <div><div class="linha"></div>Responsável RH / Carimbo</div>
+    </div>
+    <script>window.onload=()=>{window.print()}<\/script></body></html>`
+
+    const win = window.open('','_blank','width=850,height=700')
+    if (win) { win.document.write(html); win.document.close() }
   }
 
   const tipoLabel: Record<string,string> = {
@@ -680,18 +926,13 @@ function TabDocumentos({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
     comprovante:'Comprovante de Residência', foto:'Foto do Colaborador',
     certificado:'Certificado / Treinamento', nr:'NR / Segurança', outro:'Outro',
   }
-  const stBadge = (s: string) => {
-    if (s==='processado') return { bg:'#dcfce7', cor:'#15803d', label:'✓ Processado' }
-    if (s==='descartado') return { bg:'#f3f4f6', cor:'#6b7280', label:'✕ Descartado' }
-    return                       { bg:'#fef3c7', cor:'#b45309', label:'⏳ Pendente' }
-  }
 
   return (
     <div>
       <div style={{ display:'flex', gap:6, marginBottom:16, flexWrap:'wrap' }}>
         {(['pendente','todos'] as const).map(f => (
           <button key={f} onClick={() => setFiltro(f)} style={{
-            height:32, padding:'0 12px', borderRadius:7, cursor:'pointer', fontWeight:600, fontSize:12,
+            height:32, padding:'0 14px', borderRadius:7, cursor:'pointer', fontWeight:600, fontSize:12,
             border:`1px solid ${filtro===f?'var(--primary)':'var(--border)'}`,
             background:filtro===f?'var(--primary)':'var(--card)',
             color:filtro===f?'#fff':'var(--foreground)',
@@ -699,7 +940,7 @@ function TabDocumentos({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
             {f==='pendente'?'⏳ Pendentes':'Todos'}
           </button>
         ))}
-        <button onClick={fetch} style={{ height:32, width:32, borderRadius:7, border:'1px solid var(--border)', background:'var(--card)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <button onClick={doFetch} style={{ height:32, width:32, borderRadius:7, border:'1px solid var(--border)', background:'var(--card)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
           <RefreshCw size={14}/>
         </button>
       </div>
@@ -707,45 +948,53 @@ function TabDocumentos({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
       {load ? <div style={{ textAlign:'center', padding:48, color:'var(--muted-foreground)' }}>Carregando…</div>
       : rows.length === 0 ? (
         <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:48, textAlign:'center', color:'var(--muted-foreground)' }}>
-          <div style={{ fontSize:32, marginBottom:8 }}>📭</div>Nenhum documento pendente
+          <div style={{ fontSize:32, marginBottom:8 }}>📭</div>Nenhum documento {filtro==='pendente'?'pendente':'registrado'}
         </div>
       ) : (
         <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden' }}>
           {rows.map((r, i) => {
-            const ob = obras.find(o => o.id === r.obra_id)
-            const co = colabs.find(c => c.id === r.colaborador_id)
-            const b  = stBadge(r.status)
+            const ob   = obras.find(o => o.id === r.obra_id)
+            const co   = colabs.find(c => c.id === r.colaborador_id)
+            const b    = stBadge(r.status)
+            const pend = r.status === 'pendente'
             const isImg = r.arquivo_tipo?.startsWith('image/')
             return (
               <div key={r.id} style={{ padding:'12px 18px', borderTop:i>0?'1px solid var(--border)':'none', display:'flex', gap:12, alignItems:'center' }}>
-                {/* thumb */}
-                <div style={{ width:46, height:46, borderRadius:8, overflow:'hidden', flexShrink:0, background:'#f3f4f6', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <div style={{ width:44, height:44, borderRadius:8, overflow:'hidden', flexShrink:0, background:'#f3f4f6', display:'flex', alignItems:'center', justifyContent:'center' }}>
                   {isImg && r.arquivo_url
                     ? <img src={r.arquivo_url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
-                    : <span style={{ fontSize:22 }}>📄</span>}
+                    : <span style={{ fontSize:20 }}>📄</span>}
                 </div>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:700, fontSize:13 }}>{tipoLabel[r.tipo] ?? r.tipo}</div>
                   <div style={{ fontSize:11, color:'var(--muted-foreground)', marginTop:2, display:'flex', gap:8, flexWrap:'wrap' }}>
                     {co && <span>👤 {co.nome}</span>}
                     {ob && <span style={{ background:'#eff6ff', color:'#1d4ed8', borderRadius:4, padding:'1px 5px' }}>{ob.nome}</span>}
-                    {r.descricao && <span>{r.descricao}</span>}
+                    {r.descricao && <span style={{ fontStyle:'italic' }}>{r.descricao}</span>}
                   </div>
-                  <div style={{ fontSize:10, color:'var(--muted-foreground)', marginTop:2 }}>{new Date(r.criado_em).toLocaleString('pt-BR')}</div>
+                  <div style={{ fontSize:10, color:'var(--muted-foreground)', marginTop:2 }}>
+                    {new Date(r.criado_em).toLocaleString('pt-BR')}
+                    {r.aprovado_nome && <span style={{ color:'#15803d', marginLeft:6 }}>✓ {r.aprovado_nome}</span>}
+                    {r.motivo_recusa  && <span style={{ color:'#dc2626', marginLeft:6 }}>✗ {r.motivo_recusa}</span>}
+                  </div>
                 </div>
-                <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0 }}>
-                  <span style={{ background:b.bg, color:b.cor, borderRadius:6, padding:'3px 9px', fontSize:11, fontWeight:700 }}>{b.label}</span>
-                  <Button size="sm" variant="outline" onClick={() => setModal(r)} style={{ height:30, fontSize:12 }}><Eye size={13}/></Button>
+                <div style={{ display:'flex', gap:5, alignItems:'center', flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }}>
+                  <span style={{ background:b.bg, color:b.cor, borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:700 }}>{b.label}</span>
+                  <Button size="sm" variant="outline" onClick={() => setModal(r)} style={{ height:28, fontSize:12, padding:'0 8px' }}><Eye size={12}/></Button>
+                  <Button size="sm" variant="outline" onClick={() => gerarPDF(r)} style={{ height:28, fontSize:12, padding:'0 8px' }}><FileText size={12}/></Button>
                   {r.arquivo_url && (
                     <a href={r.arquivo_url} target="_blank" rel="noopener noreferrer">
-                      <Button size="sm" variant="outline" style={{ height:30, fontSize:12 }}><Download size={13}/></Button>
+                      <Button size="sm" variant="outline" style={{ height:28, fontSize:12, padding:'0 8px' }}><Download size={12}/></Button>
                     </a>
                   )}
-                  {r.status === 'pendente' && (
-                    <Button size="sm" onClick={() => marcarProcessado(r.id)} style={{ height:30, fontSize:12, background:'#15803d', color:'#fff' }}>
-                      <Check size={13}/> OK
+                  {pend && <>
+                    <Button size="sm" onClick={() => aprovar(r.id)} style={{ height:28, fontSize:12, background:'#15803d', color:'#fff', padding:'0 10px' }}>
+                      <Check size={12}/> Aprovar
                     </Button>
-                  )}
+                    <Button size="sm" variant="outline" onClick={() => { setRecusaId(r.id); setMotivoRec('') }} style={{ height:28, fontSize:12, padding:'0 8px', borderColor:'#dc2626', color:'#dc2626' }}>
+                      <X size={12}/> Recusar
+                    </Button>
+                  </>}
                 </div>
               </div>
             )
@@ -753,20 +1002,20 @@ function TabDocumentos({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
         </div>
       )}
 
-      {/* Modal visualizar documento */}
+      {/* Modal detalhe */}
       {modal && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
-          <div style={{ background:'var(--background)', borderRadius:14, width:'100%', maxWidth:560, padding:22, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'90vh', overflowY:'auto' }}>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ background:'var(--background)', borderRadius:14, width:'100%', maxWidth:560, padding:22, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'92vh', overflowY:'auto' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
               <div style={{ fontWeight:800, fontSize:16 }}>📎 {tipoLabel[modal.tipo] ?? modal.tipo}</div>
               <button onClick={() => setModal(null)} style={{ border:'none', background:'none', cursor:'pointer', fontSize:20, color:'var(--muted-foreground)' }}>✕</button>
             </div>
             {modal.arquivo_url && modal.arquivo_tipo?.startsWith('image/') && (
-              <img src={modal.arquivo_url} alt="documento" style={{ width:'100%', maxHeight:300, objectFit:'contain', borderRadius:8, marginBottom:12, background:'#f9fafb' }} />
+              <img src={modal.arquivo_url} alt="documento" style={{ width:'100%', maxHeight:300, objectFit:'contain', borderRadius:8, marginBottom:12, background:'#f9fafb', border:'1px solid var(--border)' }} />
             )}
             {modal.arquivo_url && !modal.arquivo_tipo?.startsWith('image/') && (
               <a href={modal.arquivo_url} target="_blank" rel="noopener noreferrer" style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 14px', background:'#eff6ff', borderRadius:8, marginBottom:12, color:'#1e3a5f', fontWeight:600, textDecoration:'none' }}>
-                <Download size={16}/> Baixar arquivo
+                <Download size={16}/> Baixar arquivo anexado
               </a>
             )}
             {[
@@ -777,17 +1026,40 @@ function TabDocumentos({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
               ['Arquivo',    modal.arquivo_nome],
             ].filter(([,v]) => v).map(([l,v]) => (
               <div key={String(l)} style={{ display:'flex', borderBottom:'1px solid var(--border)', padding:'6px 0' }}>
-                <span style={{ width:120, fontSize:11, fontWeight:700, color:'var(--muted-foreground)', flexShrink:0 }}>{l}</span>
+                <span style={{ width:130, fontSize:11, fontWeight:700, color:'var(--muted-foreground)', flexShrink:0 }}>{l}</span>
                 <span style={{ fontSize:12 }}>{String(v)}</span>
               </div>
             ))}
-            <div style={{ display:'flex', justifyContent:'flex-end', marginTop:16, gap:8 }}>
-              {modal.status === 'pendente' && (
-                <Button onClick={() => { marcarProcessado(modal.id); setModal(null) }} style={{ background:'#15803d', color:'#fff', height:32, fontSize:12 }}>
-                  <Check size={13}/> Marcar Processado
+            <div style={{ display:'flex', justifyContent:'flex-end', marginTop:16, gap:8, flexWrap:'wrap' }}>
+              <Button variant="outline" onClick={() => gerarPDF(modal)} style={{ height:32, fontSize:12 }}><FileText size={13}/> PDF</Button>
+              {modal.status === 'pendente' && <>
+                <Button onClick={() => aprovar(modal.id)} style={{ background:'#15803d', color:'#fff', height:32, fontSize:12 }}>
+                  <Check size={13}/> Aprovar
                 </Button>
-              )}
+                <Button variant="outline" onClick={() => { setRecusaId(modal.id); setMotivoRec(''); setModal(null) }} style={{ height:32, fontSize:12, borderColor:'#dc2626', color:'#dc2626' }}>
+                  <X size={13}/> Recusar
+                </Button>
+              </>}
               <Button variant="outline" onClick={() => setModal(null)} style={{ height:32 }}>Fechar</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal recusa */}
+      {recusaId && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:400, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ background:'var(--background)', borderRadius:14, width:'100%', maxWidth:420, padding:22, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontWeight:800, fontSize:16, marginBottom:12, color:'#dc2626' }}>✗ Recusar Documento</div>
+            <div style={{ fontSize:13, color:'var(--muted-foreground)', marginBottom:10 }}>Informe o motivo (opcional):</div>
+            <textarea value={motivoRec} onChange={e => setMotivoRec(e.target.value)} rows={3}
+              placeholder="Ex: Documento ilegível, enviar novamente…"
+              style={{ width:'100%', borderRadius:8, border:'1px solid var(--border)', padding:'8px 10px', fontSize:13, resize:'vertical', background:'var(--card)', color:'var(--foreground)' }}/>
+            <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:14 }}>
+              <Button variant="outline" onClick={() => setRecusaId(null)} style={{ height:32 }}>Cancelar</Button>
+              <Button onClick={() => recusar(recusaId!)} style={{ background:'#dc2626', color:'#fff', height:32, fontSize:12 }}>
+                <X size={13}/> Confirmar Recusa
+              </Button>
             </div>
           </div>
         </div>
@@ -1183,9 +1455,9 @@ export default function Solicitacoes() {
 
       {/* Conteúdo */}
       {aba === 'cadastros'   && <TabCadastros   obras={obras} funcoes={funcoes} perfil={perfil} />}
-      {aba === 'ocorrencias' && <TabOcorrencias obras={obras} colabs={colabs} />}
+      {aba === 'ocorrencias' && <TabOcorrencias obras={obras} colabs={colabs} perfil={perfil} />}
       {aba === 'epis'        && <TabEpis        obras={obras} colabs={colabs} perfil={perfil} />}
-      {aba === 'documentos'  && <TabDocumentos  obras={obras} colabs={colabs} />}
+      {aba === 'documentos'  && <TabDocumentos  obras={obras} colabs={colabs} perfil={perfil} />}
       {aba === 'relatorio'   && <TabRelatorio   obras={obras} colabs={colabs} />}
     </div>
   )

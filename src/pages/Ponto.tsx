@@ -176,6 +176,8 @@ export default function Ponto() {
   const [saving, setSaving] = useState(false)
   const [valorHora, setValorHora] = useState(0)       // valor AO VIVO da função (para novos rascunhos)
   const [valorHoraCongelado, setValorHoraCongelado] = useState<number|null>(null)  // valor gravado no lançamento
+  // Mapa lancId → snapshot próprio do lançamento (null = usar valorHora ao vivo)
+  const [snapshotPorLanc, setSnapshotPorLanc] = useState<Map<string,number|null>>(new Map())
   const [loadingDias, setLoadingDias] = useState(false)
 
   // Modal recusa
@@ -724,48 +726,49 @@ export default function Ponto() {
       fetchHorariosObras([colab.obra_id].filter(Boolean) as string[]),
     ])
 
-    // ── 2. Valor/hora: usa snapshot do lançamento se existir (imutável) ─────
-    // Só busca ao vivo da função quando NÃO há snapshot salvo (lançamento novo/rascunho sem save)
-    // Prioridade de snapshot: 1º valor_hora_snapshot (salvo no Ponto), 2º snap_valor_hora (salvo no Fechamento)
-    const snapExistente = list.find((l: {valor_hora_snapshot: number|null; snap_valor_hora: number|null}) =>
-      (l.valor_hora_snapshot ?? l.snap_valor_hora) != null
-    )
-    const snapValor = snapExistente ? (snapExistente.valor_hora_snapshot ?? snapExistente.snap_valor_hora) : null
+    // ── 2. Valor/hora por lançamento (snapshot independente) ─────────────────
+    // Cada lançamento carrega seu próprio snapshot.
+    // Rascunhos sem snapshot usam o valor ao vivo do contrato atual.
+    // Isso garante que mudar tipo_contrato não altera lançamentos já aprovados.
+    const snapMap = new Map<string,number|null>()
+    list.forEach((l: {id:string;valor_hora_snapshot:number|null;snap_valor_hora:number|null}) => {
+      const snap = l.valor_hora_snapshot ?? l.snap_valor_hora ?? null
+      snapMap.set(l.id, snap)
+    })
+    setSnapshotPorLanc(snapMap)
 
-    // Status considerados "fechados" (não devem usar valor ao vivo)
+    // Valor ao vivo: buscado pela função + tipo_contrato ATUAL (para rascunhos sem snapshot)
     const statusFechados = ['em_fechamento','aprovado','liberado','pago']
     const temLancFechado = list.some((l: {status: string}) => statusFechados.includes(l.status))
+    // snapValor global: usado apenas para o card de resumo (pega o primeiro snap encontrado)
+    const snapValorGlobal = [...snapMap.values()].find(v => v != null) ?? null
 
-    if(snapValor != null){
-      // ✅ Snapshot existe → usar valor congelado, NÃO consultar funcao_valores
-      setValorHora(snapValor)
-      setValorHoraCongelado(snapValor)
-    } else if(temLancFechado){
-      // ⚠ Lançamento fechado SEM snapshot (dado antigo) → manter o último valor conhecido, não atualizar
-      // Não chama setValorHora para não sobrescrever com valor ao vivo
-      setValorHoraCongelado(null)  // sem snapshot mas fecha — não congela visualmente
-    } else if(colab.funcao_id){
-      // Nenhum snapshot → buscar ao vivo (lançamento ainda não salvo ou novo)
+    if(colab.funcao_id){
+      // Buscar valor ao vivo pelo tipo_contrato atual
       const[{data:fvList},{data:funcaoRow}]=await Promise.all([
         supabase.from('funcao_valores').select('valor_hora,tipo_contrato').eq('funcao_id',colab.funcao_id),
         supabase.from('funcoes').select('valor_hora_clt,valor_hora_autonomo').eq('id',colab.funcao_id).single(),
       ])
       const fvMatch=(fvList??[]).find((r:any)=>r.tipo_contrato===colab.tipo_contrato)
+      let vhVivo = 0
       if(fvMatch){
-        setValorHora(fvMatch.valor_hora)
+        vhVivo = fvMatch.valor_hora
       } else if((fvList??[]).length>0){
-        setValorHora((fvList??[])[0].valor_hora)
+        vhVivo = (fvList??[])[0].valor_hora
       } else if(funcaoRow){
         const vh=colab.tipo_contrato==='clt'?funcaoRow.valor_hora_clt:funcaoRow.valor_hora_autonomo
-        setValorHora(vh??funcaoRow.valor_hora_clt??funcaoRow.valor_hora_autonomo??0)
-      } else {
-        setValorHora(0)
+        vhVivo = vh??funcaoRow.valor_hora_clt??funcaoRow.valor_hora_autonomo??0
       }
-      setValorHoraCongelado(null)
+      setValorHora(vhVivo)
+      // valorHoraCongelado global: só para o card de resumo (se TODOS os lançamentos têm snapshot)
+      const todosComSnap = list.length > 0 && list.every((l: {id:string}) => (snapMap.get(l.id) ?? null) != null)
+      setValorHoraCongelado(todosComSnap ? snapValorGlobal : null)
     } else {
       setValorHora(0)
       setValorHoraCongelado(null)
     }
+    // suprimir warning de temLancFechado (mantido para referência futura)
+    void temLancFechado
 
     // Buscar obras únicas dos lançamentos
     const obraIds=[...new Set(list.map(l=>l.obra_id))]
@@ -839,7 +842,27 @@ export default function Ponto() {
   // caso contrário usa o valor ao vivo da função. Garante imutabilidade pós-aprovação.
   const valorHoraEfetivo: number = valorHoraCongelado ?? valorHora
 
-  const totalHoras = valorHoraEfetivo>0?calcValorMin(totaisGlobais.normais,totaisGlobais.extras50,totaisGlobais.extras100,valorHoraEfetivo):0
+  // Retorna o valor/hora efetivo de um lançamento específico:
+  // se o lançamento tem snapshot próprio → usa o snapshot (valor congelado no momento do save)
+  // se não tem → usa valorHora ao vivo (tipo_contrato atual)
+  function valorHoraDoLanc(lancId: string): number {
+    const snap = snapshotPorLanc.get(lancId)
+    return (snap != null && snap > 0) ? snap : valorHora
+  }
+
+  // totalHoras: soma cada lançamento pelo seu próprio valor/hora (snapshot ou ao vivo)
+  const totalHoras = useMemo(()=>{
+    if(valorHora===0 && snapshotPorLanc.size===0) return 0
+    return lancamentos.reduce((sum, lanc)=>{
+      const vh = valorHoraDoLanc(lanc.id!)
+      if(vh===0) return sum
+      const dias = diasMap[lanc.id!] ?? []
+      let n=0,e50=0,e100=0
+      dias.forEach(d=>{ const c=calcDia(d,feriados.has(d.data));n+=c.normais;e50+=c.extras50;e100+=c.extras100 })
+      return sum + calcValorMin(n,e50,e100,vh)
+    },0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[lancamentos,diasMap,feriados,valorHora,snapshotPorLanc])
   const totalProd  = producoes.reduce((s,p)=>s+p.valor_total,0)
 
   // Valor a receber com regra CLT/autônomo
@@ -848,15 +871,21 @@ export default function Ponto() {
 
   // Autônomo: horas(dias sem prod) + produção. CLT: horas + prêmio se prod>horas
   const horasAutonomoSemProd = useMemo(()=>{
-    let minNorm=0,minExtra50=0,minExtra100=0
-    Object.values(diasMap).forEach(dias=>dias.forEach(d=>{
-      if(!diasComProd.has(d.data)){
-        const cl=calcDia(d,feriados.has(d.data))
-        minNorm+=cl.normais;minExtra50+=cl.extras50;minExtra100+=cl.extras100
-      }
-    }))
-    return calcValorMin(minNorm,minExtra50,minExtra100,valorHoraEfetivo)
-  },[diasMap,diasComProd,valorHoraEfetivo,feriados])
+    // Soma por lançamento usando o vh próprio de cada um
+    return lancamentos.reduce((sum, lanc)=>{
+      const vh = valorHoraDoLanc(lanc.id!)
+      if(vh===0) return sum
+      const dias = diasMap[lanc.id!] ?? []
+      let n=0,e50=0,e100=0
+      dias.forEach(d=>{
+        if(!diasComProd.has(d.data)){
+          const cl=calcDia(d,feriados.has(d.data));n+=cl.normais;e50+=cl.extras50;e100+=cl.extras100
+        }
+      })
+      return sum + calcValorMin(n,e50,e100,vh)
+    },0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[lancamentos,diasMap,diasComProd,feriados,valorHora,snapshotPorLanc])
 
   // DSR — só para CLT, com regra de perda por falta semanal
   // Regra: se houver falta em uma semana (Seg-Sab), o DSR daquele domingo é perdido
@@ -864,7 +893,7 @@ export default function Ponto() {
     if(!colabSel||colabSel.tipo_contrato!=='clt'||valorHoraEfetivo===0){
       return{valor:0,diasUteis:0,domingos:0,baseValor:0,domingosPerdidos:0}
     }
-    const baseValor = calcValorMin(totaisGlobais.normais,totaisGlobais.extras50,totaisGlobais.extras100,valorHoraEfetivo)
+    const baseValor = totalHoras  // já calculado por lançamento com snap próprio
     // Montar set de datas com falta (todos os lançamentos)
     const datasComFalta = new Set<string>()
     Object.values(diasMap).forEach(diasLanc=>
@@ -875,11 +904,12 @@ export default function Ponto() {
     lancamentos.forEach(lanc=>{
       // Horas do lançamento
       const diasLanc = diasMap[lanc.id] ?? []
+      const vhLanc = valorHoraDoLanc(lanc.id!)
       const vHorasLanc = diasLanc.reduce((s,d)=>{
         if(diasComProd.has(d.data)) return s  // dias com produção não entram no cálculo de horas
         const cl=calcDia(d,feriados.has(d.data))
         // calcDia retorna MINUTOS → converter para horas antes de multiplicar pelo valor/hora
-        return s + calcValorMin(cl.normais,cl.extras50,cl.extras100,valorHoraEfetivo)
+        return s + calcValorMin(cl.normais,cl.extras50,cl.extras100,vhLanc)
       },0)
       const res = calcDSRComFaltas(vHorasLanc, lanc.data_inicio, lanc.data_fim, datasComFalta, feriados)
       dsrTotal += res.dsr
@@ -888,7 +918,8 @@ export default function Ponto() {
       totalDomingosPerdidos += res.domingosPerdidos
     })
     return{valor:dsrTotal,diasUteis:totalDiasUteis,domingos:totalDomingosPagos,baseValor,domingosPerdidos:totalDomingosPerdidos}
-  },[colabSel,valorHoraEfetivo,lancamentos,totaisGlobais.normais,totaisGlobais.extras50,feriados,diasMap,diasComProd])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[colabSel,lancamentos,totalHoras,feriados,diasMap,diasComProd,valorHora,snapshotPorLanc])
 
   // premioCLT = excedente da produção sobre o salário (horas + DSR)
   const premioCLT = useMemo(()=>{
@@ -993,10 +1024,16 @@ export default function Ponto() {
     // ── Congelar valor/hora no próprio lançamento ao salvar ─────────────────
     // Garante que futuras edições na tabela de funções NÃO alteram este ponto.
     if(valorHora > 0){
-      await supabase.from('ponto_lancamentos')
-        .update({ valor_hora_snapshot: valorHora })
-        .eq('id', lancId)
-        .is('valor_hora_snapshot', null)  // só grava se ainda não tiver (mantém o original)
+      const snapAtual = snapshotPorLanc.get(lancId)
+      if(snapAtual == null){
+        // Ainda sem snapshot: gravar o valor ao vivo atual
+        await supabase.from('ponto_lancamentos')
+          .update({ valor_hora_snapshot: valorHora })
+          .eq('id', lancId)
+        // Atualizar o Map local imediatamente
+        setSnapshotPorLanc(prev => { const m=new Map(prev); m.set(lancId, valorHora); return m })
+      }
+      // Se já tem snapshot: nunca sobrescrever — mantém o valor original do lançamento
     }
     // Recarregar para obter IDs dos registros inseridos
     if(colabSel)fetchTudo(colabSel,ano,mes)
@@ -1061,10 +1098,12 @@ export default function Ponto() {
 
   // ── Aprovação de ponto ───────────────────────────────────────────────────
   async function mudarStatus(id:string,status:Lancamento['status'],motivo?:string){
-    // Ao enviar para aprovação: gravar valor_hora como snapshot imutável
+    // Ao enviar para aprovação: gravar valor_hora como snapshot imutável usando o valor do próprio lançamento
     const payload: Record<string,unknown> = { status, motivo_recusa:motivo??null }
-    if(status==='aguardando_aprovacao' && valorHora>0){
-      payload.valor_hora_snapshot = valorHora
+    if(status==='aguardando_aprovacao'){
+      const snapLanc = snapshotPorLanc.get(id)
+      const vhParaSnap = (snapLanc != null && snapLanc > 0) ? snapLanc : (valorHora > 0 ? valorHora : 0)
+      if(vhParaSnap > 0) payload.valor_hora_snapshot = vhParaSnap
     }
     const{error}=await supabase.from('ponto_lancamentos').update(payload).eq('id',id)
     if(error){toast.error('Erro: '+error.message);return}
@@ -1403,10 +1442,11 @@ export default function Ponto() {
                     {/* Mini totais com DSR por lançamento */}
                     {valorHoraEfetivo>0&&(()=>{
                       const diasLancAtual = diasMap[lanc.id] ?? []
+                      const vhLancCard = valorHoraDoLanc(lanc.id!)
                       const vHorasLanc = diasLancAtual.reduce((s,d)=>{
                         if(diasComProd.has(d.data)) return s
                         const cl=calcDia(d,feriados.has(d.data))
-                        return s + calcValorMin(cl.normais,cl.extras50,cl.extras100,valorHoraEfetivo)
+                        return s + calcValorMin(cl.normais,cl.extras50,cl.extras100,vhLancCard)
                       },0)
                       // DSR individual com regra de falta semanal
                       const ehCLTLanc = colabSel?.tipo_contrato === 'clt'
@@ -1552,7 +1592,8 @@ export default function Ponto() {
                                     : d.presente&&calc.total>0
                                     ? (() => {
                                         const ehAuto=colabSel?.tipo_contrato==='autonomo'||colabSel?.tipo_contrato==='pj'
-                                        const vHoras=calcValorMin(calc.normais,calc.extras50,calc.extras100,valorHoraEfetivo)
+                                        const vhLinha = valorHoraDoLanc(lanc.id!)
+                                        const vHoras=calcValorMin(calc.normais,calc.extras50,calc.extras100,vhLinha)
                                         // Autônomo: se este dia foi marcado na produção → mostra prod proporcional; senão → horas
                                         if(ehAuto&&diasComProd.has(d.data)&&prodPorDia>0){
                                           return <span title={`Dia marcado na produção: ${formatCurrency(prodPorDia)}`} style={{cursor:'default',color:'#b45309',fontWeight:700}}>
@@ -1583,13 +1624,14 @@ export default function Ponto() {
                               {tot.presentes} dia{tot.presentes!==1?'s':''} trabalhado{tot.presentes!==1?'s':''}
                               {tot.faltas>0&&<span style={{color:'#fca5a5',marginLeft:8}}>· {tot.faltas} falta{tot.faltas!==1?'s':''}</span>}
                             </td>
-                            <td colSpan={6} style={{padding:'7px 12px',textAlign:'right',fontSize:10,opacity:0.7}}>{valorHoraEfetivo>0&&`R$ ${valorHoraEfetivo.toFixed(4)}/h`}</td>
+                            <td colSpan={6} style={{padding:'7px 12px',textAlign:'right',fontSize:10,opacity:0.7}}>{(()=>{const vh=valorHoraDoLanc(lanc.id!);return vh>0&&`R$ ${vh.toFixed(4)}/h`})()}</td>
                             <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(22,163,74,0.3)'}}>{fmtHHMM(tot.normais)}</td>
                             <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(45,90,158,0.4)'}}>{fmtHHMM(tot.extras50)}</td>
                             <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(0,0,0,0.2)'}}>{fmtHHMM(tot.total)}</td>
                             <td style={{padding:'7px 8px',textAlign:'right',background:'rgba(74,26,122,0.4)',color:'#e9d5ff',fontWeight:700,fontSize:11}}>
                               {(() => {
-                                const vHoras=calcValorMin(tot.normais,tot.extras50,tot.extras100,valorHoraEfetivo)
+                                const vhLancFoot = valorHoraDoLanc(lanc.id!)
+                                const vHoras=calcValorMin(tot.normais,tot.extras50,tot.extras100,vhLancFoot)
                                 const ehAuto=colabSel?.tipo_contrato==='autonomo'||colabSel?.tipo_contrato==='pj'
                                 if(vHoras===0&&totalProdLancamento===0)return '—'
                                 if(ehAuto){
@@ -1599,7 +1641,7 @@ export default function Ponto() {
                                   diasLancamento.forEach(d=>{
                                     if(!diasComProd.has(d.data)){const cl=calcDia(d,feriados.has(d.data));minNormLanc+=cl.normais;minExtra50Lanc+=cl.extras50;minExtra100Lanc+=cl.extras100}
                                   })
-                                  const horasLancSemProd=calcValorMin(minNormLanc,minExtra50Lanc,minExtra100Lanc,valorHoraEfetivo)
+                                  const horasLancSemProd=calcValorMin(minNormLanc,minExtra50Lanc,minExtra100Lanc,vhLancFoot)
                                   const vTotalAuto=horasLancSemProd+totalProdLancamento
                                   return <span title={`Horas(sem prod): ${formatCurrency(horasLancSemProd)} + Prod: ${formatCurrency(totalProdLancamento)}`}>
                                     {formatCurrency(vTotalAuto)}
@@ -1610,7 +1652,7 @@ export default function Ponto() {
                                 // usar calcDSRComFaltas para consistência
                                 const _duLanc=diasUteisPeriodo(lanc.data_inicio,lanc.data_fim,feriados)
                                 const _domLanc=domingosFeriadosPeriodo(lanc.data_inicio,lanc.data_fim,feriados)
-                                const extrasLanc=fmtDecimal(tot.extras50)*valorHoraEfetivo*1.5 + fmtDecimal(tot.extras100)*valorHoraEfetivo*2.0
+                                const extrasLanc=fmtDecimal(tot.extras50)*vhLancFoot*1.5 + fmtDecimal(tot.extras100)*vhLancFoot*2.0
                                 const dsrLanc=_duLanc>0&&_domLanc>0&&extrasLanc>0?(extrasLanc/_duLanc)*_domLanc:0
                                 const totalLanc=vHoras+dsrLanc
                                 return <span title={`Horas: ${formatCurrency(vHoras)}${dsrLanc>0?' + DSR: '+formatCurrency(dsrLanc):''}`}>

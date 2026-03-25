@@ -1515,7 +1515,8 @@ export default function Ponto() {
                       const partes:string[]=[]
                       if(totalHoras>0) partes.push(`Horas: ${formatCurrency(totalHoras)}`)
                       if(dsrInfo.valor>0) partes.push(`DSR: ${formatCurrency(dsrInfo.valor)}`)
-                      if(premioCLT>0) partes.push(`Prêmio: ${formatCurrency(premioCLT)}`)
+                      if(premioCLT>0) partes.push(`🎯 Bônus desemp.: ${formatCurrency(premioCLT)}`)
+                      else if(totalProd>0) partes.push(`Prod ${formatCurrency(totalProd)} < sal. (desconsiderada)`)
                       return partes.length>0?partes.join(' + '):'Sem valor/hora cadastrado'
                     })();
 
@@ -1557,7 +1558,7 @@ export default function Ponto() {
               {/* Card de performance — só aparece quando há produção e valor/hora */}
               {totalProd>0&&valorHoraEfetivo>0&&colabSel&&(()=>{
                 const ehAutoPerf=colabSel.tipo_contrato==='autonomo'||colabSel.tipo_contrato==='pj'
-                // Para CLT: comparar produção vs salário (horas + DSR)
+                // Base de comparação: salário (horas+DSR) para CLT; horas totais para Autônomo
                 const baseComp = ehAutoPerf ? totalHoras : (totalHoras + dsrInfo.valor)
                 const diff = totalProd - baseComp
                 const bom  = diff >= 0
@@ -1565,18 +1566,18 @@ export default function Ponto() {
                 return(
                   <div style={{flex:1,minWidth:140,padding:'8px 12px',textAlign:'center',borderRight:'1px solid var(--border)',background:bom?'rgba(22,163,74,0.06)':'rgba(220,38,38,0.06)'}}>
                     <div style={{fontSize:10,fontWeight:700,marginBottom:2,color:bom?'#15803d':'#dc2626'}}>
-                      {bom?'📈 Produção Compensa':'📉 Produção Abaixo'}
+                      {bom ? '📈 Bônus de Desempenho' : '📦 Prod abaixo do Salário'}
                     </div>
                     <div style={{fontSize:15,fontWeight:800,color:bom?'#15803d':'#dc2626'}}>
-                      {bom?'+':''}{formatCurrency(diff)}
+                      {bom ? `+${formatCurrency(diff)}` : formatCurrency(diff)}
                     </div>
                     <div style={{fontSize:10,color:bom?'#16a34a':'#b91c1c'}}>
                       {bom
-                        ? `Prêmio: Prod supera salário em ${pct.toFixed(0)}%`
-                        : `Pagar salário (${pct.toFixed(0)}% acima da prod)`}
+                        ? `Prod supera salário em ${pct.toFixed(0)}% → bônus pago`
+                        : `Salário cobre: pagar apenas ${formatCurrency(baseComp)}`}
                     </div>
                     <div style={{fontSize:9,color:'var(--muted-foreground)',marginTop:1}}>
-                      Salário: {formatCurrency(baseComp)} · Prod: {formatCurrency(totalProd)}
+                      Salário base: {formatCurrency(baseComp)} · Prod: {formatCurrency(totalProd)}
                     </div>
                   </div>
                 )
@@ -1648,7 +1649,13 @@ export default function Ponto() {
                       ? calcDSRComFaltas(vHorasCard, lanc.data_inicio, lanc.data_fim, datasComFaltaCard, feriados).dsr
                       : 0
                     const prodCard = totalProdLancamento
-                    const totalCard = vHorasCard + dsrCard + prodCard
+                    // ═ REGRA PRODUÇÃO vs SALÁRIO por lançamento ═
+                    // CLT: se prod > (horas+DSR) → paga horas+DSR + bônus; senão paga só horas+DSR
+                    // Autônomo/PJ: dias c/prod → só prod; dias s/prod → só horas
+                    const salBaseCard = ehCLTcard ? (vHorasCard + dsrCard) : vHorasCard
+                    const bonusCard   = ehCLTcard && prodCard > salBaseCard ? prodCard - salBaseCard : 0
+                    // Total: CLT = salário + bônus; Autônomo = horas(sem prod) + prod
+                    const totalCard = salBaseCard + (ehCLTcard ? bonusCard : (prodCard > 0 ? prodCard : 0))
                     const horasTotCard = nCard + e50Card + e100Card
                     const tcCor = tcLanc2==='clt' ? '#1d4ed8' : tcLanc2==='pj' ? '#7c3aed' : '#15803d'
                     const tcBg  = tcLanc2==='clt' ? '#dbeafe' : tcLanc2==='pj' ? '#ede9fe' : '#dcfce7'
@@ -1706,13 +1713,24 @@ export default function Ponto() {
                             )}
                             {prodCard>0 && (
                               <div style={{padding:'5px 10px',borderRight:'1px solid var(--border)'}}>
-                                <div style={{fontSize:9,color:'#6b7280',fontWeight:600,textTransform:'uppercase'}}>Produção</div>
-                                <div style={{fontSize:11,fontWeight:700,color:'#b45309'}}>{formatCurrency(prodCard)}</div>
+                                <div style={{fontSize:9,color:'#6b7280',fontWeight:600,textTransform:'uppercase'}}>
+                                  {ehCLTcard ? (bonusCard>0 ? '📈 Bônus Desemp.' : '📦 Prod (abaixo sal.)') : 'Produção'}
+                                </div>
+                                <div style={{fontSize:11,fontWeight:700,color: ehCLTcard ? (bonusCard>0?'#15803d':'#9ca3af') : '#b45309'}}>
+                                  {ehCLTcard
+                                    ? (bonusCard>0 ? `+${formatCurrency(bonusCard)}` : formatCurrency(prodCard))
+                                    : formatCurrency(prodCard)
+                                  }
+                                </div>
+                                {ehCLTcard && bonusCard===0 && prodCard>0 && (
+                                  <div style={{fontSize:8,color:'#9ca3af'}}>salário já cobre</div>
+                                )}
                               </div>
                             )}
-                            <div style={{padding:'5px 10px',background:'#1e3a5f'}}>
+                            <div style={{padding:'5px 10px',background: bonusCard>0?'#14532d':'#1e3a5f'}}>
                               <div style={{fontSize:9,color:'#93c5fd',fontWeight:600,textTransform:'uppercase'}}>Total</div>
                               <div style={{fontSize:13,fontWeight:900,color:'#fff'}}>{formatCurrency(totalCard)}</div>
+                              {bonusCard>0 && <div style={{fontSize:8,color:'#86efac'}}>incl. bônus</div>}
                             </div>
                           </div>
                         )}

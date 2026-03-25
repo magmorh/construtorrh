@@ -4,25 +4,43 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ConstrutorRH</title>
+    <style>
+      body { margin: 0; background: #f0f0f0; }
+      #debug { position: fixed; top: 0; left: 0; right: 0; padding: 10px; background: #fef3c7; font-size: 12px; font-family: monospace; z-index: 9999; display: none; }
+    </style>
     <script>
+      var debugEl;
+      function showDebug(msg) {
+        if (!debugEl) { debugEl = document.getElementById('debug'); }
+        if (debugEl) { debugEl.style.display = 'block'; debugEl.innerHTML += '<div>' + msg + '</div>'; }
+      }
       window.onerror = function(msg, src, line, col, err) {
-        document.getElementById('root').innerHTML =
-          '<div style="padding:40px;font-family:monospace;background:#fff;color:#dc2626;border:2px solid #dc2626;margin:20px;border-radius:8px">' +
-          '<h2>❌ Erro JavaScript</h2>' +
-          '<b>' + msg + '</b><br/>' +
-          'Arquivo: ' + src + ' | Linha: ' + line + '<br/>' +
-          (err ? '<pre>' + (err.stack||err) + '</pre>' : '') +
-          '</div>';
+        showDebug('ERROR: ' + msg + ' | ' + (src||'').split('/').pop() + ':' + line);
+        document.body.style.background = '#fff';
+        var root = document.getElementById('root');
+        if (root && !root.innerHTML.trim()) {
+          root.innerHTML = '<div style="padding:40px;color:#dc2626;font-family:monospace"><h2>Erro JS: ' + msg + '</h2><pre>' + (err ? (err.stack||err) : '') + '</pre></div>';
+        }
+        return false;
       };
       window.addEventListener('unhandledrejection', function(e) {
-        document.getElementById('root').innerHTML +=
-          '<div style="padding:20px;font-family:monospace;background:#fff;color:#b45309;border:2px solid #b45309;margin:20px;border-radius:8px">' +
-          '<h2>⚠️ Promise Rejeitada</h2>' +
-          '<pre>' + (e.reason?.stack || e.reason || e) + '</pre></div>';
+        showDebug('PROMISE REJECTED: ' + (e.reason?.message || e.reason || ''));
+      });
+      document.addEventListener('DOMContentLoaded', function() {
+        debugEl = document.getElementById('debug');
+        showDebug('DOM ready - aguardando React...');
+        setTimeout(function() {
+          var root = document.getElementById('root');
+          if (root && !root.innerHTML.trim()) {
+            root.innerHTML = '<div style="padding:40px;background:#fff;color:#dc2626;font-family:monospace"><h2>⚠️ React não montou após 5 segundos</h2><p>Pode ser erro de carregamento de script ou falha silenciosa.</p></div>';
+            document.body.style.background = '#fff';
+          }
+        }, 5000);
       });
     </script>
   </head>
   <body>
+    <div id="debug"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

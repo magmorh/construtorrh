@@ -157,6 +157,12 @@ export default function Ponto() {
   const [producoes, setProducoes]     = useState<LancProducao[]>([])
   const [playbookMap, setPlaybookMap] = useState<Record<string,PlaybookItem[]>>({}) // obraId → itens
 
+  // Histórico de contratos e aba ativa
+  const [abaContrato, setAbaContrato] = useState<'clt'|'autonomo'|'pj'>('clt')
+  const [historicoContrato, setHistoricoContrato] = useState<{tipo_contrato:string;data_inicio:string;data_fim:string|null}[]>([])
+  // valor/hora ao vivo por tipo de contrato (para rascunhos sem snapshot)
+  const [valorHoraPorTipo, setValorHoraPorTipo] = useState<Record<string,number>>({})
+
   // Modal novo lançamento
   const [modalLanc, setModalLanc] = useState(false)
   const [feriados, setFeriados] = useState<Set<string>>(new Set()) // 'YYYY-MM-DD'
@@ -726,10 +732,23 @@ export default function Ponto() {
       fetchHorariosObras([colab.obra_id].filter(Boolean) as string[]),
     ])
 
-    // ── 2. Valor/hora por lançamento (snapshot independente) ─────────────────
-    // Cada lançamento carrega seu próprio snapshot.
-    // Rascunhos sem snapshot usam o valor ao vivo do contrato atual.
-    // Isso garante que mudar tipo_contrato não altera lançamentos já aprovados.
+    // ── 2. Histórico de contratos + Snapshot por lançamento ─────────────────
+    const [{ data: hcList }] = await Promise.all([
+      supabase.from('colaborador_historico_contrato')
+        .select('tipo_contrato,data_inicio,data_fim')
+        .eq('colaborador_id', colab.id)
+        .order('data_inicio', { ascending: false }),
+    ])
+    const hcSorted = (hcList ?? []) as {tipo_contrato:string;data_inicio:string;data_fim:string|null}[]
+    setHistoricoContrato(hcSorted)
+
+    // Contrato vigente hoje
+    const today = new Date().toISOString().slice(0,10)
+    const periodoAtual = hcSorted.find(p => p.data_fim === null || p.data_fim >= today)
+    const tipoAtual = (periodoAtual?.tipo_contrato ?? colab.tipo_contrato ?? 'clt') as 'clt'|'autonomo'|'pj'
+    setAbaContrato(tipoAtual)
+
+    // Snapshot por lançamento
     const snapMap = new Map<string,number|null>()
     list.forEach((l: {id:string;valor_hora_snapshot:number|null;snap_valor_hora:number|null}) => {
       const snap = l.valor_hora_snapshot ?? l.snap_valor_hora ?? null
@@ -737,38 +756,32 @@ export default function Ponto() {
     })
     setSnapshotPorLanc(snapMap)
 
-    // Valor ao vivo: buscado pela função + tipo_contrato ATUAL (para rascunhos sem snapshot)
-    const statusFechados = ['em_fechamento','aprovado','liberado','pago']
-    const temLancFechado = list.some((l: {status: string}) => statusFechados.includes(l.status))
-    // snapValor global: usado apenas para o card de resumo (pega o primeiro snap encontrado)
-    const snapValorGlobal = [...snapMap.values()].find(v => v != null) ?? null
-
+    // Buscar valor ao vivo por tipo de contrato (CLT e Autônomo separadamente)
     if(colab.funcao_id){
-      // Buscar valor ao vivo pelo tipo_contrato atual
       const[{data:fvList},{data:funcaoRow}]=await Promise.all([
         supabase.from('funcao_valores').select('valor_hora,tipo_contrato').eq('funcao_id',colab.funcao_id),
         supabase.from('funcoes').select('valor_hora_clt,valor_hora_autonomo').eq('id',colab.funcao_id).single(),
       ])
-      const fvMatch=(fvList??[]).find((r:any)=>r.tipo_contrato===colab.tipo_contrato)
-      let vhVivo = 0
-      if(fvMatch){
-        vhVivo = fvMatch.valor_hora
-      } else if((fvList??[]).length>0){
-        vhVivo = (fvList??[])[0].valor_hora
-      } else if(funcaoRow){
-        const vh=colab.tipo_contrato==='clt'?funcaoRow.valor_hora_clt:funcaoRow.valor_hora_autonomo
-        vhVivo = vh??funcaoRow.valor_hora_clt??funcaoRow.valor_hora_autonomo??0
-      }
-      setValorHora(vhVivo)
-      // valorHoraCongelado global: só para o card de resumo (se TODOS os lançamentos têm snapshot)
+      // Montar mapa tipo_contrato → valor_hora ao vivo
+      const vhMap: Record<string,number> = {}
+      ;(['clt','autonomo','pj'] as const).forEach(tc => {
+        const fv = (fvList??[]).find((r:any)=>r.tipo_contrato===tc)
+        if(fv){ vhMap[tc] = fv.valor_hora }
+        else if(funcaoRow){
+          vhMap[tc] = (tc==='clt' ? funcaoRow.valor_hora_clt : funcaoRow.valor_hora_autonomo) ?? funcaoRow.valor_hora_clt ?? funcaoRow.valor_hora_autonomo ?? 0
+        } else { vhMap[tc] = 0 }
+      })
+      setValorHoraPorTipo(vhMap)
+      // valorHora ao vivo = tipo atual (para novos rascunhos)
+      setValorHora(vhMap[tipoAtual] ?? 0)
+      const snapValorGlobal = [...snapMap.values()].find(v => v != null) ?? null
       const todosComSnap = list.length > 0 && list.every((l: {id:string}) => (snapMap.get(l.id) ?? null) != null)
       setValorHoraCongelado(todosComSnap ? snapValorGlobal : null)
     } else {
       setValorHora(0)
       setValorHoraCongelado(null)
+      setValorHoraPorTipo({})
     }
-    // suprimir warning de temLancFechado (mantido para referência futura)
-    void temLancFechado
 
     // Buscar obras únicas dos lançamentos
     const obraIds=[...new Set(list.map(l=>l.obra_id))]
@@ -843,11 +856,18 @@ export default function Ponto() {
   const valorHoraEfetivo: number = valorHoraCongelado ?? valorHora
 
   // Retorna o valor/hora efetivo de um lançamento específico:
-  // se o lançamento tem snapshot próprio → usa o snapshot (valor congelado no momento do save)
-  // se não tem → usa valorHora ao vivo (tipo_contrato atual)
+  // 1. snapshot próprio do lançamento (imutável após save) → prioridade máxima
+  // 2. tipo_contrato_lanc → busca o valor ao vivo do tipo correto do período
+  // 3. valorHora ao vivo do contrato atual (fallback para rascunhos novos)
   function valorHoraDoLanc(lancId: string): number {
     const snap = snapshotPorLanc.get(lancId)
-    return (snap != null && snap > 0) ? snap : valorHora
+    if(snap != null && snap > 0) return snap
+    // Descobrir o tipo de contrato do lançamento pelo tipo_contrato_lanc
+    const lanc = lancamentos.find(l => l.id === lancId)
+    const tcLanc = (lanc as any)?.tipo_contrato_lanc as string|undefined
+    if(tcLanc && valorHoraPorTipo[tcLanc] > 0) return valorHoraPorTipo[tcLanc]
+    // Fallback: valorHora ao vivo (contrato atual)
+    return valorHora
   }
 
   // totalHoras: soma cada lançamento pelo seu próprio valor/hora (snapshot ou ao vivo)
@@ -1062,10 +1082,20 @@ export default function Ponto() {
     if(conflitoMesmaObra.length>0){toast.error(`Esta obra já tem ${conflitoMesmaObra.length} dia(s) nesse período`);return}
     // Obras diferentes: apenas aviso informativo (não bloqueia)
     setSavingLanc(true)
+    // Determinar tipo de contrato vigente na data de início do lançamento
+    const today2 = novoLancInicio || new Date().toISOString().slice(0,10)
+    const periodoVigente = historicoContrato.find(p =>
+      p.data_inicio <= today2 && (p.data_fim === null || p.data_fim >= today2)
+    )
+    const tcNovo = periodoVigente?.tipo_contrato ?? colabSel.tipo_contrato ?? 'clt'
+    const vhNovo = valorHoraPorTipo[tcNovo] ?? valorHora
+
     const{error}=await supabase.from('ponto_lancamentos').insert({
       colaborador_id:colabSel.id,obra_id:novoLancObraId,mes_referencia:mesRef,
       data_inicio:novoLancInicio,data_fim:novoLancFim,
       status:'rascunho',
+      tipo_contrato_lanc: tcNovo,
+      valor_hora_snapshot: vhNovo > 0 ? vhNovo : null,
     }).select('*,obras(nome)').single()
     setSavingLanc(false)
     if(error){toast.error('Erro: '+error.message);return}
@@ -1291,7 +1321,6 @@ export default function Ponto() {
                 <div style={{fontSize:11,color:'var(--muted-foreground)'}}>
                   {colabSel.chapa&&<><span style={{fontFamily:'monospace',fontWeight:600}}>{colabSel.chapa}</span> · </>}
                   {colabSel.funcao_nome}
-                  <span style={{marginLeft:6,background:'var(--muted)',borderRadius:4,padding:'1px 6px',fontSize:10,textTransform:'uppercase',fontWeight:700}}>{colabSel.tipo_contrato}</span>
                 </div>
               </div>
               <div style={{display:'flex',alignItems:'center',gap:5}}>
@@ -1300,14 +1329,64 @@ export default function Ponto() {
                 <button onClick={mesSeguinte} style={{border:'1px solid var(--border)',borderRadius:5,background:'none',cursor:'pointer',padding:'3px 7px',display:'flex'}}><ChevronRight size={13}/></button>
               </div>
               <Button variant="outline" size="sm" onClick={()=>window.print()} style={{gap:4,height:30,fontSize:12}}><Printer size={12}/></Button>
-              <Button size="sm"
-                disabled={!colabSel||lancamentos.some(l=>['rascunho','recusado','aguardando_aprovacao'].includes(l.status))}
-                title={lancamentos.some(l=>['rascunho','recusado','aguardando_aprovacao'].includes(l.status))?'Envie os lançamentos em aberto para o Fechamento antes de criar um novo':undefined}
-                onClick={()=>{setNovoLancObraId('');setNovoLancInicio('');setNovoLancFim('');setModalLanc(true)}}
-                style={{gap:4,height:30,fontSize:12}}>
-                <Plus size={12}/> Novo Lançamento
-              </Button>
+              {(()=>{
+                const today4 = new Date().toISOString().slice(0,10)
+                const periodoHoje2 = historicoContrato.find(p => p.data_inicio<=today4 && (p.data_fim===null||p.data_fim>=today4))
+                const tipoAtivo2 = periodoHoje2?.tipo_contrato ?? colabSel.tipo_contrato ?? 'clt'
+                const abaEhAtiva = abaContrato === tipoAtivo2
+                const temAberto = lancamentos.filter(l=>(l as any).tipo_contrato_lanc===abaContrato||(!((l as any).tipo_contrato_lanc)&&abaContrato===tipoAtivo2)).some(l=>['rascunho','recusado','aguardando_aprovacao'].includes(l.status))
+                return (
+                  <Button size="sm"
+                    disabled={!colabSel || !abaEhAtiva || temAberto}
+                    title={!abaEhAtiva ? `Aba ${abaContrato.toUpperCase()} não é o contrato atual — lançamentos históricos, somente leitura` : temAberto ? 'Envie os lançamentos em aberto para o Fechamento antes de criar um novo' : undefined}
+                    onClick={()=>{setNovoLancObraId('');setNovoLancInicio('');setNovoLancFim('');setModalLanc(true)}}
+                    style={{gap:4,height:30,fontSize:12,opacity:abaEhAtiva?1:0.5}}>
+                    <Plus size={12}/>{abaEhAtiva ? ' Novo Lançamento' : ' 🔒 Somente leitura'}
+                  </Button>
+                )
+              })()}
             </div>
+
+            {/* Linha 1b: Abas de contrato (CLT / Autônomo) */}
+            {(()=>{
+              // Tipos de contrato que este colaborador JÁ teve (histórico) ou tem agora
+              const tiposUsados = new Set<string>(historicoContrato.map(p=>p.tipo_contrato))
+              tiposUsados.add(colabSel.tipo_contrato ?? 'clt')
+              const today3 = new Date().toISOString().slice(0,10)
+              const periodoHoje = historicoContrato.find(p => p.data_inicio<=today3 && (p.data_fim===null||p.data_fim>=today3))
+              const tipoAtivo = periodoHoje?.tipo_contrato ?? colabSel.tipo_contrato ?? 'clt'
+              const ABAS_CONTRATO = [
+                {key:'clt', label:'🟦 CLT', cor:'#1d4ed8'},
+                {key:'autonomo', label:'🟧 Autônomo', cor:'#d97706'},
+                {key:'pj', label:'🟧 PJ', cor:'#7c3aed'},
+              ].filter(a => tiposUsados.has(a.key) || lancamentos.some(l=>(l as any).tipo_contrato_lanc===a.key))
+              if(ABAS_CONTRATO.length <= 1) return null
+              return (
+                <div style={{display:'flex',gap:4,padding:'6px 14px',borderTop:'1px solid var(--border)'}}>
+                  {ABAS_CONTRATO.map(a=>{
+                    const isAtiva = a.key === tipoAtivo
+                    const isSel = a.key === abaContrato
+                    const lancsDaAba = lancamentos.filter(l=>(l as any).tipo_contrato_lanc===a.key || (!((l as any).tipo_contrato_lanc) && a.key===tipoAtivo))
+                    return (
+                      <button key={a.key} onClick={()=>setAbaContrato(a.key as any)}
+                        style={{
+                          display:'flex',alignItems:'center',gap:6,padding:'5px 14px',borderRadius:20,
+                          border:`2px solid ${isSel?a.cor:'var(--border)'}`,
+                          background:isSel?a.cor+'15':'transparent',
+                          color:isSel?a.cor:'var(--muted-foreground)',
+                          cursor:'pointer',fontSize:12,fontWeight:isSel?700:500,
+                          opacity:isAtiva?1:0.75,
+                        }}>
+                        {a.label}
+                        {isAtiva && <span style={{fontSize:10,color:'#16a34a',fontWeight:700}}>✓ ativo</span>}
+                        {!isAtiva && <span style={{fontSize:10}}>🔒</span>}
+                        {lancsDaAba.length > 0 && <span style={{fontSize:10,background:a.cor+'22',borderRadius:10,padding:'0 5px',color:a.cor}}>{lancsDaAba.length}</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              )
+            })()}
 
             {/* Linha 2: cards de totais */}
             <div style={{display:'flex',gap:1,borderTop:'1px solid var(--border)',background:'var(--muted)',flexWrap:'wrap'}}>
@@ -1403,16 +1482,33 @@ export default function Ponto() {
 
             {loadingDias&&<div style={{textAlign:'center',padding:32,color:'var(--muted-foreground)'}}>Carregando…</div>}
 
-            {!loadingDias&&lancamentos.length===0&&(
-              <div style={{textAlign:'center',padding:40,color:'var(--muted-foreground)',display:'flex',flexDirection:'column',alignItems:'center',gap:10}}>
-                <Clock size={40} style={{opacity:0.3}}/>
-                <div style={{fontWeight:600}}>Nenhum lançamento neste mês</div>
-                <div style={{fontSize:13}}>Clique em "Novo Lançamento" para iniciar o ponto</div>
-              </div>
-            )}
+            {!loadingDias&&(()=>{
+              const today5 = new Date().toISOString().slice(0,10)
+              const periodoHoje5 = historicoContrato.find(p => p.data_inicio<=today5 && (p.data_fim===null||p.data_fim>=today5))
+              const tipoAtivo5 = periodoHoje5?.tipo_contrato ?? colabSel.tipo_contrato ?? 'clt'
+              const lancsDaAba = lancamentos.filter(l=>(l as any).tipo_contrato_lanc===abaContrato || (!((l as any).tipo_contrato_lanc) && abaContrato===tipoAtivo5))
+              if(lancsDaAba.length === 0) return (
+                <div style={{textAlign:'center',padding:40,color:'var(--muted-foreground)',display:'flex',flexDirection:'column',alignItems:'center',gap:10}}>
+                  <Clock size={40} style={{opacity:0.3}}/>
+                  <div style={{fontWeight:600}}>
+                    {lancamentos.length===0 ? 'Nenhum lançamento neste mês' : `Nenhum lançamento ${abaContrato.toUpperCase()} neste mês`}
+                  </div>
+                  {abaContrato===tipoAtivo5
+                    ? <div style={{fontSize:13}}>Clique em "Novo Lançamento" para iniciar o ponto</div>
+                    : <div style={{fontSize:13,color:'#d97706'}}>🔒 Esta aba é histórica — o contrato atual é {tipoAtivo5.toUpperCase()}</div>
+                  }
+                </div>
+              )
+              return null
+            })()}
 
-            {/* Card por lançamento */}
-            {lancamentos.map(lanc=>{
+            {/* Card por lançamento — filtrado pela aba de contrato */}
+            {(()=>{
+              const today6 = new Date().toISOString().slice(0,10)
+              const periodoHoje6 = historicoContrato.find(p => p.data_inicio<=today6 && (p.data_fim===null||p.data_fim>=today6))
+              const tipoAtivo6 = periodoHoje6?.tipo_contrato ?? colabSel.tipo_contrato ?? 'clt'
+              return lancamentos.filter(l=>(l as any).tipo_contrato_lanc===abaContrato || (!((l as any).tipo_contrato_lanc) && abaContrato===tipoAtivo6))
+            })().map(lanc=>{
               const tot=totaisLanc(lanc.id)
               const diasLanc=diasMap[lanc.id]??[]
               const exp=expandido===lanc.id

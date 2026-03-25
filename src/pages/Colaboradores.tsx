@@ -928,6 +928,9 @@ export default function Colaboradores() {
   const [motivoTroca, setMotivoTroca]       = useState('')
   const [trocandoFuncao, setTrocandoFuncao] = useState(false)
 
+  // histórico de contratos (por colaborador em edição)
+  const [historicoContratos, setHistoricoContratos] = useState<HistoricoContrato[]>([])
+
   // histórico chapa
   const [histModal, setHistModal]     = useState(false)
   const [histColabId, setHistColabId] = useState<string | null>(null)
@@ -1170,6 +1173,13 @@ export default function Colaboradores() {
       .eq('colaborador_id', c.id)
       .in('status', ['rascunho', 'aguardando_aprovacao', 'em_fechamento'])
     setTemPontoLancado((count ?? 0) > 0)
+    // Carregar histórico de contratos
+    const { data: hcData } = await supabase
+      .from('colaborador_historico_contrato')
+      .select('*')
+      .eq('colaborador_id', c.id)
+      .order('data_inicio', { ascending: false })
+    setHistoricoContratos((hcData ?? []) as HistoricoContrato[])
     setSection('pessoal')
     setForm({
       nome: c.nome, chapa: c.chapa ?? '', cpf: c.cpf ?? '', rg: c.rg ?? '',
@@ -1219,6 +1229,43 @@ export default function Colaboradores() {
       })))
     }
     setModalOpen(true)
+  }
+
+  // ── CRUD Histórico de Contratos ──────────────────────────────────────────────
+  const handleSalvarPeriodo = async (periodo: Omit<HistoricoContrato,'id'|'created_at'>) => {
+    // Encerrar período vigente anterior (data_fim = null) se existir
+    const vigente = historicoContratos.find(p => p.data_fim === null)
+    if(vigente && vigente.data_inicio < periodo.data_inicio){
+      const dataFimAnt = new Date(periodo.data_inicio)
+      dataFimAnt.setDate(dataFimAnt.getDate() - 1)
+      await supabase.from('colaborador_historico_contrato')
+        .update({ data_fim: dataFimAnt.toISOString().slice(0,10) })
+        .eq('id', vigente.id)
+    }
+    const { data, error } = await supabase.from('colaborador_historico_contrato')
+      .insert(periodo).select().single()
+    if(error){ toast.error('Erro ao salvar período: '+error.message); return }
+    setHistoricoContratos(prev => [data as HistoricoContrato, ...prev.filter(p=>p.id!==vigente?.id), ...(vigente&&vigente.data_inicio<periodo.data_inicio?[{...vigente,data_fim:new Date(new Date(periodo.data_inicio).getTime()-86400000).toISOString().slice(0,10)}]:prev.filter(p=>p.id===vigente?.id))])
+    // Recarregar histórico completo
+    const { data: hcData } = await supabase.from('colaborador_historico_contrato').select('*').eq('colaborador_id', periodo.colaborador_id).order('data_inicio',{ascending:false})
+    setHistoricoContratos((hcData??[]) as HistoricoContrato[])
+    // Atualizar tipo_contrato do colaborador para o novo período vigente
+    await supabase.from('colaboradores').update({ tipo_contrato: periodo.tipo_contrato }).eq('id', periodo.colaborador_id)
+    toast.success('Período salvo! Colaborador agora é '+periodo.tipo_contrato.toUpperCase())
+  }
+
+  const handleEncerrarPeriodo = async (id: string, dataFim: string) => {
+    const { error } = await supabase.from('colaborador_historico_contrato').update({ data_fim: dataFim }).eq('id', id)
+    if(error){ toast.error('Erro: '+error.message); return }
+    setHistoricoContratos(prev => prev.map(p => p.id===id ? {...p,data_fim:dataFim} : p))
+    toast.success('Período encerrado em '+new Date(dataFim+'T12:00').toLocaleDateString('pt-BR'))
+  }
+
+  const handleExcluirPeriodo = async (id: string) => {
+    const { error } = await supabase.from('colaborador_historico_contrato').delete().eq('id', id)
+    if(error){ toast.error('Erro: '+error.message); return }
+    setHistoricoContratos(prev => prev.filter(p => p.id!==id))
+    toast.success('Período excluído')
   }
 
   // ── salvar ────────────────────────────────────────────────────────────────
@@ -1786,6 +1833,10 @@ export default function Colaboradores() {
                 onDataAdmissao={handleDataAdmissao}
                 onGotoFuncoes={() => { setModalOpen(false); setPageTab('funcoes') }}
                 temPontoLancado={temPontoLancado}
+                historicoContratos={historicoContratos}
+                onSalvarPeriodo={handleSalvarPeriodo}
+                onEncerrarPeriodo={handleEncerrarPeriodo}
+                onExcluirPeriodo={handleExcluirPeriodo}
               />
             )}
 
@@ -2617,6 +2668,16 @@ function EpiColabSection({ epiList, setEpiList, funcaoNome }: EpiColabSectionPro
   )
 }
 
+// ─── HistoricoContrato ────────────────────────────────────────────────────────
+interface HistoricoContrato {
+  id: string
+  colaborador_id: string
+  tipo_contrato: 'clt' | 'autonomo' | 'pj'
+  data_inicio: string
+  data_fim: string | null
+  observacao: string | null
+}
+
 // ─── FuncaoSection — componente isolado para evitar crashes de render ─────────
 interface FuncaoSectionProps {
   form: FormData
@@ -2634,12 +2695,18 @@ interface FuncaoSectionProps {
   onDataAdmissao: (data: string) => void
   onGotoFuncoes: () => void
   temPontoLancado?: boolean
+  // Histórico de contratos
+  historicoContratos: HistoricoContrato[]
+  onSalvarPeriodo: (periodo: Omit<HistoricoContrato,'id'|'created_at'>) => Promise<void>
+  onEncerrarPeriodo: (id: string, dataFim: string) => Promise<void>
+  onExcluirPeriodo: (id: string) => Promise<void>
 }
 
 function FuncaoSection({
   form, funcoes, obras, editId, funcaoOriginal, chapaOriginal,
   gerando, trocandoFuncao, motivoTroca, setMotivoTroca,
   onFuncaoChange, onSet, onDataAdmissao, onGotoFuncoes, temPontoLancado,
+  historicoContratos, onSalvarPeriodo, onEncerrarPeriodo, onExcluirPeriodo,
 }: FuncaoSectionProps) {
   // Calcula valor/hora fora do JSX — sem IIFE, sem risco de crash
   const funcaoSelecionada = funcoes.find(f => f.id === form.funcao_id) ?? null
@@ -2651,6 +2718,26 @@ function FuncaoSection({
     if (!cv || Object.keys(cv).length === 0) return TIPOS_CONTRATO // função antiga sem JSONB: mostra todos
     return TIPOS_CONTRATO.filter(t => cv[t.value]?.ativo === true)
   })()
+
+  // Estados locais para o formulário de novo período de contrato
+  const [novoTipoContrato, setNovoTipoContrato] = React.useState<'clt'|'autonomo'|'pj'>('clt')
+  const [novoDataInicio, setNovoDataInicio] = React.useState('')
+  const [novoObs, setNovoObs] = React.useState('')
+  const [salvandoPeriodo, setSalvandoPeriodo] = React.useState(false)
+
+  async function handleSalvarPeriodo() {
+    if(!editId || !novoDataInicio) return
+    setSalvandoPeriodo(true)
+    // Verificar sobreposição
+    const conflito = historicoContratos.find(p => {
+      if(p.data_fim === null) return novoDataInicio >= p.data_inicio
+      return novoDataInicio >= p.data_inicio && novoDataInicio <= p.data_fim
+    })
+    if(conflito){ alert('A data de início conflita com um período já existente.'); setSalvandoPeriodo(false); return }
+    await onSalvarPeriodo({ colaborador_id: editId, tipo_contrato: novoTipoContrato, data_inicio: novoDataInicio, data_fim: null, observacao: novoObs||null })
+    setNovoDataInicio(''); setNovoObs('')
+    setSalvandoPeriodo(false)
+  }
 
   const isPJ = form.tipo_contrato === 'autonomo'
   const valorHoraTabelado: number | null = funcaoSelecionada
@@ -2874,6 +2961,78 @@ function FuncaoSection({
 
         </Grid>
       </Sec>
+
+      {/* ── HISTÓRICO DE CONTRATOS ──────────────────────────────────── */}
+      {editId && (
+        <Sec title="📋 Histórico de Contratos">
+          {/* Lista de períodos */}
+          {historicoContratos.length === 0 ? (
+            <div style={{fontSize:12,color:'var(--muted-foreground)',padding:'8px 0'}}>Nenhum período cadastrado ainda.</div>
+          ) : (
+            <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:12}}>
+              {[...historicoContratos].sort((a,b)=>b.data_inicio.localeCompare(a.data_inicio)).map(p=>{
+                const ativo = p.data_fim === null
+                const cor = p.tipo_contrato==='clt' ? '#1d4ed8' : '#d97706'
+                const label = p.tipo_contrato==='clt' ? '🟦 CLT' : p.tipo_contrato==='pj' ? '🟧 PJ' : '🟧 Autônomo'
+                return (
+                  <div key={p.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:8,border:`1px solid ${ativo?cor+'66':'var(--border)'}`,background:ativo?cor+'0a':'transparent'}}>
+                    <span style={{fontWeight:700,fontSize:12,color:cor,minWidth:80}}>{label}</span>
+                    <span style={{fontSize:12,color:'var(--muted-foreground)',flex:1}}>
+                      {new Date(p.data_inicio+'T12:00').toLocaleDateString('pt-BR')}
+                      {' → '}
+                      {p.data_fim ? new Date(p.data_fim+'T12:00').toLocaleDateString('pt-BR') : <strong style={{color:'#16a34a'}}>atual</strong>}
+                    </span>
+                    {p.observacao && <span style={{fontSize:11,color:'var(--muted-foreground)',fontStyle:'italic'}}>{p.observacao}</span>}
+                    {ativo && (
+                      <button onClick={()=>{
+                        const d = prompt('Informe a data de encerramento deste período (AAAA-MM-DD):')
+                        if(d) onEncerrarPeriodo(p.id, d)
+                      }} style={{fontSize:10,padding:'2px 8px',borderRadius:4,border:'1px solid #d97706',background:'transparent',color:'#d97706',cursor:'pointer'}}>
+                        Encerrar
+                      </button>
+                    )}
+                    {!ativo && (
+                      <button onClick={()=>{ if(confirm('Excluir este período?')) onExcluirPeriodo(p.id) }}
+                        style={{fontSize:10,padding:'2px 8px',borderRadius:4,border:'1px solid #dc2626',background:'transparent',color:'#dc2626',cursor:'pointer'}}>
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {/* Formulário novo período */}
+          <div style={{padding:'12px',borderRadius:8,border:'1px dashed var(--border)',background:'var(--muted)'}}>
+            <div style={{fontSize:11,fontWeight:700,color:'var(--muted-foreground)',marginBottom:8}}>➕ Novo período de contrato</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 2fr auto',gap:8,alignItems:'end'}}>
+              <div>
+                <div style={{fontSize:10,color:'var(--muted-foreground)',marginBottom:4}}>Tipo</div>
+                <select value={novoTipoContrato} onChange={e=>setNovoTipoContrato(e.target.value as any)}
+                  style={{width:'100%',padding:'6px 8px',borderRadius:6,border:'1px solid var(--border)',background:'var(--background)',fontSize:12}}>
+                  <option value="clt">CLT</option>
+                  <option value="autonomo">Autônomo</option>
+                  <option value="pj">PJ</option>
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:'var(--muted-foreground)',marginBottom:4}}>Data início</div>
+                <input type="date" value={novoDataInicio} onChange={e=>setNovoDataInicio(e.target.value)}
+                  style={{width:'100%',padding:'6px 8px',borderRadius:6,border:'1px solid var(--border)',background:'var(--background)',fontSize:12}} />
+              </div>
+              <div>
+                <div style={{fontSize:10,color:'var(--muted-foreground)',marginBottom:4}}>Observação (opcional)</div>
+                <input value={novoObs} onChange={e=>setNovoObs(e.target.value)} placeholder="ex: promoção, mudança de vínculo..."
+                  style={{width:'100%',padding:'6px 8px',borderRadius:6,border:'1px solid var(--border)',background:'var(--background)',fontSize:12}} />
+              </div>
+              <button disabled={!novoDataInicio||salvandoPeriodo} onClick={handleSalvarPeriodo}
+                style={{padding:'6px 14px',borderRadius:6,border:'none',background:novoDataInicio?'#1d4ed8':'#94a3b8',color:'white',fontSize:12,cursor:novoDataInicio?'pointer':'not-allowed',fontWeight:600}}>
+                {salvandoPeriodo?'…':'Salvar'}
+              </button>
+            </div>
+          </div>
+        </Sec>
+      )}
 
       {/* ── CTPS ──────────────────────────────────────────────────────── */}
       <Sec title="CTPS">

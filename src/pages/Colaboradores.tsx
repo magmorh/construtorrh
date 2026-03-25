@@ -1163,10 +1163,12 @@ export default function Colaboradores() {
     setChapaGerada(c.chapa ?? '')
     setMotivoTroca('')
     setTrocandoFuncao(false)
-    // Verificar se tem ponto lançado → trava de função/contrato
+    // Bloquear só se tiver lançamento ABERTO (rascunho/aguardando/em_fechamento)
+    // Lançamentos aprovados/pagos não bloqueiam — valor já congelado no snapshot
     const { count } = await supabase.from('ponto_lancamentos')
       .select('id', { count: 'exact', head: true })
       .eq('colaborador_id', c.id)
+      .in('status', ['rascunho', 'aguardando_aprovacao', 'em_fechamento'])
     setTemPontoLancado((count ?? 0) > 0)
     setSection('pessoal')
     setForm({
@@ -1229,7 +1231,7 @@ export default function Colaboradores() {
     const mudouFuncao     = editId && form.funcao_id !== funcaoOriginal && funcaoOriginal !== ''
     const mudouContrato   = editId && form.tipo_contrato !== tipoContratoOriginal && tipoContratoOriginal !== ''
     if (temPontoLancado && (mudouFuncao || mudouContrato)) {
-      toast.error('⛔ Este colaborador possui pontos lançados. Função e tipo de contrato não podem ser alterados.')
+      toast.error('⛔ Colaborador possui ponto em aberto. Finalize ou aprove os lançamentos antes de alterar função ou tipo de contrato.')
       setSection('funcao')
       return
     }
@@ -2699,12 +2701,12 @@ function FuncaoSection({
           <span style={{ fontSize: 22, flexShrink: 0 }}>🔒</span>
           <div>
             <div style={{ fontWeight: 800, fontSize: 13, color: '#92400e', marginBottom: 4 }}>
-              Função e Tipo de Contrato bloqueados
+              ⚠️ Ponto em Aberto — Função e Contrato bloqueados
             </div>
             <div style={{ fontSize: 12, color: '#78350f', lineHeight: 1.6 }}>
-              Este colaborador possui <strong>pontos lançados</strong>. Alterar a função ou o tipo de contrato
-              comprometeria o cálculo de valores já registrados.<br />
-              Para alterar, <strong>exclua todos os lançamentos de ponto</strong> do colaborador primeiro.
+              Este colaborador possui <strong>ponto(s) em aberto</strong> (rascunho ou aguardando aprovação).<br />
+              Finalize ou aprove os lançamentos antes de alterar função ou tipo de contrato.<br />
+              Lançamentos já <strong>aprovados/pagos</strong> não são afetados — o valor foi congelado no snapshot.
             </div>
           </div>
         </div>

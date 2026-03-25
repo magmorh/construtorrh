@@ -838,11 +838,11 @@ export default function Ponto() {
 
   // Autônomo: horas(dias sem prod) + produção. CLT: horas + prêmio se prod>horas
   const horasAutonomoSemProd = useMemo(()=>{
-    let min=0
+    let minNorm=0, minExtra=0
     Object.values(diasMap).forEach(dias=>dias.forEach(d=>{
-      if(!diasComProd.has(d.data)){const cl=calcDia(d);min+=cl.normais+cl.extras50}
+      if(!diasComProd.has(d.data)){const cl=calcDia(d);minNorm+=cl.normais;minExtra+=cl.extras50}
     }))
-    return fmtDecimal(min)*valorHoraEfetivo
+    return fmtDecimal(minNorm)*valorHoraEfetivo + fmtDecimal(minExtra)*valorHoraEfetivo*1.5
   },[diasMap,diasComProd,valorHoraEfetivo])
 
   // DSR — só para CLT, com regra de perda por falta semanal
@@ -1580,11 +1580,11 @@ export default function Ponto() {
                                 if(ehAuto){
                                   // Autônomo: calcular horas só dos dias SEM produção neste lançamento
                                   const diasLancamento=diasMap[lanc.id]??[]
-                                  let minSemProdLanc=0
+                                  let minNormLanc=0, minExtraLanc=0
                                   diasLancamento.forEach(d=>{
-                                    if(!diasComProd.has(d.data)){const cl=calcDia(d);minSemProdLanc+=cl.normais+cl.extras50}
+                                    if(!diasComProd.has(d.data)){const cl=calcDia(d);minNormLanc+=cl.normais;minExtraLanc+=cl.extras50}
                                   })
-                                  const horasLancSemProd=fmtDecimal(minSemProdLanc)*valorHoraEfetivo
+                                  const horasLancSemProd=fmtDecimal(minNormLanc)*valorHoraEfetivo + fmtDecimal(minExtraLanc)*valorHoraEfetivo*1.5
                                   const vTotalAuto=horasLancSemProd+totalProdLancamento
                                   return <span title={`Horas(sem prod): ${formatCurrency(horasLancSemProd)} + Prod: ${formatCurrency(totalProdLancamento)}`}>
                                     {formatCurrency(vTotalAuto)}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -9,13 +9,16 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table'
+import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
 import {
   DollarSign, Plus, Search, Pencil, Trash2, ChevronLeft, ChevronRight,
-  CheckCircle2, XCircle, Clock, RefreshCw,
+  CheckCircle2, XCircle, Clock, RefreshCw, Building2, Users,
 } from 'lucide-react'
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
@@ -49,28 +52,28 @@ const TIPOS = [
   { value: 'outro',        label: '📋 Outro' },
 ]
 const TIPO_LABEL: Record<string, string> = {
-  adiantamento: 'Adiantamento Salarial',
-  vale:         'Vale',
-  ajuda_custo:  'Ajuda de Custo',
-  outro:        'Outro',
+  adiantamento: '💵 Adiantamento Salarial',
+  vale:         '🎫 Vale',
+  ajuda_custo:  '🚗 Ajuda de Custo',
+  outro:        '📋 Outro',
 }
 
-const STATUS_CFG: Record<string, { bg: string; color: string; label: string }> = {
-  pendente:  { bg: '#fef3c7', color: '#b45309', label: '⏳ Pendente'  },
-  aprovado:  { bg: '#dcfce7', color: '#15803d', label: '✅ Aprovado'  },
-  cancelado: { bg: '#fee2e2', color: '#dc2626', label: '❌ Cancelado' },
-  pago:      { bg: '#eff6ff', color: '#1d4ed8', label: '💳 Pago'      },
+const STATUS_CFG: Record<string, { bg: string; color: string; label: string; border: string }> = {
+  pendente:  { bg: '#fef3c7', border: '#fde68a', color: '#b45309', label: '⏳ Pendente'  },
+  aprovado:  { bg: '#dcfce7', border: '#bbf7d0', color: '#15803d', label: '✅ Aprovado'  },
+  cancelado: { bg: '#fee2e2', border: '#fecaca', color: '#dc2626', label: '❌ Cancelado' },
+  pago:      { bg: '#eff6ff', border: '#bfdbfe', color: '#1d4ed8', label: '💳 Pago'      },
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
-const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+               'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
 function mesLabel(ym: string) {
   if (!ym) return '—'
   const [y, m] = ym.split('-')
   return `${MESES[+m - 1]} / ${y}`
 }
-
 function prevMes(ym: string) {
   const [y, m] = ym.split('-').map(Number)
   const d = new Date(y, m - 2, 1)
@@ -93,15 +96,15 @@ const EMPTY: FormData = {
 
 // ─── componente ──────────────────────────────────────────────────────────────
 export default function Adiantamentos() {
-  const [rows,   setRows]   = useState<AdiantRow[]>([])
-  const [colabs, setColabs] = useState<{ id: string; nome: string; chapa: string }[]>([])
-  const [obras,  setObras]  = useState<{ id: string; nome: string }[]>([])
+  const [rows,    setRows]    = useState<AdiantRow[]>([])
+  const [colabs,  setColabs]  = useState<{ id: string; nome: string; chapa: string }[]>([])
+  const [obras,   setObras]   = useState<{ id: string; nome: string }[]>([])
   const [loading, setLoading] = useState(true)
 
-  const [competencia, setCompetencia] = useState(new Date().toISOString().slice(0, 7))
-  const [filtroNome,  setFiltroNome]  = useState('')
-  const [filtroStatus, setFiltroStatus] = useState('todos')
-  const [filtroTipo,   setFiltroTipo]   = useState('todos')
+  const [competencia,   setCompetencia]   = useState(new Date().toISOString().slice(0, 7))
+  const [filtroNome,    setFiltroNome]    = useState('')
+  const [filtroTipo,    setFiltroTipo]    = useState('todos')
+  const [abaStatus,     setAbaStatus]     = useState<'pendente'|'aprovado'|'pago'|'cancelado'>('pendente')
 
   // modal
   const [modalOpen, setModalOpen] = useState(false)
@@ -133,20 +136,27 @@ export default function Adiantamentos() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // ─── filtro local ─────────────────────────────────────────────────────────
-  const filtered = rows.filter(r => {
-    const matchNome   = filtroNome   ? r.colaboradores?.nome.toLowerCase().includes(filtroNome.toLowerCase()) : true
-    const matchStatus = filtroStatus !== 'todos' ? r.status === filtroStatus : true
-    const matchTipo   = filtroTipo   !== 'todos' ? r.tipo   === filtroTipo   : true
-    return matchNome && matchStatus && matchTipo
-  })
+  // ─── contadores de abas ───────────────────────────────────────────────────
+  const contAbas = useMemo(() => ({
+    pendente:  rows.filter(r => r.status === 'pendente').length,
+    aprovado:  rows.filter(r => r.status === 'aprovado').length,
+    pago:      rows.filter(r => r.status === 'pago').length,
+    cancelado: rows.filter(r => r.status === 'cancelado').length,
+  }), [rows])
 
-  // ─── cards resumo ─────────────────────────────────────────────────────────
+  // ─── filtro com aba ───────────────────────────────────────────────────────
+  const filtered = useMemo(() => rows.filter(r => {
+    const matchAba    = r.status === abaStatus
+    const matchNome   = filtroNome ? r.colaboradores?.nome.toLowerCase().includes(filtroNome.toLowerCase()) : true
+    const matchTipo   = filtroTipo !== 'todos' ? r.tipo === filtroTipo : true
+    return matchAba && matchNome && matchTipo
+  }), [rows, abaStatus, filtroNome, filtroTipo])
+
+  // ─── cards resumo (totais globais do mês) ─────────────────────────────────
   const totalPend  = rows.filter(r => r.status === 'pendente').reduce((s, r) => s + r.valor, 0)
   const totalAprov = rows.filter(r => r.status === 'aprovado').reduce((s, r) => s + r.valor, 0)
   const totalPago  = rows.filter(r => r.status === 'pago').reduce((s, r) => s + r.valor, 0)
   const totalGeral = rows.reduce((s, r) => s + r.valor, 0)
-  const qtdPend    = rows.filter(r => r.status === 'pendente').length
 
   // ─── modal helpers ────────────────────────────────────────────────────────
   function setF(k: keyof FormData, v: string) { setForm(p => ({ ...p, [k]: v })) }
@@ -217,6 +227,7 @@ export default function Adiantamentos() {
     }
     toast.success('✅ Aprovado! Enviado para Pagamentos.')
     setAprovarRow(null); fetchData()
+    setAbaStatus('aprovado')
   }
 
   // ─── cancelar ─────────────────────────────────────────────────────────────
@@ -233,6 +244,7 @@ export default function Adiantamentos() {
     await supabase.from('adiantamentos').update({ status: 'cancelado', pagamento_id: null }).eq('id', cancelarRow.id)
     toast.success('Cancelado.')
     setCancelarRow(null); fetchData()
+    setAbaStatus('cancelado')
   }
 
   // ─── delete ───────────────────────────────────────────────────────────────
@@ -252,247 +264,298 @@ export default function Adiantamentos() {
 
   // ─── render ───────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: 24 }}>
+    <div className="p-6">
 
       {/* ── Header ── */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontWeight:800, fontSize:22, margin:0, display:'flex', alignItems:'center', gap:8 }}>
-            <DollarSign size={22} style={{ color:'#7c3aed' }}/> Adiantamentos
+          <h1 style={{ fontWeight: 800, fontSize: 22, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <DollarSign size={22} style={{ color: '#7c3aed' }} /> Adiantamentos
           </h1>
-          <p style={{ fontSize:13, color:'var(--muted-foreground)', marginTop:4 }}>
+          <p style={{ fontSize: 13, color: 'var(--muted-foreground)', marginTop: 4 }}>
             Controle de adiantamentos e vales por colaborador
           </p>
         </div>
-
-        {/* Navegação de mês */}
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        {/* Navegação mês */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button onClick={() => setCompetencia(prevMes(competencia))}
-            style={{ width:32, height:32, borderRadius:8, border:'1.5px solid var(--border)', background:'var(--background)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <ChevronLeft size={16}/>
+            style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--background)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <ChevronLeft size={16} />
           </button>
-          <span style={{ fontWeight:700, fontSize:15, minWidth:130, textAlign:'center' }}>{mesLabel(competencia)}</span>
+          <span style={{ fontWeight: 700, fontSize: 15, minWidth: 130, textAlign: 'center' }}>{mesLabel(competencia)}</span>
           <button onClick={() => setCompetencia(nextMes(competencia))}
-            style={{ width:32, height:32, borderRadius:8, border:'1.5px solid var(--border)', background:'var(--background)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <ChevronRight size={16}/>
+            style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--background)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <ChevronRight size={16} />
           </button>
         </div>
       </div>
 
       {/* ── Cards resumo ── */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px,1fr))', gap:12, marginBottom:20 }}>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {[
-          { label:'⏳ Pendentes',   value: formatCurrency(totalPend),  sub: `${qtdPend} lançamento(s)`,            bg:'#fef3c7', border:'#fde68a', color:'#b45309' },
-          { label:'✅ Aprovados',   value: formatCurrency(totalAprov), sub: `${rows.filter(r=>r.status==='aprovado').length} lançamento(s)`, bg:'#dcfce7', border:'#bbf7d0', color:'#15803d' },
-          { label:'💳 Pagos',       value: formatCurrency(totalPago),  sub: `${rows.filter(r=>r.status==='pago').length} lançamento(s)`,    bg:'#eff6ff', border:'#bfdbfe', color:'#1d4ed8' },
-          { label:'📊 Total mês',   value: formatCurrency(totalGeral), sub: `${rows.length} lançamento(s)`,        bg:'#ede9fe', border:'#ddd6fe', color:'#7c3aed' },
+          { icon: <Clock size={16} />,        label: 'Pendentes',  value: formatCurrency(totalPend),  sub: `${contAbas.pendente} lançamento(s)`,  color: '#b45309', bg: '#fef3c7', border: '#fde68a', aba: 'pendente'  as const },
+          { icon: <CheckCircle2 size={16} />, label: 'Aprovados',  value: formatCurrency(totalAprov), sub: `${contAbas.aprovado} lançamento(s)`,  color: '#15803d', bg: '#dcfce7', border: '#bbf7d0', aba: 'aprovado'  as const },
+          { icon: <DollarSign size={16} />,   label: 'Pagos',      value: formatCurrency(totalPago),  sub: `${contAbas.pago} lançamento(s)`,      color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', aba: 'pago'      as const },
+          { icon: <Users size={16} />,        label: 'Total mês',  value: formatCurrency(totalGeral), sub: `${rows.length} lançamento(s)`,         color: '#7c3aed', bg: '#ede9fe', border: '#ddd6fe', aba: 'pendente'  as const },
         ].map((c, i) => (
-          <div key={i} style={{ background:c.bg, border:`1px solid ${c.border}`, borderRadius:10, padding:'14px 18px' }}>
-            <div style={{ fontSize:11, fontWeight:700, color:c.color, marginBottom:4 }}>{c.label}</div>
-            <div style={{ fontWeight:800, fontSize:18, color:c.color }}>{c.value}</div>
-            <div style={{ fontSize:11, color:c.color, opacity:.75, marginTop:2 }}>{c.sub}</div>
+          <div key={i}
+            onClick={() => i < 3 ? setAbaStatus(c.aba) : undefined}
+            style={{
+              background: c.bg, border: `1.5px solid ${abaStatus === c.aba && i < 3 ? c.color : c.border}`,
+              borderRadius: 10, padding: '14px 16px', cursor: i < 3 ? 'pointer' : 'default',
+              boxShadow: abaStatus === c.aba && i < 3 ? `0 0 0 2px ${c.color}30` : 'none',
+              transition: 'all 0.15s',
+            }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: c.color, marginBottom: 4 }}>
+              {c.icon}<span style={{ fontSize: 11, fontWeight: 700 }}>{c.label}</span>
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: c.color }}>{c.value}</div>
+            <div style={{ fontSize: 11, color: c.color, opacity: .75, marginTop: 2 }}>{c.sub}</div>
           </div>
         ))}
       </div>
 
-      {/* ── Barra de filtros + botão novo ── */}
-      <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:16, alignItems:'flex-end' }}>
-        {/* busca nome */}
-        <div style={{ position:'relative' }}>
-          <Search size={13} style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', color:'#9ca3af', pointerEvents:'none' }}/>
-          <input placeholder="Buscar colaborador…" value={filtroNome} onChange={e => setFiltroNome(e.target.value)}
-            style={{ height:32, paddingLeft:26, paddingRight:10, fontSize:13, border:'1.5px solid var(--border)', borderRadius:6, background:'var(--background)', color:'var(--foreground)', width:180 }}/>
+      {/* ── Filtros ── */}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="relative flex-1 min-w-48">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input placeholder="Buscar colaborador…" value={filtroNome}
+            onChange={e => setFiltroNome(e.target.value)} className="pl-8 h-9" />
         </div>
-        {/* status */}
-        <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}
-          style={{ height:32, padding:'0 10px', fontSize:13, border:'1.5px solid var(--border)', borderRadius:6, background:'var(--background)', color:'var(--foreground)' }}>
-          <option value="todos">Todos os status</option>
-          <option value="pendente">⏳ Pendente</option>
-          <option value="aprovado">✅ Aprovado</option>
-          <option value="pago">💳 Pago</option>
-          <option value="cancelado">❌ Cancelado</option>
-        </select>
-        {/* tipo */}
-        <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}
-          style={{ height:32, padding:'0 10px', fontSize:13, border:'1.5px solid var(--border)', borderRadius:6, background:'var(--background)', color:'var(--foreground)' }}>
-          <option value="todos">Todos os tipos</option>
-          {TIPOS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-        </select>
-        {(filtroNome || filtroStatus !== 'todos' || filtroTipo !== 'todos') && (
-          <button onClick={() => { setFiltroNome(''); setFiltroStatus('todos'); setFiltroTipo('todos') }}
-            style={{ height:32, padding:'0 10px', fontSize:12, border:'1.5px solid var(--border)', borderRadius:6, background:'transparent', cursor:'pointer', color:'var(--muted-foreground)' }}>
+        <Select value={filtroTipo} onValueChange={setFiltroTipo}>
+          <SelectTrigger className="w-44 h-9"><SelectValue placeholder="Todos os tipos" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos os tipos</SelectItem>
+            {TIPOS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        {(filtroNome || filtroTipo !== 'todos') && (
+          <button onClick={() => { setFiltroNome(''); setFiltroTipo('todos') }}
+            style={{ height: 36, padding: '0 12px', fontSize: 12, border: '1.5px solid var(--border)', borderRadius: 6, background: 'transparent', cursor: 'pointer', color: 'var(--muted-foreground)' }}>
             ✕ Limpar
           </button>
         )}
         <button onClick={fetchData}
-          style={{ width:32, height:32, borderRadius:6, border:'1.5px solid var(--border)', background:'var(--background)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <RefreshCw size={13}/>
+          style={{ width: 36, height: 36, borderRadius: 6, border: '1.5px solid var(--border)', background: 'var(--background)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <RefreshCw size={14} />
         </button>
-        <Button onClick={openCreate} style={{ marginLeft:'auto', background:'#7c3aed', color:'#fff', gap:6 }}>
-          <Plus size={15}/> Novo Adiantamento
+        <Button onClick={openCreate} style={{ background: '#7c3aed', color: '#fff', gap: 6 }}>
+          <Plus size={15} /> Novo Adiantamento
         </Button>
+      </div>
+
+      {/* ── Abas de status ── */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)', flexWrap: 'wrap' }}>
+        {([
+          { key: 'pendente'  as const, label: '⏳ Pendentes',         cor: '#b45309' },
+          { key: 'aprovado'  as const, label: '✅ Aprovados',         cor: '#15803d' },
+          { key: 'pago'      as const, label: '💳 Pagos',             cor: '#1d4ed8' },
+          { key: 'cancelado' as const, label: '❌ Cancelados',        cor: '#dc2626' },
+        ]).map(ab => {
+          const ativo = abaStatus === ab.key
+          const cnt   = contAbas[ab.key]
+          return (
+            <button key={ab.key} onClick={() => setAbaStatus(ab.key)}
+              style={{
+                padding: '10px 18px', border: 'none',
+                borderBottom: ativo ? `3px solid ${ab.cor}` : '3px solid transparent',
+                background: ativo ? `${ab.cor}10` : 'transparent',
+                color: ativo ? ab.cor : 'var(--muted-foreground)',
+                fontWeight: ativo ? 700 : 500, fontSize: 13, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6,
+                transition: 'all 0.15s', marginBottom: -2,
+              }}>
+              {ab.label}
+              {cnt > 0 && (
+                <span style={{ background: ativo ? ab.cor : '#9ca3af', color: '#fff', borderRadius: 9, padding: '1px 7px', fontSize: 11, fontWeight: 700 }}>
+                  {cnt}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
 
       {/* ── Tabela ── */}
       {loading ? (
-        <div style={{ padding:40, textAlign:'center', color:'var(--muted-foreground)' }}>Carregando…</div>
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted-foreground)' }}>Carregando…</div>
       ) : filtered.length === 0 ? (
-        <div style={{ padding:60, textAlign:'center', color:'var(--muted-foreground)', border:'1px dashed var(--border)', borderRadius:12 }}>
-          <DollarSign size={32} style={{ opacity:.3, marginBottom:8 }}/>
-          <div style={{ fontWeight:600 }}>Nenhum adiantamento em {mesLabel(competencia)}</div>
-          <div style={{ fontSize:12, marginTop:4 }}>Clique em "+ Novo Adiantamento" para registrar.</div>
+        <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted-foreground)', border: '1px dashed var(--border)', borderRadius: 12 }}>
+          <DollarSign size={36} style={{ opacity: .25, margin: '0 auto 12px', display: 'block' }} />
+          <div style={{ fontWeight: 700, fontSize: 15 }}>
+            Nenhum adiantamento {STATUS_CFG[abaStatus].label.split(' ').slice(1).join(' ').toLowerCase()} em {mesLabel(competencia)}
+          </div>
+          <div style={{ fontSize: 12, marginTop: 4, opacity: .7 }}>
+            {abaStatus === 'pendente' ? 'Clique em "+ Novo Adiantamento" para registrar.' : 'Nenhum registro nesta aba.'}
+          </div>
         </div>
       ) : (
-        <div style={{ border:'1px solid var(--border)', borderRadius:10, overflow:'hidden' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
-            <thead>
-              <tr style={{ background:'var(--muted)', borderBottom:'2px solid var(--border)' }}>
-                <th style={{ padding:'10px 14px', textAlign:'left', fontWeight:700 }}>Colaborador</th>
-                <th style={{ padding:'10px 14px', textAlign:'left', fontWeight:700 }}>Tipo</th>
-                <th style={{ padding:'10px 14px', textAlign:'right', fontWeight:700 }}>Valor</th>
-                <th style={{ padding:'10px 14px', textAlign:'center', fontWeight:700 }}>Status</th>
-                <th style={{ padding:'10px 14px', textAlign:'left', fontWeight:700 }}>Obs.</th>
-                <th style={{ padding:'10px 14px', textAlign:'right', fontWeight:700 }}>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r, i) => {
+        <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+          <Table>
+            <TableHeader>
+              <TableRow style={{ background: 'rgba(0,0,0,0.03)' }}>
+                <TableHead style={{ fontSize: 11 }}>Colaborador</TableHead>
+                <TableHead style={{ fontSize: 11 }}>Tipo</TableHead>
+                <TableHead style={{ fontSize: 11 }}>Obra</TableHead>
+                <TableHead style={{ fontSize: 11 }}>Observação</TableHead>
+                <TableHead className="text-right" style={{ fontSize: 11, color: '#7c3aed', fontWeight: 700 }}>Valor</TableHead>
+                <TableHead className="text-right" style={{ fontSize: 11 }}>Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map(r => {
                 const badge = STATUS_CFG[r.status] ?? STATUS_CFG.pendente
                 return (
-                  <tr key={r.id} style={{ borderBottom:'1px solid var(--border)', background: i%2===0 ? 'var(--card)' : 'transparent' }}>
-                    <td style={{ padding:'10px 14px' }}>
-                      <div style={{ fontWeight:600 }}>{r.colaboradores?.nome ?? '—'}</div>
-                      <div style={{ fontSize:11, color:'var(--muted-foreground)' }}>{r.colaboradores?.chapa}</div>
-                    </td>
-                    <td style={{ padding:'10px 14px', color:'var(--muted-foreground)' }}>
-                      {TIPO_LABEL[r.tipo] ?? r.tipo}
-                    </td>
-                    <td style={{ padding:'10px 14px', textAlign:'right', fontWeight:700, color:'#7c3aed' }}>
-                      {formatCurrency(r.valor)}
-                    </td>
-                    <td style={{ padding:'10px 14px', textAlign:'center' }}>
-                      <span style={{ fontSize:11, fontWeight:600, borderRadius:6, padding:'3px 9px', background:badge.bg, color:badge.color }}>
-                        {badge.label}
+                  <TableRow key={r.id}>
+                    <TableCell>
+                      <div style={{ fontWeight: 700, fontSize: 13 }}>{r.colaboradores?.nome ?? '—'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted-foreground)', fontFamily: 'monospace' }}>
+                        {r.colaboradores?.chapa}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 6,
+                        background: badge.bg, color: badge.color, border: `1px solid ${badge.border}` }}>
+                        {TIPO_LABEL[r.tipo] ?? r.tipo}
                       </span>
-                    </td>
-                    <td style={{ padding:'10px 14px', color:'var(--muted-foreground)', fontSize:12, maxWidth:160 }}>
-                      <span style={{ display:'block', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={r.observacoes ?? ''}>
-                        {r.observacoes || '—'}
+                    </TableCell>
+                    <TableCell style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>
+                      {r.obras?.nome
+                        ? <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <Building2 size={11} style={{ opacity: .6 }} />{r.obras.nome}
+                          </span>
+                        : <span style={{ opacity: .4 }}>—</span>}
+                    </TableCell>
+                    <TableCell style={{ color: 'var(--muted-foreground)', fontSize: 12, maxWidth: 200 }}>
+                      <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.observacoes ?? ''}>
+                        {r.observacoes || <span style={{ opacity: .4 }}>—</span>}
                       </span>
-                    </td>
-                    <td style={{ padding:'10px 14px', textAlign:'right' }}>
-                      <div style={{ display:'flex', gap:4, justifyContent:'flex-end' }}>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span style={{ fontWeight: 800, fontSize: 14, color: '#7c3aed' }}>{formatCurrency(r.valor)}</span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                         {r.status === 'pendente' && (
                           <button onClick={() => setAprovarRow(r)} title="Aprovar"
-                            style={{ height:28, padding:'0 10px', borderRadius:6, border:'1px solid #bbf7d0', background:'#f0fdf4', color:'#15803d', cursor:'pointer', fontSize:11, fontWeight:700 }}>
-                            <CheckCircle2 size={12} style={{ display:'inline', marginRight:4 }}/>Aprovar
+                            style={{ height: 28, padding: '0 10px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#15803d', cursor: 'pointer', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <CheckCircle2 size={12} /> Aprovar
                           </button>
                         )}
                         {r.status === 'pendente' && (
                           <button onClick={() => openEdit(r)} title="Editar"
-                            style={{ width:28, height:28, borderRadius:6, border:'1px solid var(--border)', background:'var(--muted)', color:'var(--foreground)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                            <Pencil size={12}/>
+                            style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Pencil size={12} />
                           </button>
                         )}
                         {r.status === 'aprovado' && (
                           <button onClick={() => setCancelarRow(r)} title="Cancelar aprovação"
-                            style={{ height:28, padding:'0 10px', borderRadius:6, border:'1px solid #fecaca', background:'#fff5f5', color:'#dc2626', cursor:'pointer', fontSize:11, fontWeight:700 }}>
-                            <XCircle size={12} style={{ display:'inline', marginRight:4 }}/>Cancelar
+                            style={{ height: 28, padding: '0 10px', borderRadius: 6, border: '1px solid #fecaca', background: '#fff5f5', color: '#dc2626', cursor: 'pointer', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <XCircle size={12} /> Cancelar
                           </button>
                         )}
                         {(r.status === 'pendente' || r.status === 'cancelado') && (
                           <button onClick={() => setDeleteId(r.id)} title="Excluir"
-                            style={{ width:28, height:28, borderRadius:6, border:'1px solid #fecaca', background:'#fff5f5', color:'#dc2626', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                            <Trash2 size={12}/>
+                            style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #fecaca', background: '#fff5f5', color: '#dc2626', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Trash2 size={12} />
                           </button>
                         )}
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 )
               })}
-            </tbody>
-            <tfoot>
-              <tr style={{ background:'var(--muted)', borderTop:'2px solid var(--border)' }}>
-                <td colSpan={2} style={{ padding:'10px 14px', fontSize:12, color:'var(--muted-foreground)' }}>
-                  {filtered.length} lançamento(s) exibido(s)
-                </td>
-                <td style={{ padding:'10px 14px', textAlign:'right', fontWeight:800, color:'#7c3aed', fontSize:14 }}>
-                  {formatCurrency(filtered.reduce((s, r) => s + r.valor, 0))}
-                </td>
-                <td colSpan={3}/>
-              </tr>
-            </tfoot>
-          </table>
+            </TableBody>
+          </Table>
+          {/* Rodapé total */}
+          <div style={{ background: 'var(--muted)', borderTop: '2px solid var(--border)', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
+              {filtered.length} lançamento(s) · aba: {STATUS_CFG[abaStatus].label}
+            </span>
+            <span style={{ fontWeight: 800, fontSize: 15, color: '#7c3aed' }}>
+              Total: {formatCurrency(filtered.reduce((s, r) => s + r.valor, 0))}
+            </span>
+          </div>
         </div>
       )}
 
       {/* ══ MODAL CRIAR / EDITAR ══ */}
       {modalOpen && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', zIndex:50, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
-          <div style={{ background:'var(--background)', borderRadius:14, padding:28, width:'100%', maxWidth:500, boxShadow:'0 25px 50px rgba(0,0,0,.25)' }}>
-            <h2 style={{ fontWeight:800, fontSize:17, margin:'0 0 20px' }}>
-              {editando ? '✏️ Editar Adiantamento' : '💵 Novo Adiantamento'}
-            </h2>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-              {/* Colaborador */}
-              <div style={{ gridColumn:'1/-1' }}>
-                <Label className="mb-1 block">Colaborador *</Label>
-                <Select value={form.colaborador_id} onValueChange={v => setF('colaborador_id', v)}>
-                  <SelectTrigger><SelectValue placeholder="Selecionar…"/></SelectTrigger>
-                  <SelectContent>
-                    {colabs.map(c => <SelectItem key={c.id} value={c.id}>{c.chapa} — {c.nome}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              {/* Tipo */}
-              <div>
-                <Label className="mb-1 block">Tipo *</Label>
-                <Select value={form.tipo} onValueChange={v => setF('tipo', v)}>
-                  <SelectTrigger><SelectValue/></SelectTrigger>
-                  <SelectContent>
-                    {TIPOS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              {/* Valor */}
-              <div>
-                <Label className="mb-1 block">Valor (R$) *</Label>
-                <Input type="number" min="0" step="0.01" value={form.valor}
-                  onChange={e => setF('valor', e.target.value)} placeholder="0,00"/>
-              </div>
-              {/* Competência */}
-              <div>
-                <Label className="mb-1 block">Competência *</Label>
-                <input type="month" value={form.competencia} onChange={e => setF('competencia', e.target.value)}
-                  style={{ height:36, width:'100%', padding:'0 10px', fontSize:13, border:'1.5px solid var(--border)', borderRadius:6, background:'var(--background)', color:'var(--foreground)', boxSizing:'border-box' }}/>
-              </div>
-              {/* Obra */}
-              <div>
-                <Label className="mb-1 block">Obra</Label>
-                <Select value={form.obra_id || 'nenhuma'} onValueChange={v => setF('obra_id', v === 'nenhuma' ? '' : v)}>
-                  <SelectTrigger><SelectValue placeholder="Sem obra"/></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="nenhuma">Sem obra</SelectItem>
-                    {obras.map(o => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              {/* Observações */}
-              <div style={{ gridColumn:'1/-1' }}>
-                <Label className="mb-1 block">Observações / Motivo</Label>
-                <Textarea value={form.observacoes} onChange={e => setF('observacoes', e.target.value)}
-                  placeholder="Motivo, detalhes…" rows={3}/>
-              </div>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'var(--background)', borderRadius: 14, padding: 0, width: '100%', maxWidth: 520, boxShadow: '0 25px 50px rgba(0,0,0,.25)', overflow: 'hidden' }}>
+            {/* Header modal */}
+            <div style={{ background: 'linear-gradient(135deg, #7c3aed, #6d28d9)', padding: '20px 24px' }}>
+              <h2 style={{ fontWeight: 800, fontSize: 17, margin: 0, color: '#fff' }}>
+                {editando ? '✏️ Editar Adiantamento' : '💵 Novo Adiantamento'}
+              </h2>
+              <p style={{ fontSize: 12, color: 'rgba(255,255,255,.75)', margin: '4px 0 0' }}>
+                {editando ? 'Altere os dados do adiantamento' : 'Registre um novo adiantamento ou vale'}
+              </p>
             </div>
-            <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:8, padding:'10px 14px', fontSize:12, color:'#1e40af', marginTop:14 }}>
-              💡 Após registrar, clique em <strong>Aprovar</strong> para enviar à tela de <strong>Pagamentos</strong>.
-            </div>
-            <div style={{ display:'flex', justifyContent:'flex-end', gap:10, marginTop:18 }}>
-              <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
-              <Button disabled={saving} onClick={handleSave} style={{ background:'#7c3aed', color:'#fff' }}>
-                {saving ? 'Salvando…' : editando ? '💾 Salvar' : '💵 Registrar'}
-              </Button>
+            <div style={{ padding: 24 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                {/* Colaborador */}
+                <div style={{ gridColumn: '1/-1' }}>
+                  <Label className="mb-1 block">Colaborador *</Label>
+                  <Select value={form.colaborador_id} onValueChange={v => setF('colaborador_id', v)}>
+                    <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
+                    <SelectContent>
+                      {colabs.map(c => <SelectItem key={c.id} value={c.id}>{c.chapa} — {c.nome}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {/* Tipo */}
+                <div>
+                  <Label className="mb-1 block">Tipo *</Label>
+                  <Select value={form.tipo} onValueChange={v => setF('tipo', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {TIPOS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {/* Valor */}
+                <div>
+                  <Label className="mb-1 block">Valor (R$) *</Label>
+                  <Input type="number" min="0" step="0.01" value={form.valor}
+                    onChange={e => setF('valor', e.target.value)} placeholder="0,00" />
+                </div>
+                {/* Competência */}
+                <div>
+                  <Label className="mb-1 block">Competência *</Label>
+                  <input type="month" value={form.competencia} onChange={e => setF('competencia', e.target.value)}
+                    style={{ height: 36, width: '100%', padding: '0 10px', fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', boxSizing: 'border-box' }} />
+                </div>
+                {/* Obra */}
+                <div>
+                  <Label className="mb-1 block">Obra</Label>
+                  <Select value={form.obra_id || 'nenhuma'} onValueChange={v => setF('obra_id', v === 'nenhuma' ? '' : v)}>
+                    <SelectTrigger><SelectValue placeholder="Sem obra" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="nenhuma">Sem obra</SelectItem>
+                      {obras.map(o => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {/* Observações */}
+                <div style={{ gridColumn: '1/-1' }}>
+                  <Label className="mb-1 block">Observações / Motivo</Label>
+                  <Textarea value={form.observacoes} onChange={e => setF('observacoes', e.target.value)}
+                    placeholder="Motivo, detalhes…" rows={3} />
+                </div>
+              </div>
+
+              {/* Dica */}
+              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#1e40af', marginTop: 14 }}>
+                💡 Após registrar, clique em <strong>Aprovar</strong> para enviar à tela de <strong>Pagamentos</strong>.
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
+                <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
+                <Button disabled={saving} onClick={handleSave} style={{ background: '#7c3aed', color: '#fff' }}>
+                  {saving ? 'Salvando…' : editando ? '💾 Salvar' : '💵 Registrar'}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -504,14 +567,14 @@ export default function Adiantamentos() {
           <AlertDialogHeader>
             <AlertDialogTitle>✅ Aprovar adiantamento?</AlertDialogTitle>
             <AlertDialogDescription>
-              {aprovarRow?.colaboradores?.nome} — {formatCurrency(aprovarRow?.valor ?? 0)} ({mesLabel(aprovarRow?.competencia ?? '')}).
-              O adiantamento será enviado para Pagamentos como pendente de pagamento.
+              <strong>{aprovarRow?.colaboradores?.nome}</strong> — {formatCurrency(aprovarRow?.valor ?? 0)} ({mesLabel(aprovarRow?.competencia ?? '')}).<br />
+              O adiantamento será enviado para <strong>Pagamentos</strong> como pendente de pagamento.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmarAprovar} style={{ background:'#15803d', color:'#fff' }}>
-              ✅ Confirmar
+            <AlertDialogAction onClick={confirmarAprovar} style={{ background: '#15803d', color: '#fff' }}>
+              ✅ Confirmar Aprovação
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -523,13 +586,14 @@ export default function Adiantamentos() {
           <AlertDialogHeader>
             <AlertDialogTitle>❌ Cancelar adiantamento?</AlertDialogTitle>
             <AlertDialogDescription>
-              O adiantamento de {cancelarRow?.colaboradores?.nome} será cancelado e removido da fila de Pagamentos. Só é possível cancelar se o pagamento ainda não foi efetivado.
+              O adiantamento de <strong>{cancelarRow?.colaboradores?.nome}</strong> ({formatCurrency(cancelarRow?.valor ?? 0)}) será cancelado e removido da fila de Pagamentos.<br />
+              Só é possível cancelar se o pagamento ainda não foi efetivado.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmarCancelar} style={{ background:'#dc2626', color:'#fff' }}>
-              ❌ Confirmar
+            <AlertDialogAction onClick={confirmarCancelar} style={{ background: '#dc2626', color: '#fff' }}>
+              ❌ Confirmar Cancelamento
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -544,7 +608,7 @@ export default function Adiantamentos() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} style={{ background:'#dc2626', color:'#fff' }}>
+            <AlertDialogAction onClick={handleDelete} style={{ background: '#dc2626', color: '#fff' }}>
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>

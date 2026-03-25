@@ -247,7 +247,7 @@ export interface Pagamento {
   obra_id: string | null
   competencia: string
   data_pagamento: string | null
-  tipo: 'mensal' | 'quinzenal' | 'semanal' | 'adiantamento' | 'rescisao' | 'ferias' | 'decimo_terceiro' | 'bonus' | 'outro' | 'folha' | '13_salario' | 'vale_transporte' | null
+  tipo: 'mensal' | 'quinzenal' | 'semanal' | 'adiantamento' | 'rescisao' | 'ferias' | 'decimo_terceiro' | 'bonus' | 'outro' | 'folha' | '13_salario' | 'vale_transporte' | 'premio' | 'ajuda_custo' | null
   valor_bruto: number | null
   inss: number
   fgts: number
@@ -271,7 +271,28 @@ export interface Premio {
   data: string
   competencia: string | null
   observacoes: string | null
+  status: 'pendente' | 'aprovado' | 'pago' | 'cancelado'
+  pagamento_id: string | null
   colaboradores?: Pick<Colaborador, 'nome' | 'chapa'>
+  obras?: Pick<Obra, 'nome'> | null
+}
+
+export interface Adiantamento {
+  id: string
+  created_at: string
+  colaborador_id: string
+  obra_id: string | null
+  competencia: string
+  tipo: 'adiantamento' | 'vale' | 'ajuda_custo' | 'outro' | 'outros'
+  valor: number
+  descricao: string | null
+  observacoes: string | null
+  status: 'pendente' | 'aprovado' | 'pago' | 'cancelado'
+  data_pagamento: string | null
+  descontado_em: string | null
+  pagamento_id: string | null
+  colaboradores?: Pick<Colaborador, 'nome' | 'chapa'>
+  obras?: Pick<Obra, 'nome'> | null
 }
 
 export interface ValeTransporte {

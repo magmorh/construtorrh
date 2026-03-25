@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   Search, ChevronLeft, ChevronRight, CheckCircle2, Printer,
@@ -121,6 +122,7 @@ function emptyDia(colabId:string,lancId:string,obraId:string,data:string):DiaReg
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 export default function Ponto() {
+  const nav = useNavigate()
   const hoje = new Date()
   const [ano, setAno]   = useState(hoje.getFullYear())
   const [mes, setMes]   = useState(hoje.getMonth()+1)
@@ -1233,28 +1235,10 @@ export default function Ponto() {
                 <button onClick={mesSeguinte} style={{border:'1px solid var(--border)',borderRadius:5,background:'none',cursor:'pointer',padding:'3px 7px',display:'flex'}}><ChevronRight size={13}/></button>
               </div>
               <Button variant="outline" size="sm" onClick={()=>window.print()} style={{gap:4,height:30,fontSize:12}}><Printer size={12}/></Button>
-              <Button variant="outline" size="sm"
-                onClick={()=>{
-                  setPortalStep('periodo')
-                  setPortalInicio(`${mesRef}-01`)
-                  setPortalFim(`${mesRef}-31`)
-                  setPortalObraFiltro('')
-                  setPortalDados([])
-                  setModalPortal(true)
-                }}
-                style={{gap:4,height:30,fontSize:12,borderColor:'#3b82f6',color:'#1d4ed8',background:'#eff6ff'}}>
-                📲 Portal
-              </Button>
               <Button size="sm" variant="outline"
-                onClick={()=>{
-                  setPortalProdInicio(`${mesRef}-01`)
-                  setPortalProdFim(`${mesRef}-31`)
-                  setPortalProdObraFiltro('')
-                  setPortalProdDados([])
-                  setModalPortalProd(true)
-                }}
-                style={{gap:4,height:30,fontSize:12,borderColor:'#b45309',color:'#92400e',background:'#fffbeb'}}>
-                📈 Prod. Portal
+                onClick={() => nav('/solicitacoes')}
+                style={{gap:4,height:30,fontSize:12,borderColor:'#3b82f6',color:'#1d4ed8',background:'#eff6ff'}}>
+                📥 Solicitações
               </Button>
               <Button size="sm"
                 disabled={!colabSel||lancamentos.some(l=>['rascunho','recusado','aguardando_aprovacao'].includes(l.status))}

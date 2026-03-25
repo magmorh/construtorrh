@@ -137,8 +137,7 @@ function TabCadastros({ obras, funcoes, perfil }: { obras: Obra[]; funcoes: Func
       aprovado_em:   new Date().toISOString(),
       aprovado_nome: nome,
     }).eq('id', r.id)
-    toast.success('Aprovado! Gerando ficha de cadastro…')
-    gerarPDFCadastro({ ...r, aprovado_nome: nome }, funcoes, obras)
+    toast.success('Solicitação aprovada com sucesso!')
     fetch()
   }
 

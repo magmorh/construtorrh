@@ -131,8 +131,10 @@ export default function PortalOcorrencias() {
     setDeletandoId(null); loadHistorico(obraId, aba)
   }
 
-  const INP: React.CSSProperties = { width:'100%',height:44,border:'1px solid #e5e7eb',borderRadius:8,padding:'0 12px',fontSize:13,boxSizing:'border-box',background:'#fff' }
-  const SEL: React.CSSProperties = { ...INP, cursor:'pointer' }
+  const INP = (err?: boolean): React.CSSProperties => ({ width:'100%',height:44,border:`2px solid ${err?'#fca5a5':'#e5e7eb'}`,borderRadius:8,padding:'0 12px',fontSize:13,boxSizing:'border-box',background:err?'#fff5f5':'#fff' })
+  const SEL = (err?: boolean): React.CSSProperties => ({ ...INP(err), cursor:'pointer' })
+  const INPS = INP()
+  const SELS = SEL()
   const LBL = (txt: string) => <label style={{ fontSize:12,fontWeight:700,color:'#374151',display:'block',marginBottom:6,textTransform:'uppercase',letterSpacing:'0.05em' }}>{txt}</label>
 
   const ABAS: { key: AbaOcor; icon: string; label: string; cor: string }[] = [
@@ -159,7 +161,7 @@ export default function PortalOcorrencias() {
       {/* Obra */}
       {obrasData.length > 1 && (
         <div style={{ padding: '0 16px 10px' }}>
-          <select value={obraId} onChange={e => setObraId(e.target.value)} style={SEL}>
+          <select value={obraId} onChange={e => setObraId(e.target.value)} style={SELS}>
             {obrasData.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
           </select>
         </div>
@@ -211,23 +213,24 @@ export default function PortalOcorrencias() {
           {/* Colaborador */}
           <div>
             {LBL('Colaborador *')}
-            <select value={colabId} onChange={e=>setColabId(e.target.value)} required style={SEL}>
+            <select value={colabId} onChange={e=>setColabId(e.target.value)} style={SEL(!colabId)}>
               <option value="">Selecione…</option>
               {colabs.map(c=><option key={c.id} value={c.id}>{c.nome}{c.chapa?` (${c.chapa})`:''}</option>)}
             </select>
+            {!colabId && <p style={{ fontSize:11,color:'#dc2626',marginTop:4,fontWeight:600 }}>⚠️ Selecione um colaborador</p>}
           </div>
 
           {/* Data + hora */}
           <div style={{ display:'grid',gridTemplateColumns:aba==='acidente'?'1fr 1fr':'1fr',gap:10 }}>
-            <div>{LBL('Data *')}<input type="date" value={dataOcor} onChange={e=>setDataOcor(e.target.value)} required style={INP}/></div>
-            {aba==='acidente'&&<div>{LBL('Hora')}<input type="time" value={hora} onChange={e=>setHora(e.target.value)} style={INP}/></div>}
+            <div>            {LBL('Data *')}<input type="date" value={dataOcor} onChange={e=>setDataOcor(e.target.value)} style={INPS}/></div>
+            {aba==='acidente'&&<div>{LBL('Hora')}<input type="time" value={hora} onChange={e=>setHora(e.target.value)} style={INPS}/></div>}
           </div>
 
           {/* Gravidade — apenas acidente e geral */}
           {(aba==='acidente') && (
             <div>
               {LBL('Gravidade')}
-              <select value={gravidade} onChange={e=>setGravidade(e.target.value)} style={SEL}>
+              <select value={gravidade} onChange={e=>setGravidade(e.target.value)} style={SELS}>
                 <option value="leve">Leve</option>
                 <option value="moderado">Moderado</option>
                 <option value="grave">Grave</option>
@@ -240,7 +243,7 @@ export default function PortalOcorrencias() {
           {aba === 'acidente' && (<>
             <div>
               {LBL('Tipo de Acidente')}
-              <select value={tipoAcid} onChange={e=>setTipoAcid(e.target.value)} style={SEL}>
+              <select value={tipoAcid} onChange={e=>setTipoAcid(e.target.value)} style={SELS}>
                 <option value="sem_afastamento">Sem Afastamento</option>
                 <option value="com_afastamento">Com Afastamento</option>
                 <option value="trajeto">De Trajeto</option>
@@ -249,7 +252,7 @@ export default function PortalOcorrencias() {
             </div>
             <div>
               {LBL('Local do Acidente')}
-              <input value={local} onChange={e=>setLocal(e.target.value)} placeholder="Descreva o local…" style={INP}/>
+              <input value={local} onChange={e=>setLocal(e.target.value)} placeholder="Descreva o local…" style={INPS}/>
             </div>
             <label style={{ display:'flex',alignItems:'center',gap:10,cursor:'pointer',userSelect:'none' }}>
               <input type="checkbox" checked={catEmitida} onChange={e=>setCatEmitida(e.target.checked)} style={{ width:18,height:18 }}/>
@@ -260,7 +263,7 @@ export default function PortalOcorrencias() {
           {aba === 'atestado' && (<>
             <div>
               {LBL('Tipo de Atestado')}
-              <select value={tipoAtest} onChange={e=>setTipoAtest(e.target.value)} style={SEL}>
+              <select value={tipoAtest} onChange={e=>setTipoAtest(e.target.value)} style={SELS}>
                 <option value="medico">Médico</option>
                 <option value="odontologico">Odontológico</option>
                 <option value="acompanhamento">Acompanhamento Familiar</option>
@@ -270,16 +273,16 @@ export default function PortalOcorrencias() {
             <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 }}>
               <div>
                 {LBL('Dias de Afastamento')}
-                <input type="number" value={diasAfas} onChange={e=>setDiasAfas(e.target.value)} min="0" placeholder="0" style={INP}/>
+                <input type="number" value={diasAfas} onChange={e=>setDiasAfas(e.target.value)} min="0" placeholder="0" style={INPS}/>
               </div>
               <div>
                 {LBL('CID')}
-                <input value={cid} onChange={e=>setCid(e.target.value)} placeholder="Ex.: J00" style={INP}/>
+                <input value={cid} onChange={e=>setCid(e.target.value)} placeholder="Ex.: J00" style={INPS}/>
               </div>
             </div>
             <div>
               {LBL('Médico / Hospital')}
-              <input value={medico} onChange={e=>setMedico(e.target.value)} placeholder="Nome do médico ou hospital" style={INP}/>
+              <input value={medico} onChange={e=>setMedico(e.target.value)} placeholder="Nome do médico ou hospital" style={INPS}/>
             </div>
             <label style={{ display:'flex',alignItems:'center',gap:10,cursor:'pointer',userSelect:'none' }}>
               <input type="checkbox" checked={comAfas} onChange={e=>setComAfas(e.target.checked)} style={{ width:18,height:18 }}/>
@@ -290,7 +293,7 @@ export default function PortalOcorrencias() {
           {aba === 'advertencia' && (<>
             <div>
               {LBL('Tipo de Advertência')}
-              <select value={tipoAdv} onChange={e=>setTipoAdv(e.target.value)} style={SEL}>
+              <select value={tipoAdv} onChange={e=>setTipoAdv(e.target.value)} style={SELS}>
                 <option value="verbal">Verbal</option>
                 <option value="escrita">Escrita</option>
                 <option value="suspensao">Suspensão</option>
@@ -299,12 +302,12 @@ export default function PortalOcorrencias() {
             {tipoAdv === 'suspensao' && (
               <div>
                 {LBL('Dias de Suspensão')}
-                <input type="number" value={diasSusp} onChange={e=>setDiasSusp(e.target.value)} min="1" style={INP}/>
+                <input type="number" value={diasSusp} onChange={e=>setDiasSusp(e.target.value)} min="1" style={INPS}/>
               </div>
             )}
             <div>
               {LBL('Motivo')}
-              <input value={motivo} onChange={e=>setMotivo(e.target.value)} placeholder="Motivo da advertência…" style={INP}/>
+              <input value={motivo} onChange={e=>setMotivo(e.target.value)} placeholder="Motivo da advertência…" style={INPS}/>
             </div>
             <label style={{ display:'flex',alignItems:'center',gap:10,cursor:'pointer',userSelect:'none' }}>
               <input type="checkbox" checked={assinada} onChange={e=>setAssinada(e.target.checked)} style={{ width:18,height:18 }}/>

@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
 import { traduzirErro } from '@/lib/erros'
+import { SummaryCard } from '@/components/Shared'
 import {
   Bus, Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight,
   CheckCircle2, AlertCircle, X, ToggleLeft, ToggleRight,
@@ -766,22 +767,34 @@ export default function ValeTransportePage() {
 
       {/* Cards resumo */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
-        {[
-          { icon: <CheckCircle2 size={15}/>, label: 'VT Completo (mês)',  value: `${colabsCompletos} colaborador(es)`, color: '#15803d', alert: false },
-          { icon: <AlertCircle  size={15}/>, label: 'VT Parcial',         value: `${colabsParciais} colaborador(es)`,  color: '#b45309', alert: false },
-          { icon: <Bus          size={15}/>, label: 'Total Empresa (mês)', value: formatCurrency(totalEmpresaMes),      color: '#1d4ed8', alert: false },
-          { icon: <AlertCircle  size={15}/>, label: 'Sem VT no mês',       value: `${colabsSemVTNoMes} colaborador(es)`, color: colabsSemVTNoMes > 0 ? '#dc2626' : '#6b7280', alert: colabsSemVTNoMes > 0 },
-        ].map((c, i) => (
-          <div key={i} style={{ background: c.alert ? '#fef2f2' : 'var(--card)', border: `1px solid ${c.alert ? '#fecaca' : 'var(--border)'}`, borderRadius: 10, padding: '12px 16px', position: 'relative', overflow: 'hidden' }}>
-            {c.alert && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: '#dc2626', borderRadius: '10px 10px 0 0' }} />}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: c.color, marginBottom: 4 }}>
-              {c.icon}<span style={{ fontSize: 11, fontWeight: 600 }}>{c.label}</span>
-              {c.alert && <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 800, background: '#dc2626', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>ATENÇÃO</span>}
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: c.color }}>{c.value}</div>
-            {c.alert && <div style={{ fontSize: 10, color: '#dc2626', marginTop: 3 }}>⚠ VT cadastrado mas não lançado</div>}
-          </div>
-        ))}
+        <SummaryCard
+          sigla="VTC"
+          label="VT Completo (mês)"
+          value={`${colabsCompletos} colaborador(es)`}
+          color="#15803d"
+          bg="#15803d"
+        />
+        <SummaryCard
+          sigla="VTP"
+          label="VT Parcial"
+          value={`${colabsParciais} colaborador(es)`}
+          color="#b45309"
+          bg="#b45309"
+        />
+        <SummaryCard
+          sigla="EMP"
+          label="Total Empresa (mês)"
+          value={formatCurrency(totalEmpresaMes)}
+          color="#1d4ed8"
+          bg="#1d4ed8"
+        />
+        <SummaryCard
+          sigla="SEM"
+          label="Sem VT no mês"
+          value={`${colabsSemVTNoMes} colaborador(es)`}
+          color={colabsSemVTNoMes > 0 ? '#dc2626' : '#6b7280'}
+          bg={colabsSemVTNoMes > 0 ? '#dc2626' : '#6b7280'}
+        />
       </div>
 
       {/* 2 colunas */}

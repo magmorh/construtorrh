@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Pagamento, Colaborador, Obra } from '@/lib/supabase'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { PageHeader, BadgeStatus, EmptyState, LoadingSkeleton } from '@/components/Shared'
+import { PageHeader, BadgeStatus, EmptyState, LoadingSkeleton, SummaryCard } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -446,22 +446,54 @@ export default function Pagamentos() {
 
       {/* Cards resumo — valores financeiros completos */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
-        {[
-          { icon: <Clock size={15}/>,        label: '⏳ Em Aberto',    value: formatCurrency(lancsPendentes.filter((l:any)=>l.status==='liberado').reduce((s:number,l:any)=>s+(l.snap_liquido??0),0)), sub: `${lancsPendentes.filter((l:any)=>l.status==='liberado').length} lanç.`,  color:'#b45309', bg:'#fef3c7', border:'#fde68a' },
-          { icon: <Calendar size={15}/>,     label: '📅 Realizados',   value: formatCurrency(lancsPendentes.filter((l:any)=>l.status==='pago'&&l.mes_referencia===filtroMesLanc).reduce((s:number,l:any)=>s+(l.snap_liquido??0),0)), sub:`${lancsPendentes.filter((l:any)=>l.status==='pago'&&l.mes_referencia===filtroMesLanc).length} lanç.`, color:'#15803d', bg:'#dcfce7', border:'#bbf7d0' },
-          { icon: <DollarSign size={15}/>,   label: '💳 Avulsos',      value: formatCurrency(rows.filter(r=>r.status==='pendente').reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0)), sub:`${rows.filter(r=>r.status==='pendente').length} pend.`,  color:'#7c3aed', bg:'#ede9fe', border:'#ddd6fe' },
-          { icon: <CheckCircle size={15}/>,  label: '✅ Avulsos Pagos', value: formatCurrency(rows.filter(r=>r.status==='pago'&&r.competencia===filtroMesLanc).reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0)), sub:`${rows.filter(r=>r.status==='pago'&&r.competencia===filtroMesLanc).length} reg.`, color:'#0f766e', bg:'#f0fdfa', border:'#99f6e4' },
-          { icon: <DollarSign size={15}/>,   label: '💵 Adiantamentos', value: formatCurrency(rows.filter(r=>r.tipo==='adiantamento'&&r.status==='pendente').reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0)), sub:`${rows.filter(r=>r.tipo==='adiantamento'&&r.status==='pendente').length} pend.`, color:'#9a3412', bg:'#fff7ed', border:'#fed7aa' },
-          { icon: <Gift size={15}/>,         label: '🏆 Prêmios',       value: formatCurrency(rows.filter(r=>r.tipo==='premio'&&r.status==='pendente').reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0)), sub:`${rows.filter(r=>r.tipo==='premio'&&r.status==='pendente').length} pend.`,color:'#b45309', bg:'#fef3c7', border:'#fde68a' },
-        ].map((c,i) => (
-          <div key={i} style={{ background:c.bg, border:`1.5px solid ${c.border}`, borderRadius:10, padding:'12px 14px' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:6, color:c.color, marginBottom:4 }}>
-              {c.icon}<span style={{ fontSize:11, fontWeight:700 }}>{c.label}</span>
-            </div>
-            <div style={{ fontSize:17, fontWeight:800, color:c.color }}>{c.value}</div>
-            <div style={{ fontSize:11, color:c.color, opacity:.7, marginTop:1 }}>{c.sub}</div>
-          </div>
-        ))}
+        <SummaryCard
+          sigla="AB"
+          label="Em Aberto"
+          value={formatCurrency(lancsPendentes.filter((l:any)=>l.status==='liberado').reduce((s:number,l:any)=>s+(l.snap_liquido??0),0))}
+          sub={`${lancsPendentes.filter((l:any)=>l.status==='liberado').length} lanç.`}
+          color="#b45309"
+          bg="#b45309"
+        />
+        <SummaryCard
+          sigla="OK"
+          label="Realizados"
+          value={formatCurrency(lancsPendentes.filter((l:any)=>l.status==='pago'&&l.mes_referencia===filtroMesLanc).reduce((s:number,l:any)=>s+(l.snap_liquido??0),0))}
+          sub={`${lancsPendentes.filter((l:any)=>l.status==='pago'&&l.mes_referencia===filtroMesLanc).length} lanç.`}
+          color="#15803d"
+          bg="#15803d"
+        />
+        <SummaryCard
+          sigla="AV"
+          label="Avulsos"
+          value={formatCurrency(rows.filter(r=>r.status==='pendente').reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0))}
+          sub={`${rows.filter(r=>r.status==='pendente').length} pend.`}
+          color="#7c3aed"
+          bg="#7c3aed"
+        />
+        <SummaryCard
+          sigla="PG"
+          label="Avulsos Pagos"
+          value={formatCurrency(rows.filter(r=>r.status==='pago'&&r.competencia===filtroMesLanc).reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0))}
+          sub={`${rows.filter(r=>r.status==='pago'&&r.competencia===filtroMesLanc).length} reg.`}
+          color="#0f766e"
+          bg="#0f766e"
+        />
+        <SummaryCard
+          sigla="AD"
+          label="Adiantamentos"
+          value={formatCurrency(rows.filter(r=>r.tipo==='adiantamento'&&r.status==='pendente').reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0))}
+          sub={`${rows.filter(r=>r.tipo==='adiantamento'&&r.status==='pendente').length} pend.`}
+          color="#9a3412"
+          bg="#9a3412"
+        />
+        <SummaryCard
+          sigla="PR"
+          label="Prêmios"
+          value={formatCurrency(rows.filter(r=>r.tipo==='premio'&&r.status==='pendente').reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0))}
+          sub={`${rows.filter(r=>r.tipo==='premio'&&r.status==='pendente').length} pend.`}
+          color="#b45309"
+          bg="#b45309"
+        />
       </div>
 
       {/* Abas — padrão do sistema */}

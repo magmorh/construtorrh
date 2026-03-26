@@ -40,6 +40,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
+import { SummaryCard } from '@/components/Shared'
 import {
   Calculator, Plus, Trash2, Search, TrendingDown, Wallet, Users, FileText,
   ChevronRight, X, BarChart3,
@@ -360,57 +361,58 @@ export default function ProvisaoRescisao() {
       {/* ── Cards clicáveis ─────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 28 }}>
 
-        {/* Total acumulado */}
-        {(['total','fgts','ferias','decimo'] as DetalheKey[]).map(key => {
-          const cfg = PAINEL_CFG[key]
-          const valor = key === 'total' ? totais.total : key === 'fgts' ? totais.fgts : key === 'ferias' ? totais.ferias : totais.decimo
-          return (
-            <button key={key} onClick={() => { setPainelAberto(key); setSearchDetalhe('') }}
-              style={{
-                background: cfg.bg, border: `2px solid ${painelAberto === key ? cfg.color : cfg.bg}`,
-                borderRadius: 12, padding: '16px 18px', textAlign: 'left', cursor: 'pointer',
-                transition: 'all 0.15s', boxShadow: painelAberto === key ? `0 0 0 3px ${cfg.color}25` : 'none',
-              }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 20 }}>{cfg.icon}</span>
-                <ChevronRight size={14} color={cfg.color} style={{ opacity: painelAberto === key ? 1 : 0.4 }} />
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: cfg.color, marginTop: 8 }}>
-                {loading ? '…' : formatCurrency(valor)}
-              </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: cfg.color, marginTop: 2 }}>{cfg.label}</div>
-              <div style={{ fontSize: 10, color: cfg.color, opacity: .7, marginTop: 2 }}>
-                {totais.lancamentos} fechamento(s) · horas+DSR · clique para detalhar
-              </div>
-            </button>
-          )
-        })}
-
-        {/* Total pago em rescisões */}
-        <div style={{ background: '#fee2e2', border: '2px solid #fee2e2', borderRadius: 12, padding: '16px 18px' }}>
-          <div style={{ fontSize: 20 }}><TrendingDown size={20} color="#dc2626" /></div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: '#dc2626', marginTop: 8 }}>
-            {loading ? '…' : formatCurrency(totalRescisoes)}
-          </div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', marginTop: 2 }}>Total Pago em Rescisões</div>
-          <div style={{ fontSize: 10, color: '#dc2626', opacity: .7, marginTop: 2 }}>{rescisoes.length} rescisão(ões) registrada(s)</div>
-        </div>
-
-        {/* Saldo disponível */}
-        <div style={{
-          background: saldoDisponivel >= 0 ? '#dcfce7' : '#fff7ed',
-          border: `2px solid ${saldoDisponivel >= 0 ? '#dcfce7' : '#fed7aa'}`,
-          borderRadius: 12, padding: '16px 18px',
-        }}>
-          <div style={{ fontSize: 20 }}><Wallet size={20} color={saldoDisponivel >= 0 ? '#15803d' : '#c2410c'} /></div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: saldoDisponivel >= 0 ? '#15803d' : '#c2410c', marginTop: 8 }}>
-            {loading ? '…' : formatCurrency(saldoDisponivel)}
-          </div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: saldoDisponivel >= 0 ? '#15803d' : '#c2410c', marginTop: 2 }}>
-            {saldoDisponivel >= 0 ? '✅ Saldo Disponível' : '⚠️ Saldo Negativo'}
-          </div>
-          <div style={{ fontSize: 10, color: saldoDisponivel >= 0 ? '#15803d' : '#c2410c', opacity: .7, marginTop: 2 }}>Provisões – Rescisões</div>
-        </div>
+        <SummaryCard
+          sigla="TOT"
+          label="Total Provisionado"
+          value={loading ? '…' : formatCurrency(totais.total)}
+          sub={`${totais.lancamentos} fechamento(s) · clique para detalhar`}
+          color="#7c3aed"
+          bg="#7c3aed"
+          onClick={() => { setPainelAberto('total'); setSearchDetalhe('') }}
+        />
+        <SummaryCard
+          sigla="FG"
+          label="Provisão FGTS (8%)"
+          value={loading ? '…' : formatCurrency(totais.fgts)}
+          sub={`${totais.lancamentos} fechamento(s) · clique para detalhar`}
+          color="#1d4ed8"
+          bg="#1d4ed8"
+          onClick={() => { setPainelAberto('fgts'); setSearchDetalhe('') }}
+        />
+        <SummaryCard
+          sigla="FER"
+          label="Provisão Férias"
+          value={loading ? '…' : formatCurrency(totais.ferias)}
+          sub={`${totais.lancamentos} fechamento(s) · clique para detalhar`}
+          color="#15803d"
+          bg="#15803d"
+          onClick={() => { setPainelAberto('ferias'); setSearchDetalhe('') }}
+        />
+        <SummaryCard
+          sigla="13S"
+          label="Provisão 13º"
+          value={loading ? '…' : formatCurrency(totais.decimo)}
+          sub={`${totais.lancamentos} fechamento(s) · clique para detalhar`}
+          color="#b45309"
+          bg="#b45309"
+          onClick={() => { setPainelAberto('decimo'); setSearchDetalhe('') }}
+        />
+        <SummaryCard
+          sigla="RSC"
+          label="Total Pago em Rescisões"
+          value={loading ? '…' : formatCurrency(totalRescisoes)}
+          sub={`${rescisoes.length} rescisão(ões) registrada(s)`}
+          color="#dc2626"
+          bg="#dc2626"
+        />
+        <SummaryCard
+          sigla={saldoDisponivel >= 0 ? 'SLD' : 'NEG'}
+          label={saldoDisponivel >= 0 ? 'Saldo Disponível' : 'Saldo Negativo'}
+          value={loading ? '…' : formatCurrency(saldoDisponivel)}
+          sub="Provisões – Rescisões"
+          color={saldoDisponivel >= 0 ? '#15803d' : '#c2410c'}
+          bg={saldoDisponivel >= 0 ? '#15803d' : '#c2410c'}
+        />
 
       </div>
 

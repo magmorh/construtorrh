@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
+import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 import {
@@ -60,6 +61,7 @@ export default function Juridico() {
     setListaNegra((data ?? []) as any); setLoadingLN(false)
   }, [])
   useEffect(() => { fetchListaNegra() }, [fetchListaNegra])
+  useRefreshOnFocus(fetchListaNegra)
 
   // ── Carrega ficha completa ────────────────────────────────────────────────
   async function carregarFicha(c: ColabSimples) {

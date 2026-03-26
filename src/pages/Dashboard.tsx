@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
+import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { useProfile } from '@/hooks/useProfile'
@@ -205,13 +206,12 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
 
-  useEffect(() => {
-    async function fetchAll() {
-      try {
-        setLoading(true)
-        const mesAtual  = currentYYYYMM()
-        const ultimos6  = lastNMonths(6)
-        const { start: mesStart, end: mesEnd } = currentMonthRange()
+  const fetchAll = useCallback(async () => {
+    try {
+      setLoading(true)
+      const mesAtual  = currentYYYYMM()
+      const ultimos6  = lastNMonths(6)
+      const { start: mesStart, end: mesEnd } = currentMonthRange()
 
         // ── Todas as queries em paralelo ──────────────────────────────────────
         const [
@@ -421,10 +421,10 @@ export default function Dashboard() {
       } finally {
         setLoading(false)
       }
-    }
-
-    fetchAll()
   }, [])
+
+  useEffect(() => { fetchAll() }, [fetchAll])
+  useRefreshOnFocus(fetchAll)
 
   // ── Saudação ao usuário ────────────────────────────────────────────────────
   const nomeUsuario: string =

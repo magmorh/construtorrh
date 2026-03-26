@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react'
+import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
 import { calcINSS, calcIR } from '@/lib/encargos'

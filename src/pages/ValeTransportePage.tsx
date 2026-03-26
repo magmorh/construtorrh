@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
+import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { ValeTransporte, Colaborador } from '@/lib/supabase'
@@ -230,10 +231,10 @@ export default function ValeTransportePage() {
     const [colRes, obraRes, vtRes] = await Promise.all([
       supabase
         .from('colaboradores')
-        .select('id,nome,chapa,salario,vt_dados,obra_id,tipo_contrato,funcao_id,data_admissao,funcoes(nome,valor_hora_clt,valor_hora_autonomo),obras(nome)')
+        .select('id,nome,chapa,salario,vt_dados,obra_id,tipo_contrato,funcao_id,data_admissao,pix_chave,pix_tipo,funcoes(nome,valor_hora_clt,valor_hora_autonomo),obras(nome)')
         .eq('status', 'ativo')
         .order('nome'),
-      supabase.from('obras').select('id,nome,considera_sabado_util').order('nome'),
+      supabase.from('obras').select('id,nome,considera_sabado_util').order('nome').eq('status', 'em_andamento'),
       supabase
         .from('vale_transporte')
         .select('*,colaboradores(id,nome,chapa,salario,vt_dados)')
@@ -259,12 +260,19 @@ export default function ValeTransportePage() {
         }
       }))
     }
-    if (obraRes.data) setObras(obraRes.data)
+    if (obraRes.data && obraRes.data.length > 0) {
+      setObras(obraRes.data)
+    } else {
+      // Fallback: busca obras sem filtro de status (compatibilidade com banco sem considera_sabado_util)
+      const { data: obrasAll } = await supabase.from('obras').select('id,nome').order('nome')
+      if (obrasAll) setObras(obrasAll.map((o: any) => ({ ...o, considera_sabado_util: null })))
+    }
     if (vtRes.data)   setVtRows(vtRes.data as VTRow[])
     setLoading(false)
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+  useRefreshOnFocus(fetchData)
 
   // ─── VT do colaborador selecionado no mês ─────────────────────────────────
   const vtDoColab = useMemo(() =>

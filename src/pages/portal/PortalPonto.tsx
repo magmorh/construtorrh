@@ -99,9 +99,34 @@ export default function PortalPonto() {
     setLoading(true)
     const { data } = await supabase.from('portal_ponto_diario')
       .select('*').eq('obra_id', obraId).eq('data', dataSel)
-    setPontos(Object.fromEntries((data ?? []).map((r: any) => [r.colaborador_id, r])))
+    const pontosMap = Object.fromEntries((data ?? []).map((r: any) => [r.colaborador_id, r]))
+    setPontos(pontosMap)
+
+    // Inclui colaboradores avulsos lançados nesta obra no dia
+    // (colaboradores que NÃO têm obra_id = obraId no cadastro mas têm ponto aqui)
+    if (data && data.length > 0) {
+      const idsAvulsos = (data as any[])
+        .map(r => r.colaborador_id)
+        .filter(id => !colaboradores.find(c => c.id === id))
+      if (idsAvulsos.length > 0) {
+        const { data: avulsosData } = await supabase
+          .from('colaboradores')
+          .select('id,nome,chapa,data_admissao,obra_id,funcoes(nome)')
+          .in('id', idsAvulsos).eq('status','ativo')
+        if (avulsosData && avulsosData.length > 0) {
+          const novos = avulsosData.map((c: any) => ({
+            id: c.id, nome: c.nome, chapa: c.chapa, funcao: c.funcoes?.nome,
+            data_admissao: c.data_admissao ?? null, obra_id: c.obra_id,
+          }))
+          setColaboradores(prev => {
+            const existIds = new Set(prev.map(x => x.id))
+            return [...prev, ...novos.filter((n: any) => !existIds.has(n.id))]
+          })
+        }
+      }
+    }
     setLoading(false)
-  }, [obraId, dataSel])
+  }, [obraId, dataSel, colaboradores])
 
   // Verifica se algum colaborador da lista já tem ponto em OUTRA obra no dia
   const checkConflitos = useCallback(async (colabIds: string[], data: string, obraAtual: string) => {
@@ -495,7 +520,14 @@ export default function PortalPonto() {
               }}>
                 <div style={{ padding:'12px 14px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                   <div>
-                    <div style={{ fontWeight:700, fontSize:14, color:'#111' }}>{c.nome}</div>
+                    <div style={{ fontWeight:700, fontSize:14, color:'#111' }}>
+                      {c.nome}
+                      {c.obra_id !== obraId && (
+                        <span style={{ marginLeft:8, fontSize:9, padding:'2px 6px', borderRadius:99, background:'#ede9fe', color:'#7c3aed', fontWeight:800, verticalAlign:'middle' }}>
+                          AVULSO
+                        </span>
+                      )}
+                    </div>
                     <div style={{ fontSize:11, color:'#9ca3af' }}>
                       {c.chapa && <span style={{ marginRight:8 }}>{c.chapa}</span>}{c.funcao}
                     </div>
@@ -576,7 +608,10 @@ export default function PortalPonto() {
       {subAba === 'avulso' && (
         <div style={{ padding:'16px 16px 32px', display:'flex', flexDirection:'column', gap:14 }}>
           <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:10, padding:'10px 14px', fontSize:13, color:'#1d4ed8', fontWeight:600 }}>
-            👤 Lance o ponto de qualquer colaborador em qualquer obra, independente do vínculo.
+            👤 Lance o ponto de qualquer colaborador em qualquer obra, independente do vínculo.<br/>
+            <span style={{ fontSize:11, fontWeight:400, color:'#1e40af', marginTop:3, display:'block' }}>
+              ✅ O colaborador avulso aparecerá <strong>automaticamente</strong> na lista de ponto da obra selecionada, com badge <strong>AVULSO</strong>. Não é necessário lançar novamente.
+            </span>
           </div>
 
           {avulsoSucesso && (

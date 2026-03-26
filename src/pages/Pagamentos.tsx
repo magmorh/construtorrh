@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
+import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import { supabase } from '@/lib/supabase'
 import type { Pagamento, Colaborador, Obra } from '@/lib/supabase'
 import { formatCurrency, formatDate } from '@/lib/utils'
@@ -169,6 +170,7 @@ export default function Pagamentos() {
   }, [])
 
   useEffect(() => { fetchData(); fetchLancsPendentes() }, [fetchData, fetchLancsPendentes])
+  useRefreshOnFocus(fetchData)
 
   // ─── filtrar ───────────────────────────────────────────────────────────────
   const filtered = rows.filter((r) => {
@@ -437,11 +439,6 @@ export default function Pagamentos() {
       <PageHeader
         title="💰 Pagamentos"
         subtitle="Lançamentos liberados da folha e pagamentos avulsos"
-        action={
-          <Button onClick={openCreate} className="gap-2">
-            <Plus size={15} /> Pagamento Avulso
-          </Button>
-        }
       />
 
       {/* Cards resumo — valores financeiros completos */}

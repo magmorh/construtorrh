@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
+import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -175,6 +176,7 @@ export default function Adiantamentos() {
   }, [competencia])
 
   useEffect(() => { fetchData() }, [fetchData])
+  useRefreshOnFocus(fetchData)
 
   // ─── contadores de abas ───────────────────────────────────────────────────
   const contAbas = useMemo(() => ({

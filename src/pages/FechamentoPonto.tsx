@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
+import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import { toast } from 'sonner'
 import {
   CheckCircle2, Clock, DollarSign, Users, ChevronDown, ChevronRight,
@@ -496,6 +497,7 @@ export default function FechamentoPonto() {
   }, [])
 
   useEffect(() => { fetchLancamentos(mesRef) }, [mesRef, fetchLancamentos])
+  useRefreshOnFocus(() => fetchLancamentos(mesRef))
 
   // ── Contadores para as abas ─────────────────────────────────────────────
   const contAbas = useMemo(() => ({

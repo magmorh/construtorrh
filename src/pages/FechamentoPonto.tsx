@@ -1035,94 +1035,150 @@ export default function FechamentoPonto() {
                                   </span>
                                 : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}
                             </TableCell>
-                            {/* ── Coluna -AD ── */}
+                            {/* ════ Coluna -AD ════ */}
                             <TableCell className="text-right">
                               {(() => {
-                                const adsLanc = adPorLanc[lanc.id] ?? []
-                                const valorAD = adsLanc.reduce((s, a) => {
+                                const adsLanc    = adPorLanc[lanc.id] ?? []
+                                const valorAD    = adsLanc.reduce((s, a) => {
                                   const p = a.desconto_parcelas ?? 1
                                   return s + (p > 1 ? a.valor / p : a.valor)
                                 }, 0)
-                                const jaDescontado = lanc.desconto_adiant > 0
-                                if (jaDescontado) {
+                                const aplicado   = (lanc.snap_desconto_adiant ?? lanc.desconto_adiant ?? 0) > 0
+                                const emFech     = lanc.status === 'em_fechamento'
+                                const pendente   = confirmADLancId === lanc.id
+
+                                // ── Já foi aplicado neste fechamento ──
+                                if (aplicado) {
                                   return (
-                                    <span style={{ fontSize: 12, color: '#b45309', fontWeight: 700 }}>
-                                      −{formatCurrency(lanc.desconto_adiant)}
-                                      <div style={{ fontSize: 9, color: '#92400e' }}>descontado</div>
-                                    </span>
-                                  )
-                                }
-                                if (adsLanc.length === 0) {
-                                  return <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>—</span>
-                                }
-                                // Tem AD disponível — mostrar botão de aprovar
-                                return (
-                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-                                    <span style={{ fontSize: 11, color: '#b45309', fontWeight: 700 }}>
-                                      −{formatCurrency(valorAD)}
-                                    </span>
-                                    {lanc.status === 'em_fechamento' && confirmADLancId !== lanc.id && (
-                                      <button
-                                        onClick={() => setConfirmADLancId(lanc.id)}
-                                        title="Aprovar desconto de adiantamento neste fechamento"
-                                        style={{ fontSize: 10, fontWeight: 700, height: 22, padding: '0 7px',
-                                          borderRadius: 5, border: '1.5px solid #b45309',
-                                          background: '#fffbeb', color: '#b45309',
-                                          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
-                                        💳 -AD
-                                      </button>
-                                    )}
-                                    {lanc.status === 'em_fechamento' && confirmADLancId === lanc.id && (
-                                      <div style={{ display: 'flex', gap: 3 }}>
+                                    <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:2 }}>
+                                      <span style={{ fontSize:12, color:'#b45309', fontWeight:800 }}>
+                                        −{formatCurrency(lanc.snap_desconto_adiant ?? lanc.desconto_adiant)}
+                                      </span>
+                                      <span style={{ fontSize:9, background:'#fef3c7', color:'#92400e', borderRadius:3, padding:'1px 5px', fontWeight:700 }}>
+                                        ✅ aplicado
+                                      </span>
+                                      {/* Desfazer — só se ainda em fechamento */}
+                                      {emFech && (
                                         <button
                                           onClick={async () => {
+                                            if (!confirm('Desfazer o desconto -AD deste fechamento?')) return
                                             setSaving(true)
+                                            // Reverter parcelas e status dos ADs
                                             for (const a of adsLanc) {
-                                              const parcelas = a.desconto_parcelas ?? 1
-                                              const feitas   = (a.desconto_parcela_atual ?? 0) + 1
-                                              const quitado  = feitas >= parcelas
+                                              const feitas = Math.max(0, (a.desconto_parcela_atual ?? 0) - 1)
                                               await supabase.from('adiantamentos').update({
-                                                status: quitado ? 'pago' : 'aprovado',
+                                                status: 'aprovado',
                                                 desconto_parcela_atual: feitas,
-                                                descontado_em: quitado ? mesRef : null,
+                                                descontado_em: null,
                                               }).eq('id', a.id)
                                             }
-                                            const novoLiquido = lanc.valor_total - lanc.desconto_vt - lanc.inss - lanc.ir - valorAD
+                                            // Zerar snap_desconto_adiant e recalcular líquido
+                                            const novoLiq = (lanc.snap_liquido ?? lanc.liquido) + (lanc.snap_desconto_adiant ?? lanc.desconto_adiant)
                                             await supabase.from('ponto_lancamentos').update({
-                                              snap_desconto_adiant: valorAD,
-                                              snap_liquido: novoLiquido,
+                                              snap_desconto_adiant: 0,
+                                              snap_liquido: novoLiq,
                                             }).eq('id', lanc.id)
                                             setSaving(false)
-                                            setConfirmADLancId(null)
-                                            toast.success('✅ Desconto -AD aprovado!')
+                                            toast.success('↩ Desconto -AD removido')
                                             fetchLancamentos(mesRef)
                                           }}
-                                          style={{ fontSize: 10, fontWeight: 700, height: 22, padding: '0 7px',
-                                            borderRadius: 5, border: '1.5px solid #15803d',
-                                            background: '#f0fdf4', color: '#15803d',
-                                            cursor: 'pointer' }}>
-                                          ✅ Sim
+                                          style={{ fontSize:9, height:18, padding:'0 5px', borderRadius:4,
+                                            border:'1px solid #fde68a', background:'#fffbeb', color:'#92400e',
+                                            cursor:'pointer' }}>
+                                          ↩ desfazer
                                         </button>
-                                        <button
-                                          onClick={() => setConfirmADLancId(null)}
-                                          style={{ fontSize: 10, height: 22, padding: '0 6px',
-                                            borderRadius: 5, border: '1px solid var(--border)',
-                                            background: 'var(--muted)', color: 'var(--muted-foreground)',
-                                            cursor: 'pointer' }}>
-                                          ✕
-                                        </button>
-                                      </div>
-                                    )}
+                                      )}
+                                    </div>
+                                  )
+                                }
+
+                                // ── Sem AD disponível ──
+                                if (adsLanc.length === 0) {
+                                  return <span style={{ color:'var(--muted-foreground)', fontSize:12 }}>—</span>
+                                }
+
+                                // ── AD disponível → mostrar pergunta ──
+                                return (
+                                  <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3 }}>
+                                    {/* Valor disponível */}
+                                    <span style={{ fontSize:11, color:'#b45309', fontWeight:700 }}>
+                                      −{formatCurrency(valorAD)}
+                                    </span>
+                                    {/* Detalhe de cada AD */}
                                     {adsLanc.map(a => {
                                       const p = a.desconto_parcelas ?? 1
                                       const f = a.desconto_parcela_atual ?? 0
                                       return (
-                                        <div key={a.id} style={{ fontSize: 9, color: '#92400e' }}>
-                                          {p > 1 ? `${f+1}/${p}x` : 'Único'}
-                                          {a.desconto_obs ? ` · ${a.desconto_obs.substring(0,20)}` : ''}
+                                        <div key={a.id} style={{ fontSize:9, color:'#92400e', textAlign:'right' }}>
+                                          {p > 1 ? `Parcela ${f+1}/${p}` : 'Único'}
+                                          {a.desconto_obs ? ` · ${a.desconto_obs.substring(0,18)}` : ''}
                                         </div>
                                       )
                                     })}
+
+                                    {emFech && !pendente && (
+                                      /* Botão inicial: "Descontar -AD?" */
+                                      <button
+                                        onClick={() => setConfirmADLancId(lanc.id)}
+                                        style={{ marginTop:2, fontSize:10, fontWeight:700, height:24, padding:'0 8px',
+                                          borderRadius:5, border:'1.5px solid #b45309',
+                                          background:'#fffbeb', color:'#b45309',
+                                          cursor:'pointer', display:'flex', alignItems:'center', gap:3, whiteSpace:'nowrap' }}>
+                                        💳 Descontar -AD?
+                                      </button>
+                                    )}
+
+                                    {emFech && pendente && (
+                                      /* Pergunta: SIM ou Pular */
+                                      <div style={{ marginTop:2, display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3 }}>
+                                        <span style={{ fontSize:9, color:'#374151', fontWeight:600 }}>Debitar neste mês?</span>
+                                        <div style={{ display:'flex', gap:4 }}>
+                                          {/* SIM → aplica o desconto */}
+                                          <button
+                                            disabled={saving}
+                                            onClick={async () => {
+                                              setSaving(true)
+                                              for (const a of adsLanc) {
+                                                const parcelas = a.desconto_parcelas ?? 1
+                                                const feitas   = (a.desconto_parcela_atual ?? 0) + 1
+                                                const quitado  = feitas >= parcelas
+                                                await supabase.from('adiantamentos').update({
+                                                  status:                quitado ? 'pago' : 'aprovado',
+                                                  desconto_parcela_atual: feitas,
+                                                  descontado_em:         quitado ? mesRef : null,
+                                                }).eq('id', a.id)
+                                              }
+                                              const novoLiquido = lanc.valor_total - lanc.desconto_vt - lanc.inss - lanc.ir - valorAD
+                                              await supabase.from('ponto_lancamentos').update({
+                                                snap_desconto_adiant: valorAD,
+                                                snap_liquido:         novoLiquido,
+                                              }).eq('id', lanc.id)
+                                              setSaving(false)
+                                              setConfirmADLancId(null)
+                                              toast.success('✅ -AD descontado neste fechamento!')
+                                              fetchLancamentos(mesRef)
+                                            }}
+                                            style={{ fontSize:10, fontWeight:800, height:24, padding:'0 9px',
+                                              borderRadius:5, border:'1.5px solid #15803d',
+                                              background:'#dcfce7', color:'#15803d',
+                                              cursor:'pointer' }}>
+                                            ✅ Sim, debitar
+                                          </button>
+                                          {/* NÃO → pula este mês, AD permanece aprovado */}
+                                          <button
+                                            onClick={() => {
+                                              setConfirmADLancId(null)
+                                              toast('⏭ Adiantamento mantido — será oferecido no próximo fechamento.', { icon: 'ℹ️' })
+                                            }}
+                                            style={{ fontSize:10, height:24, padding:'0 7px',
+                                              borderRadius:5, border:'1.5px solid #6b7280',
+                                              background:'var(--muted)', color:'#6b7280',
+                                              cursor:'pointer', whiteSpace:'nowrap' }}>
+                                            ⏭ Pular mês
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 )
                               })()}

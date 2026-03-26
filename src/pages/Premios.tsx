@@ -121,9 +121,9 @@ export default function Premios() {
     setLoading(true)
     const [premRes, colRes, obrRes] = await Promise.all([
       supabase.from('premios')
-        .select('*, colaboradores(nome,chapa), obras(nome)')
+        .select('*, colaboradores(nome,chapa)')
         .eq('competencia', competencia)
-        .order('data', { ascending: false }),
+        .order('created_at', { ascending: false }),
       supabase.from('colaboradores').select('id,nome,chapa').eq('status','ativo').order('nome'),
       supabase.from('obras').select('id,nome').order('nome'),
     ])
@@ -433,11 +433,7 @@ export default function Premios() {
                       </span>
                     </TableCell>
                     <TableCell style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>
-                      {row.obras?.nome
-                        ? <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Building2 size={11} style={{ opacity: .6 }} />{row.obras.nome}
-                          </span>
-                        : <span style={{ opacity: .4 }}>—</span>}
+                      <span style={{ opacity: .4 }}>—</span>
                     </TableCell>
                     <TableCell className="text-center" style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>
                       {formatDate(row.data)}

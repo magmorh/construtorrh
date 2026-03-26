@@ -122,7 +122,7 @@ export default function Adiantamentos() {
     setLoading(true)
     const [{ data: aData }, { data: cData }, { data: oData }] = await Promise.all([
       supabase.from('adiantamentos')
-        .select('*, colaboradores(nome,chapa), obras(nome)')
+        .select('*, colaboradores(nome,chapa)')
         .eq('competencia', competencia)
         .order('created_at', { ascending: false }),
       supabase.from('colaboradores').select('id,nome,chapa').eq('status','ativo').order('nome'),
@@ -421,11 +421,7 @@ export default function Adiantamentos() {
                       </span>
                     </TableCell>
                     <TableCell style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>
-                      {r.obras?.nome
-                        ? <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Building2 size={11} style={{ opacity: .6 }} />{r.obras.nome}
-                          </span>
-                        : <span style={{ opacity: .4 }}>—</span>}
+                      <span style={{ opacity: .4 }}>—</span>
                     </TableCell>
                     <TableCell style={{ color: 'var(--muted-foreground)', fontSize: 12, maxWidth: 200 }}>
                       <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.observacoes ?? ''}>

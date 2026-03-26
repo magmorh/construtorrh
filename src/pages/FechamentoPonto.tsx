@@ -1118,20 +1118,99 @@ export default function FechamentoPonto() {
                           </TableRow>
 
                           {/* ════════════════════════════════════════════════
-                               BANNER -AD: aparece abaixo da linha quando há
-                               adiantamento pendente de desconto
+                               BANNER -AD
+                               Aparece sempre que há AD vinculado ao colaborador
+                               — pendente (amarelo): oferece escolha descontar/pular
+                               — aplicado (verde):   confirma e oferece desfazer
                           ════════════════════════════════════════════════ */}
                           {(() => {
-                            const adsLanc = adPorLanc[lanc.id] ?? []
-                            const jaAplicado = (lanc.snap_desconto_adiant ?? lanc.desconto_adiant ?? 0) > 0
-                            if (adsLanc.length === 0 || jaAplicado) return null
+                            const adsLanc   = adPorLanc[lanc.id] ?? []
+                            const adAplicado = (lanc.snap_desconto_adiant ?? lanc.desconto_adiant ?? 0)
+                            const jaAplicado = adAplicado > 0
+                            const emFech    = lanc.status === 'em_fechamento'
+                            const verDet    = verADLancId === lanc.id
+
+                            // Sem nenhum AD — não mostra banner
+                            if (adsLanc.length === 0 && !jaAplicado) return null
+
                             const valorAD = adsLanc.reduce((s, a) => {
                               const p = a.desconto_parcelas ?? 1
                               return s + (p > 1 ? a.valor / p : a.valor)
                             }, 0)
-                            const emFech  = lanc.status === 'em_fechamento'
-                            const verDet  = verADLancId === lanc.id
 
+                            // ── BANNER VERDE: já aplicado ─────────────────
+                            if (jaAplicado) {
+                              return (
+                                <TableRow style={{ background: 'transparent' }}>
+                                  <TableCell colSpan={13} style={{ padding: '0 8px 10px 8px', border: 0 }}>
+                                    <div style={{
+                                      borderRadius: 10,
+                                      border: '2px solid #16a34a',
+                                      background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+                                      padding: '12px 16px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      flexWrap: 'wrap',
+                                      gap: 10,
+                                      boxShadow: '0 2px 8px rgba(22,163,74,.1)',
+                                    }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <span style={{ fontSize: 20 }}>✅</span>
+                                        <div>
+                                          <div style={{ fontWeight: 800, fontSize: 13, color: '#15803d' }}>
+                                            Desconto de adiantamento aplicado — {formatCurrency(adAplicado)}
+                                          </div>
+                                          <div style={{ fontSize: 12, color: '#16a34a', marginTop: 2 }}>
+                                            Descontado do líquido de {colab.nome} neste fechamento
+                                          </div>
+                                        </div>
+                                      </div>
+                                      {/* Desfazer — só em fechamento */}
+                                      {emFech && (
+                                        <button
+                                          disabled={saving}
+                                          onClick={async () => {
+                                            setSaving(true)
+                                            // Buscar os ADs que foram descontados neste mês para reverter
+                                            const { data: adsDescontados } = await supabase
+                                              .from('adiantamentos')
+                                              .select('id,desconto_parcela_atual,desconto_parcelas')
+                                              .eq('colaborador_id', lanc.colaborador_id)
+                                              .or(`descontado_em.eq.${mesRef},and(status.eq.aprovado,desconto_a_partir.lte.${mesRef})`)
+                                            for (const a of (adsDescontados ?? [])) {
+                                              const feitas = Math.max(0, (a.desconto_parcela_atual ?? 1) - 1)
+                                              await supabase.from('adiantamentos').update({
+                                                status: 'aprovado',
+                                                desconto_parcela_atual: feitas,
+                                                descontado_em: null,
+                                              }).eq('id', a.id)
+                                            }
+                                            const novoLiq = (lanc.snap_liquido ?? lanc.liquido) + adAplicado
+                                            await supabase.from('ponto_lancamentos').update({
+                                              snap_desconto_adiant: 0,
+                                              snap_liquido: novoLiq,
+                                            }).eq('id', lanc.id)
+                                            setSaving(false)
+                                            toast.success('↩ Desconto -AD removido')
+                                            fetchLancamentos(mesRef)
+                                          }}
+                                          style={{
+                                            height: 34, padding: '0 16px', borderRadius: 7,
+                                            border: '1.5px solid #16a34a', background: '#fff',
+                                            color: '#15803d', fontWeight: 700, fontSize: 12,
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                                          }}>
+                                          ↩ Desfazer desconto
+                                        </button>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            }
+
+                            // ── BANNER AMARELO: AD pendente de escolha ────
                             return (
                               <TableRow style={{ background: 'transparent' }}>
                                 <TableCell colSpan={13} style={{ padding: '0 8px 10px 8px', border: 0 }}>
@@ -1145,7 +1224,7 @@ export default function FechamentoPonto() {
                                     gap: 10,
                                     boxShadow: '0 2px 8px rgba(245,158,11,.15)',
                                   }}>
-                                    {/* Linha principal do banner */}
+                                    {/* Linha principal */}
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                         <span style={{ fontSize: 22 }}>💳</span>
@@ -1159,9 +1238,8 @@ export default function FechamentoPonto() {
                                           </div>
                                         </div>
                                       </div>
-                                      {/* Botões de ação */}
+                                      {/* Botões */}
                                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                                        {/* Ver detalhes */}
                                         <button
                                           onClick={() => setVerADLancId(verDet ? null : lanc.id)}
                                           style={{ height: 34, padding: '0 14px', borderRadius: 7,
@@ -1172,7 +1250,6 @@ export default function FechamentoPonto() {
                                         </button>
                                         {emFech && (
                                           <>
-                                            {/* Descontar */}
                                             <button
                                               disabled={saving}
                                               onClick={async () => {
@@ -1203,7 +1280,6 @@ export default function FechamentoPonto() {
                                                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                                               ✅ Descontar agora
                                             </button>
-                                            {/* Não descontar */}
                                             <button
                                               onClick={() => {
                                                 setVerADLancId(null)
@@ -1213,34 +1289,24 @@ export default function FechamentoPonto() {
                                                 border: '1.5px solid #9ca3af', background: '#f9fafb',
                                                 color: '#6b7280', fontWeight: 700, fontSize: 12,
                                                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                              ⏭ Não descontar
+                                              ⏭ Não descontar agora
                                             </button>
                                           </>
                                         )}
                                       </div>
                                     </div>
-
-                                    {/* Painel de detalhes — expandido ao clicar em "Ver" */}
+                                    {/* Painel detalhes expandível */}
                                     {verDet && (
                                       <div style={{
-                                        marginTop: 4,
-                                        borderTop: '1px dashed #f59e0b',
-                                        paddingTop: 10,
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                                        gap: 8,
+                                        marginTop: 4, borderTop: '1px dashed #f59e0b', paddingTop: 10,
+                                        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8,
                                       }}>
                                         {adsLanc.map((a, idx) => {
                                           const p = a.desconto_parcelas ?? 1
                                           const f = a.desconto_parcela_atual ?? 0
                                           const vlParc = p > 1 ? a.valor / p : a.valor
                                           return (
-                                            <div key={a.id} style={{
-                                              background: '#fff',
-                                              borderRadius: 8,
-                                              border: '1px solid #fde68a',
-                                              padding: '10px 14px',
-                                            }}>
+                                            <div key={a.id} style={{ background: '#fff', borderRadius: 8, border: '1px solid #fde68a', padding: '10px 14px' }}>
                                               <div style={{ fontWeight: 700, fontSize: 12, color: '#92400e', marginBottom: 6 }}>
                                                 💳 Adiantamento {idx + 1}
                                               </div>
@@ -1250,7 +1316,7 @@ export default function FechamentoPonto() {
                                                   <strong style={{ color: '#b45309' }}>{formatCurrency(a.valor)}</strong>
                                                 </div>
                                                 <div style={{ fontSize: 11, display: 'flex', justifyContent: 'space-between' }}>
-                                                  <span style={{ color: '#6b7280' }}>Desconto tipo:</span>
+                                                  <span style={{ color: '#6b7280' }}>Tipo desconto:</span>
                                                   <strong>{p > 1 ? `Parcelado ${p}x` : 'Único'}</strong>
                                                 </div>
                                                 {p > 1 && (

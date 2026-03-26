@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
 import { calcINSS, calcIR } from '@/lib/encargos'
-import { PageHeader, LoadingSkeleton, EmptyState } from '@/components/Shared'
+import { PageHeader, LoadingSkeleton, EmptyState, SummaryCard } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -382,62 +382,44 @@ export default function EncargosPage() {
       {!loading && calculado && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {/* Colaboradores */}
-            <div style={{ background: 'var(--card)', borderRadius: 10, border: '1px solid var(--border)', padding: '14px 16px' }}>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#1e3a5f' }}>
-                  <Briefcase className="w-4 h-4 text-white" />
-                </div>
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">CLT</span>
-              </div>
-              <p className="text-2xl font-bold text-foreground">{totais.qtd}</p>
-              <p className="text-xs text-muted-foreground mt-1">lançamentos</p>
-            </div>
+            <SummaryCard
+              sigla="CLT"
+              label="Lançamentos"
+              value={String(totais.qtd)}
+              sub="colaboradores CLT"
+              color="#1e3a5f"
+              bg="#1e3a5f"
+            />
+            <SummaryCard
+              sigla="RS"
+              label="Bruto Total"
+              value={formatCurrency(totais.salarioBruto)}
+              color="#15803d"
+              bg="#15803d"
+            />
+            <SummaryCard
+              sigla="IN"
+              label="INSS Retido"
+              value={formatCurrency(totais.inss)}
+              color="#0369a1"
+              bg="#0369a1"
+            />
+            <SummaryCard
+              sigla="IR"
+              label="IR Retido"
+              value={formatCurrency(totais.ir)}
+              color="#dc2626"
+              bg="#dc2626"
+            />
 
-            {/* Salário Bruto */}
-            <div style={{ background: 'var(--card)', borderRadius: 10, border: '1px solid var(--border)', padding: '14px 16px' }}>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#15803d' }}>
-                  <span className="text-white text-xs font-bold">R$</span>
-                </div>
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Bruto Total</span>
-              </div>
-              <p className="text-xl font-bold" style={{ color: '#15803d' }}>{formatCurrency(totais.salarioBruto)}</p>
-            </div>
-
-            {/* INSS retido */}
-            <div style={{ background: 'var(--card)', borderRadius: 10, border: '1px solid var(--border)', padding: '14px 16px' }}>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#0369a1' }}>
-                  <span className="text-white text-xs font-bold">IN</span>
-                </div>
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">INSS Retido</span>
-              </div>
-              <p className="text-xl font-bold" style={{ color: '#0369a1' }}>{formatCurrency(totais.inss)}</p>
-            </div>
-
-            {/* IR retido */}
-            <div style={{ background: 'var(--card)', borderRadius: 10, border: '1px solid var(--border)', padding: '14px 16px' }}>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#dc2626' }}>
-                  <span className="text-white text-xs font-bold">IR</span>
-                </div>
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">IR Retido</span>
-              </div>
-              <p className="text-xl font-bold" style={{ color: '#dc2626' }}>{formatCurrency(totais.ir)}</p>
-            </div>
-
-            {/* Encargos empresa */}
-            <div style={{ background: 'var(--card)', borderRadius: 10, border: '1px solid var(--border)', padding: '14px 16px' }}>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#7c3aed' }}>
-                  <span className="text-white text-xs font-bold">EMP</span>
-                </div>
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Enc. Empresa</span>
-              </div>
-              <p className="text-xl font-bold" style={{ color: '#7c3aed' }}>{formatCurrency(totais.totalEmpresa)}</p>
-              <p className="text-xs text-muted-foreground mt-1">FGTS + INSS Pat. + RAT</p>
-            </div>
+            <SummaryCard
+              sigla="EMP"
+              label="Enc. Empresa"
+              value={formatCurrency(totais.totalEmpresa)}
+              sub="FGTS + INSS Pat. + RAT"
+              color="#7c3aed"
+              bg="#7c3aed"
+            />
           </div>
 
           {/* ── Tabela ────────────────────────────────────────────────────────── */}

@@ -86,3 +86,59 @@ export function LoadingSkeleton({ rows = 5 }: { rows?: number }) {
     </div>
   )
 }
+
+// ─── SummaryCard — card padrão de resumo/total (design unificado) ─────────────
+// Ícone com fundo colorido (initials/sigla), label, valor grande, subtítulo
+export interface SummaryCardProps {
+  sigla: string          // 2-3 chars, ex: "RS", "IN", "IR", "CLT", "EMP"
+  label: string          // ex: "BRUTO TOTAL"
+  value: string          // formatado, ex: "R$ 2.691,27"
+  sub?: string           // subtítulo, ex: "FGTS + INSS Pat. + RAT"
+  color: string          // texto e ícone, ex: "#15803d"
+  bg: string             // fundo do ícone, ex: "#15803d"
+  onClick?: () => void
+}
+
+export function SummaryCard({ sigla, label, value, sub, color, bg, onClick }: SummaryCardProps) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: 'var(--card)',
+        border: '1px solid var(--border)',
+        borderRadius: 12,
+        padding: '14px 16px',
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 12,
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'box-shadow 120ms',
+      }}
+      onMouseEnter={e => { if (onClick) (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 12px rgba(0,0,0,0.10)' }}
+      onMouseLeave={e => { if (onClick) (e.currentTarget as HTMLElement).style.boxShadow = '' }}
+    >
+      {/* ícone com sigla */}
+      <div style={{
+        width: 36, height: 36, minWidth: 36, borderRadius: 8,
+        background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: '0.02em',
+      }}>
+        {sigla}
+      </div>
+      {/* conteúdo */}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>
+          {label}
+        </div>
+        <div style={{ fontSize: 18, fontWeight: 800, color, lineHeight: 1.1 }}>
+          {value}
+        </div>
+        {sub && (
+          <div style={{ fontSize: 10, color: 'var(--muted-foreground)', marginTop: 3 }}>
+            {sub}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

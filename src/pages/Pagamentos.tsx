@@ -278,7 +278,7 @@ export default function Pagamentos() {
     fetchData()
   }
 
-  // ─── recusar pagamento de VT (devolve para pendente) ─────────────────────
+  // ─── recusar pagamento (devolve para editável) ─────────────────────────────
   const [modalRecusarVT, setModalRecusarVT] = useState<PagamentoRow | null>(null)
   async function recusarPagamentoVT() {
     if (!modalRecusarVT) return
@@ -288,7 +288,7 @@ export default function Pagamentos() {
       .from('pagamentos').delete().eq('id', modalRecusarVT.id)
     if (errDel) { setSavingPgto(false); toast.error('Erro ao recusar: ' + errDel.message); return }
     // Devolve o VT para pendente
-    if (modalRecusarVT.colaborador_id && modalRecusarVT.competencia) {
+    if (modalRecusarVT.tipo === 'vale_transporte' && modalRecusarVT.colaborador_id && modalRecusarVT.competencia) {
       await supabase
         .from('vale_transporte')
         .update({ status: 'pendente' })
@@ -296,9 +296,27 @@ export default function Pagamentos() {
         .eq('competencia', modalRecusarVT.competencia)
         .eq('status', 'aguardando_pagamento')
     }
+    // Devolve o adiantamento para pendente
+    if (modalRecusarVT.tipo === 'adiantamento' && modalRecusarVT.colaborador_id) {
+      await supabase
+        .from('adiantamentos')
+        .update({ status: 'pendente', pagamento_id: null } as any)
+        .eq('colaborador_id', modalRecusarVT.colaborador_id)
+        .eq('status', 'aprovado')
+        .eq('valor', (modalRecusarVT as any).valor_bruto ?? (modalRecusarVT as any).valor_liquido ?? 0)
+    }
+    // Devolve o prêmio para aprovado (editável)
+    if (modalRecusarVT.tipo === 'premio' && modalRecusarVT.colaborador_id) {
+      await supabase
+        .from('premios')
+        .update({ status: 'aprovado', pagamento_id: null } as any)
+        .eq('colaborador_id', modalRecusarVT.colaborador_id)
+        .eq('status', 'aprovado')
+        .eq('valor', (modalRecusarVT as any).valor_bruto ?? (modalRecusarVT as any).valor_liquido ?? 0)
+    }
     setSavingPgto(false)
     setModalRecusarVT(null)
-    toast.success('↩ Pagamento recusado — VT voltou para Pendente')
+    toast.success('↩ Pagamento recusado — registro voltou para editável')
     fetchData()
   }
 
@@ -626,10 +644,12 @@ export default function Pagamentos() {
                               onClick={() => marcarPago(r.id)}>
                               ✅ Confirmar
                             </Button>
+                            {(r.tipo === 'vale_transporte' || r.tipo === 'adiantamento' || r.tipo === 'premio') && (
                             <Button size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-300 hover:bg-red-50"
                               onClick={() => setModalRecusarVT(r)}>
                               ✕ Recusar
                             </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1124,11 +1144,15 @@ export default function Pagamentos() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle style={{ display:'flex', alignItems:'center', gap:8 }}>
-              ✕ Recusar pagamento de VT?
+              ✕ {modalRecusarVT?.tipo === 'adiantamento'
+                ? 'Recusar Adiantamento?'
+                : modalRecusarVT?.tipo === 'premio'
+                  ? 'Recusar Prêmio?'
+                  : 'Recusar VT?'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              O registro de pagamento será <strong>excluído</strong> e o lançamento de Vale Transporte
-              voltará para status <strong>Pendente</strong>, permitindo edição e reenvio.
+              O registro de pagamento será <strong>excluído</strong> e o lançamento voltará
+              para status <strong>editável</strong>, permitindo edição e reenvio.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1138,7 +1162,7 @@ export default function Pagamentos() {
               onClick={recusarPagamentoVT}
               className="bg-destructive text-destructive-foreground"
             >
-              {savingPgto ? 'Processando…' : '↩ Recusar e devolver VT'}
+              {savingPgto ? 'Processando…' : '↩ Recusar e devolver'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -9,7 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { formatCurrency } from '@/lib/utils'
 import { calcINSS, calcIR, fetchTabelasEncargos, type FaixaINSS, type FaixaIR } from '@/lib/encargos'
-import { PageHeader, EmptyState, LoadingSkeleton } from '@/components/Shared'
+import { PageHeader, EmptyState, LoadingSkeleton, SummaryCard } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { traduzirErro } from '@/lib/erros'
@@ -828,29 +828,39 @@ export default function FechamentoPonto() {
         })}
       </div>
 
-      {/* ── Barra de resumo compacta (sem cards individuais) ── */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '7px 14px', display: 'flex', gap: 8, alignItems: 'center' }}>
-          <Users size={13} style={{ color: '#2563eb' }} />
-          <span style={{ fontSize: 12, color: '#1e40af', fontWeight: 700 }}>{porColaborador.length} colaborador(es)</span>
-        </div>
-        {pendentes.length > 0 && (
-          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '7px 14px', display: 'flex', gap: 8, alignItems: 'center' }}>
-            <Clock size={13} style={{ color: '#b45309' }} />
-            <span style={{ fontSize: 12, color: '#b45309', fontWeight: 700 }}>{pendentes.length} aguardando pagamento</span>
-          </div>
-        )}
-        {pagos.length > 0 && (
-          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '7px 14px', display: 'flex', gap: 8, alignItems: 'center' }}>
-            <CheckCircle2 size={13} style={{ color: '#15803d' }} />
-            <span style={{ fontSize: 12, color: '#15803d', fontWeight: 700 }}>{pagos.length} pago(s)</span>
-          </div>
-        )}
-        <div style={{ marginLeft: 'auto', background: '#fdf4ff', border: '1px solid #e9d5ff', borderRadius: 8, padding: '7px 16px', display: 'flex', gap: 8, alignItems: 'center' }}>
-          <DollarSign size={13} style={{ color: '#7c3aed' }} />
-          <span style={{ fontSize: 13, color: '#7c3aed', fontWeight: 800 }}>{formatCurrency(totalGeral)}</span>
-          <span style={{ fontSize: 11, color: '#a78bfa' }}>total geral</span>
-        </div>
+      {/* ── Cards de resumo ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        <SummaryCard
+          sigla="COL"
+          label="Colaboradores"
+          value={String(porColaborador.length)}
+          sub="no período"
+          color="#1e40af"
+          bg="#1e40af"
+        />
+        <SummaryCard
+          sigla="AG"
+          label="Ag. Pagamento"
+          value={String(pendentes.length)}
+          sub="lançamentos"
+          color="#b45309"
+          bg="#b45309"
+        />
+        <SummaryCard
+          sigla="PG"
+          label="Pagos"
+          value={String(pagos.length)}
+          sub="lançamentos"
+          color="#15803d"
+          bg="#15803d"
+        />
+        <SummaryCard
+          sigla="TOT"
+          label="Total Geral"
+          value={formatCurrency(totalGeral)}
+          color="#7c3aed"
+          bg="#7c3aed"
+        />
       </div>
 
       {/* ── Lista por colaborador ── */}

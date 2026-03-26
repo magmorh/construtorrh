@@ -235,11 +235,11 @@ export default function Dashboard() {
             .select('id, tipo_contrato')
             .eq('status', 'ativo'),
 
-          // 2. Obras ativas
+          // 2. Obras ativas (aceita 'ativo', 'em_andamento' e 'andamento')
           supabase
             .from('obras')
             .select('id', { count: 'exact', head: true })
-            .eq('status', 'ativo'),
+            .in('status', ['ativo', 'em_andamento', 'andamento']),
 
           // 3. Folha mês atual (snap_liquido, status liberado/pago)
           supabase

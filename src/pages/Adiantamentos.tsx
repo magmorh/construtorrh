@@ -481,8 +481,10 @@ export default function Adiantamentos() {
                 const isPago = r.status === 'pago'
                 const parcelasTotal = r.desconto_parcelas ?? 1
                 const parcelasFeitas = r.desconto_parcela_atual ?? 0
+                // Destaque visual: pendente sem pagamento_id = voltou de recusado
+                const foiRecusado = r.status === 'pendente' && !r.pagamento_id
                 return (
-                  <TableRow key={r.id}>
+                  <TableRow key={r.id} style={foiRecusado ? { background: 'rgba(251,191,36,0.08)', outline: '1.5px solid #fbbf24' } : {}}>
                     <TableCell>
                       <div style={{ fontWeight: 700, fontSize: 13 }}>{r.colaboradores?.nome ?? '—'}</div>
                       <div style={{ fontSize: 11, color: 'var(--muted-foreground)', fontFamily: 'monospace' }}>
@@ -499,6 +501,12 @@ export default function Adiantamentos() {
                         {isPago && (
                           <span style={{ fontSize: 10, color: r.pagamento_id ? '#7c3aed' : '#059669', fontWeight: 600 }}>
                             {r.pagamento_id ? '💜 Via pagamento' : '✅ Via fechamento'}
+                          </span>
+                        )}
+                        {/* Indicador: voltou de pagamento recusado */}
+                        {foiRecusado && (
+                          <span style={{ fontSize: 10, color: '#b45309', fontWeight: 700, background: '#fef3c7', borderRadius: 4, padding: '1px 6px', display: 'inline-block' }}>
+                            ↩ Recusado — editável
                           </span>
                         )}
                       </div>

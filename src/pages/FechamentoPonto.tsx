@@ -460,15 +460,14 @@ export default function FechamentoPonto() {
     setLancamentos(lista.filter(Boolean) as LancItem[])
 
     // ── Pré-carregar adiantamentos disponíveis para desconto (-AD) por colaborador ──
-    // Busca adiantamentos aprovados com desconto_a_partir ≤ mês atual e ainda não quitados
+    // Busca adiantamentos pendentes/aprovados ainda não quitados para os colaboradores do mês
     if (colabIds.length > 0) {
       const { data: adDisp } = await supabase
         .from('adiantamentos')
-        .select('id,colaborador_id,valor,desconto_tipo,desconto_parcelas,desconto_parcela_atual,desconto_obs')
-        .in('status', ['aprovado'])
+        .select('id,colaborador_id,valor,desconto_tipo,desconto_parcelas,desconto_parcela_atual,desconto_obs,desconto_a_partir')
+        .in('status', ['aprovado', 'pendente'])
         .is('descontado_em', null)
-        .lte('desconto_a_partir', mr)
-        .not('desconto_a_partir', 'is', null)
+        .or(`desconto_a_partir.is.null,desconto_a_partir.lte.${mr}`)
         .in('colaborador_id', colabIds)
       // Mapear lancamento_id → lista de AD (usando colaborador_id como chave)
       const mapaAD: Record<string, typeof adDisp> = {}
@@ -563,10 +562,9 @@ export default function FechamentoPonto() {
       .from('adiantamentos')
       .select('id,valor,desconto_tipo,desconto_parcelas,desconto_parcela_atual,desconto_obs,desconto_a_partir')
       .eq('colaborador_id', lanc.colaborador_id)
-      .in('status', ['aprovado', 'pago'])   // aprovado = pronto p/ descontar; pago = pagamento manual feito
-      .is('descontado_em', null)             // ainda não foi quitado
-      .lte('desconto_a_partir', mesRef)      // mês de início do desconto já chegou
-      .not('desconto_a_partir', 'is', null)  // tem mês configurado
+      .in('status', ['aprovado', 'pendente'])
+      .is('descontado_em', null)
+      .or(`desconto_a_partir.is.null,desconto_a_partir.lte.${mesRef}`)
     setAdiantsDisponiveis((adData ?? []) as any[])
     setModalLiberar(lanc)
   }

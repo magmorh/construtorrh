@@ -170,7 +170,10 @@ export default function Premios() {
     setModalOpen(true)
   }
   function openEdit(row: PremioRow) {
-    if (row.status === 'pago') { toast.error('Prêmio já pago não pode ser editado.'); return }
+    if (row.status === 'pago') {
+      toast.error('❌ Prêmio já pago — exclua o pagamento vinculado antes de editar.')
+      return
+    }
     setEditando(row)
     setForm({
       colaborador_id: row.colaborador_id,
@@ -244,7 +247,7 @@ export default function Premios() {
     if (!cancelarRow) return
     if (cancelarRow.pagamento_id) {
       const { data: pag } = await supabase.from('pagamentos').select('status').eq('id', cancelarRow.pagamento_id).single()
-      if (pag?.status === 'pago') { toast.error('Já foi pago — não pode cancelar.'); setCancelarRow(null); return }
+      if (pag?.status === 'pago') { toast.error('❌ Pagamento já efetuado — exclua o pagamento antes de cancelar.'); setCancelarRow(null); return }
       await supabase.from('pagamentos').delete().eq('id', cancelarRow.pagamento_id)
     }
     await supabase.from('premios').update({ status: 'cancelado', pagamento_id: null }).eq('id', cancelarRow.id)
@@ -452,17 +455,26 @@ export default function Premios() {
                             <CheckCircle2 size={12} /> Aprovar
                           </button>
                         )}
+                        {/* Editar: pendente ou aprovado, nunca pago */}
                         {(statusRow === 'pendente' || statusRow === 'aprovado') && (
                           <button onClick={() => openEdit(row)} title="Editar"
                             style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <Pencil size={12} />
                           </button>
                         )}
+                        {/* Cancelar: aprovado mas não pago */}
                         {statusRow === 'aprovado' && (
                           <button onClick={() => setCancelarRow(row)} title="Cancelar"
                             style={{ height: 28, padding: '0 10px', borderRadius: 6, border: '1px solid #fecaca', background: '#fff5f5', color: '#dc2626', cursor: 'pointer', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
                             <XCircle size={12} /> Cancelar
                           </button>
+                        )}
+                        {/* Pago: cadeado */}
+                        {statusRow === 'pago' && (
+                          <span title="Pago — exclua o pagamento para editar"
+                            style={{ width: 28, height: 28, borderRadius: 6, background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'help' }}>
+                            🔒
+                          </span>
                         )}
                         {(statusRow === 'pendente' || statusRow === 'cancelado') && (
                           <button onClick={() => setDeleteId(row.id)} title="Excluir"

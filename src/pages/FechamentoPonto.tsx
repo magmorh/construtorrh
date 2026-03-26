@@ -100,10 +100,13 @@ export default function FechamentoPonto() {
   const [modalEstornar, setModalEstornar] = useState<string | null>(null)
   const [motivoEstorno, setMotivoEstorno] = useState('')
   // Aba ativa: 'pendente' | 'aprovado' | 'recusado' | 'fechamento'
-  const [abaFechamento, setAbaFechamento] = useState<'pendente'|'aprovado'|'recusado'|'fechamento'>('fechamento')
+  const [abaFechamento, setAbaFechamento] = useState<'pendente'|'aprovado'|'liberado'|'pago'|'recusado'|'fechamento'>('fechamento')
 
   // Modal confirmar pagamento
   const [modalLiberar, setModalLiberar] = useState<LancItem | null>(null)
+  // Estado do desconto -AD dentro do modal de liberar
+  const [adDescontoAprovado, setAdDescontoAprovado] = useState(false)
+  const [adiantsDisponiveis, setAdiantsDisponiveis] = useState<{id:string;valor:number;desconto_tipo:string;desconto_parcelas:number|null;desconto_parcela_atual:number|null;desconto_obs:string|null}[]>([])
 
   const mesRef = `${ano}-${String(mes).padStart(2, '0')}`
   const [filtroObraFech,   setFiltroObraFech]   = useState('todos')
@@ -465,7 +468,9 @@ export default function FechamentoPonto() {
   const contAbas = useMemo(() => ({
     fechamento:  lancamentos.filter(l => ['em_fechamento','rascunho'].includes(l.status)).length,
     pendente:    lancamentos.filter(l => l.status === 'aguardando_aprovacao').length,
-    aprovado:    lancamentos.filter(l => ['aprovado','liberado','pago'].includes(l.status)).length,
+    aprovado:    lancamentos.filter(l => l.status === 'aprovado').length,       // aguardando liberação
+    liberado:    lancamentos.filter(l => l.status === 'liberado').length,       // liberado p/ pagamento
+    pago:        lancamentos.filter(l => l.status === 'pago').length,           // já pago
     recusado:    lancamentos.filter(l => l.status === 'recusado').length,
   }), [lancamentos])
 
@@ -478,8 +483,12 @@ export default function FechamentoPonto() {
       : abaFechamento === 'pendente'
         ? ['aguardando_aprovacao']
         : abaFechamento === 'aprovado'
-          ? ['aprovado', 'liberado', 'pago']
-          : ['recusado']
+          ? ['aprovado']
+          : abaFechamento === 'liberado'
+            ? ['liberado']
+            : abaFechamento === 'pago'
+              ? ['pago']
+              : ['recusado']
     const filtrados = lancamentos.filter(l =>
       statusAba.includes(l.status) &&
       (!q || l.colaborador_nome.toLowerCase().includes(q) ||
@@ -510,9 +519,19 @@ export default function FechamentoPonto() {
   const pagos        = lancamentos.filter(l => l.status === 'pago')
 
   // ── Aprovar → abre popup de confirmação com resumo ──────────────────────
-  function abrirModalLiberar(id: string) {
+  async function abrirModalLiberar(id: string) {
     const lanc = lancamentos.find(l => l.id === id)
     if (!lanc) return
+    setAdDescontoAprovado(false)
+    // Buscar adiantamentos pago + não descontados para esse colaborador no mês
+    const { data: adData } = await supabase
+      .from('adiantamentos')
+      .select('id,valor,desconto_tipo,desconto_parcelas,desconto_parcela_atual,desconto_obs')
+      .eq('colaborador_id', lanc.colaborador_id)
+      .eq('status', 'pago')
+      .is('descontado_em', null)
+      .lte('desconto_a_partir', mesRef)
+    setAdiantsDisponiveis((adData ?? []) as any[])
     setModalLiberar(lanc)
   }
 
@@ -521,9 +540,19 @@ export default function FechamentoPonto() {
     const lanc = modalLiberar
     if (!lanc) return
     setSaving(true)
+
+    // Calcular desconto -AD aprovado neste fechamento
+    const descontoAD = adDescontoAprovado && adiantsDisponiveis.length > 0
+      ? adiantsDisponiveis.reduce((s, a) => {
+          const p = a.desconto_parcelas ?? 1
+          return s + (p > 1 ? a.valor / p : a.valor)
+        }, 0)
+      : lanc.desconto_adiant
+
+    const liquidoFinal = lanc.valor_total - lanc.desconto_vt - lanc.inss - lanc.ir - descontoAD
+
     const { error } = await supabase.from('ponto_lancamentos').update({
-      status: 'liberado',   // pula 'aprovado' → vai direto para aguardando pagamento
-      // ──── SNAPSHOT: valores congelados no momento do fechamento ────────────
+      status: 'liberado',
       snap_valor_hora:      lanc.vh_usado,
       snap_horas_normais:   lanc.horas_normais,
       snap_horas_extras:    lanc.horas_extras,
@@ -535,17 +564,34 @@ export default function FechamentoPonto() {
       snap_faltas:          lanc.faltas,
       snap_vt_diario:       lanc.vt_diario_usado,
       snap_desconto_vt:     lanc.desconto_vt,
-      snap_desconto_adiant: lanc.desconto_adiant,
+      snap_desconto_adiant: descontoAD,
       snap_inss:            lanc.inss,
       snap_ir:              lanc.ir,
-      snap_liquido:         lanc.liquido,
+      snap_liquido:         liquidoFinal,
       snap_fechado_em:      new Date().toISOString(),
       snap_fechado_por:     user?.email ?? 'sistema',
     }).eq('id', lanc.id)
+
+    if (error) { setSaving(false); toast.error('Erro ao liberar: ' + error.message); return }
+
+    // Marcar adiantamentos como descontados (parcial ou total)
+    if (adDescontoAprovado && adiantsDisponiveis.length > 0) {
+      for (const a of adiantsDisponiveis) {
+        const parcelas = a.desconto_parcelas ?? 1
+        const feitas   = (a.desconto_parcela_atual ?? 0) + 1
+        const totalQuitado = feitas >= parcelas
+        await supabase.from('adiantamentos').update({
+          desconto_parcela_atual: feitas,
+          descontado_em: totalQuitado ? mesRef : null,
+        }).eq('id', a.id)
+      }
+    }
+
     setSaving(false)
-    if (error) { toast.error('Erro ao liberar: ' + error.message); return }
     toast.success('✅ Aprovado e liberado para pagamento!')
     setModalLiberar(null)
+    setAdiantsDisponiveis([])
+    setAdDescontoAprovado(false)
     fetchLancamentos(mesRef)
   }
 
@@ -703,10 +749,12 @@ export default function FechamentoPonto() {
       {/* ── Abas de status ── */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)', flexWrap: 'wrap' }}>
         {([
-          { key: 'fechamento',  label: '🔒 Em Fechamento',         cnt: contAbas.fechamento,  cor: '#1d4ed8' },
-          { key: 'pendente',    label: '⏳ Pendente de Aprovação',  cnt: contAbas.pendente,    cor: '#b45309' },
-          { key: 'aprovado',    label: '✅ Aprovado / Liberado',    cnt: contAbas.aprovado,    cor: '#15803d' },
-          { key: 'recusado',    label: '❌ Recusado',               cnt: contAbas.recusado,    cor: '#dc2626' },
+          { key: 'fechamento',  label: '🔒 Em Fechamento',          cnt: contAbas.fechamento,  cor: '#1d4ed8' },
+          { key: 'pendente',    label: '⏳ Ag. Aprovação',           cnt: contAbas.pendente,    cor: '#b45309' },
+          { key: 'aprovado',    label: '✅ Aprovado',                cnt: contAbas.aprovado,    cor: '#059669' },
+          { key: 'liberado',    label: '💜 Liberado p/ Pagamento',   cnt: contAbas.liberado,    cor: '#7c3aed' },
+          { key: 'pago',        label: '💳 Pago',                    cnt: contAbas.pago,        cor: '#1d4ed8' },
+          { key: 'recusado',    label: '❌ Recusado',                cnt: contAbas.recusado,    cor: '#dc2626' },
         ] as const).map(ab => {
           const ativo = abaFechamento === ab.key
           return (
@@ -1164,11 +1212,58 @@ export default function FechamentoPonto() {
                     <span style={{ fontSize:13, fontWeight:600, color:'#dc2626' }}>- {formatCurrency(modalLiberar.ir)}</span>
                   </div>
                 )}
-                {modalLiberar.desconto_adiant > 0 && (
+                {/* ── BLOCO -AD: desconto de adiantamentos ── */}
+                {adiantsDisponiveis.length > 0 && (
+                  <div style={{ border: '1.5px solid #fde68a', borderRadius: 8, margin: '10px 14px', overflow: 'hidden' }}>
+                    <div style={{ background: '#fffbeb', padding: '9px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#b45309' }}>💳 Desconto de Adiantamento (-AD)</span>
+                      <button
+                        onClick={() => setAdDescontoAprovado(p => !p)}
+                        style={{ height: 28, padding: '0 12px', borderRadius: 6, border: `1.5px solid ${adDescontoAprovado ? '#15803d' : '#b45309'}`,
+                          background: adDescontoAprovado ? '#dcfce7' : '#fef3c7',
+                          color: adDescontoAprovado ? '#15803d' : '#b45309',
+                          fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+                        {adDescontoAprovado ? '✅ Desconto Aprovado' : '+ Aprovar Desconto'}
+                      </button>
+                    </div>
+                    {adiantsDisponiveis.map(a => {
+                      const parcelas = a.desconto_parcelas ?? 1
+                      const feitas   = a.desconto_parcela_atual ?? 0
+                      const valParcela = parcelas > 1 ? a.valor / parcelas : a.valor
+                      return (
+                        <div key={a.id} style={{ padding: '8px 14px', background: '#fff', borderTop: '1px solid #fef3c7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>
+                              {a.desconto_tipo === 'parcelado'
+                                ? `Parcela ${feitas + 1}/${parcelas} — ${formatCurrency(valParcela)}`
+                                : `Pontual — ${formatCurrency(a.valor)}`}
+                            </div>
+                            {a.desconto_obs && <div style={{ fontSize: 11, color: '#9ca3af' }}>{a.desconto_obs}</div>}
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed' }}>- {formatCurrency(valParcela)}</span>
+                        </div>
+                      )
+                    })}
+                    {!adDescontoAprovado && (
+                      <div style={{ padding: '7px 14px', background: '#fffbeb', fontSize: 11, color: '#92400e' }}>
+                        ⚠ Clique em "Aprovar Desconto" para incluir o desconto no fechamento.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {(modalLiberar.desconto_adiant > 0 || (adDescontoAprovado && adiantsDisponiveis.length > 0)) && (
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
                     padding:'9px 14px', background:'#fdf4ff', borderBottom:'1px solid #f3f4f6' }}>
                     <span style={{ fontSize:13, color:'#374151' }}>💳 - Adiantamento (-AD)</span>
-                    <span style={{ fontSize:13, fontWeight:600, color:'#7c3aed' }}>- {formatCurrency(modalLiberar.desconto_adiant)}</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'#7c3aed' }}>
+                      - {formatCurrency(adDescontoAprovado
+                        ? adiantsDisponiveis.reduce((s, a) => {
+                            const p = a.desconto_parcelas ?? 1
+                            return s + (p > 1 ? a.valor / p : a.valor)
+                          }, 0)
+                        : modalLiberar.desconto_adiant)}
+                    </span>
                   </div>
                 )}
                 {/* Líquido */}

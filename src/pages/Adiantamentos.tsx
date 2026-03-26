@@ -18,7 +18,8 @@ import {
 import { toast } from 'sonner'
 import {
   DollarSign, Plus, Search, Pencil, Trash2, ChevronLeft, ChevronRight,
-  CheckCircle2, XCircle, Clock, RefreshCw, Building2, Users,
+  CheckCircle2, XCircle, Clock, RefreshCw, Building2, Users, CalendarDays, Repeat,
+  AlertTriangle, Info,
 } from 'lucide-react'
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
@@ -32,8 +33,13 @@ type AdiantRow = {
   tipo: string
   observacoes: string | null
   pagamento_id: string | null
+  // parcelamento
+  desconto_tipo: 'unico' | 'parcelado' | null  // único ou parcelado
+  desconto_parcelas: number | null             // total de parcelas
+  desconto_parcela_atual: number | null        // qual parcela já descontada
+  desconto_a_partir: string | null             // 'YYYY-MM' — a partir de quando descontar
+  desconto_obs: string | null                  // obs sobre o desconto
   colaboradores?: { nome: string; chapa: string }
-  obras?: { nome: string } | null
 }
 
 type FormData = {
@@ -43,6 +49,11 @@ type FormData = {
   valor: string
   tipo: string
   observacoes: string
+  // parcelamento
+  desconto_tipo: 'unico' | 'parcelado'
+  desconto_parcelas: string   // número de parcelas (só se parcelado)
+  desconto_a_partir: string   // 'YYYY-MM'
+  desconto_obs: string
 }
 
 const TIPOS = [
@@ -92,6 +103,10 @@ const EMPTY: FormData = {
   valor: '',
   tipo: 'adiantamento',
   observacoes: '',
+  desconto_tipo: 'unico',
+  desconto_parcelas: '1',
+  desconto_a_partir: new Date().toISOString().slice(0, 7),
+  desconto_obs: '',
 }
 
 // ─── componente ──────────────────────────────────────────────────────────────
@@ -167,7 +182,14 @@ export default function Adiantamentos() {
     setModalOpen(true)
   }
   function openEdit(r: AdiantRow) {
-    if (r.status !== 'pendente') { toast.error('Só é possível editar adiantamentos pendentes.'); return }
+    if (r.status === 'pago') {
+      toast.error('Pagamento já efetuado — exclua o pagamento antes de editar.')
+      return
+    }
+    if (!['pendente', 'aprovado'].includes(r.status)) {
+      toast.error('Só é possível editar adiantamentos pendentes ou aprovados.')
+      return
+    }
     setEditando(r)
     setForm({
       colaborador_id: r.colaborador_id,
@@ -176,6 +198,10 @@ export default function Adiantamentos() {
       valor:          String(r.valor),
       tipo:           r.tipo,
       observacoes:    r.observacoes ?? '',
+      desconto_tipo:  r.desconto_tipo ?? 'unico',
+      desconto_parcelas: String(r.desconto_parcelas ?? 1),
+      desconto_a_partir: r.desconto_a_partir ?? r.competencia ?? new Date().toISOString().slice(0, 7),
+      desconto_obs:   r.desconto_obs ?? '',
     })
     setModalOpen(true)
   }
@@ -186,14 +212,18 @@ export default function Adiantamentos() {
     if (!form.valor || +form.valor <= 0) return toast.error('Valor deve ser maior que zero')
     setSaving(true)
     const payload: any = {
-      colaborador_id: form.colaborador_id,
-      competencia:    form.competencia,
-      valor:          parseFloat(form.valor),
-      tipo:           form.tipo,
-      observacoes:    form.observacoes || null,
-      status:         'pendente',
+      colaborador_id:        form.colaborador_id,
+      competencia:           form.competencia,
+      valor:                 parseFloat(form.valor),
+      tipo:                  form.tipo,
+      observacoes:           form.observacoes || null,
+      status:                'pendente',
+      desconto_tipo:         form.desconto_tipo,
+      desconto_parcelas:     form.desconto_tipo === 'parcelado' ? parseInt(form.desconto_parcelas) || 1 : 1,
+      desconto_parcela_atual: 0,
+      desconto_a_partir:     form.desconto_a_partir || form.competencia,
+      desconto_obs:          form.desconto_obs || null,
     }
-    // obra_id só incluído se a coluna existir no schema
     if (form.obra_id) payload.obra_id = form.obra_id
     const { error } = editando
       ? await supabase.from('adiantamentos').update(payload).eq('id', editando.id)
@@ -234,10 +264,14 @@ export default function Adiantamentos() {
   // ─── cancelar ─────────────────────────────────────────────────────────────
   async function confirmarCancelar() {
     if (!cancelarRow) return
+    if (cancelarRow.status === 'pago') {
+      toast.error('❌ Já foi pago — exclua o pagamento vinculado para liberar a edição.')
+      setCancelarRow(null); return
+    }
     if (cancelarRow.pagamento_id) {
       const { data: pag } = await supabase.from('pagamentos').select('status').eq('id', cancelarRow.pagamento_id).single()
       if (pag?.status === 'pago') {
-        toast.error('Já foi pago — não pode cancelar.')
+        toast.error('❌ Pagamento já efetuado — exclua o pagamento antes de cancelar.')
         setCancelarRow(null); return
       }
       await supabase.from('pagamentos').delete().eq('id', cancelarRow.pagamento_id)
@@ -397,7 +431,7 @@ export default function Adiantamentos() {
               <TableRow style={{ background: 'rgba(0,0,0,0.03)' }}>
                 <TableHead style={{ fontSize: 11 }}>Colaborador</TableHead>
                 <TableHead style={{ fontSize: 11 }}>Tipo</TableHead>
-                <TableHead style={{ fontSize: 11 }}>Obra</TableHead>
+                <TableHead style={{ fontSize: 11 }}>Desconto (-AD)</TableHead>
                 <TableHead style={{ fontSize: 11 }}>Observação</TableHead>
                 <TableHead className="text-right" style={{ fontSize: 11, color: '#7c3aed', fontWeight: 700 }}>Valor</TableHead>
                 <TableHead className="text-right" style={{ fontSize: 11 }}>Ações</TableHead>
@@ -406,6 +440,9 @@ export default function Adiantamentos() {
             <TableBody>
               {filtered.map(r => {
                 const badge = STATUS_CFG[r.status] ?? STATUS_CFG.pendente
+                const isPago = r.status === 'pago'
+                const parcelasTotal = r.desconto_parcelas ?? 1
+                const parcelasFeitas = r.desconto_parcela_atual ?? 0
                 return (
                   <TableRow key={r.id}>
                     <TableCell>
@@ -420,10 +457,31 @@ export default function Adiantamentos() {
                         {TIPO_LABEL[r.tipo] ?? r.tipo}
                       </span>
                     </TableCell>
-                    <TableCell style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>
-                      <span style={{ opacity: .4 }}>—</span>
+                    {/* Coluna Desconto -AD */}
+                    <TableCell style={{ fontSize: 11 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {r.desconto_tipo === 'parcelado' ? (
+                          <span style={{ background: '#fef3c7', color: '#b45309', borderRadius: 4, padding: '2px 7px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3, width: 'fit-content' }}>
+                            <Repeat size={10} /> {parcelasFeitas}/{parcelasTotal}x
+                          </span>
+                        ) : (
+                          <span style={{ background: '#eff6ff', color: '#1d4ed8', borderRadius: 4, padding: '2px 7px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3, width: 'fit-content' }}>
+                            💳 Único
+                          </span>
+                        )}
+                        {r.desconto_a_partir && (
+                          <span style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
+                            A partir: {r.desconto_a_partir.slice(0,7)}
+                          </span>
+                        )}
+                        {r.desconto_obs && (
+                          <span style={{ fontSize: 10, color: 'var(--muted-foreground)', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.desconto_obs}>
+                            {r.desconto_obs}
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
-                    <TableCell style={{ color: 'var(--muted-foreground)', fontSize: 12, maxWidth: 200 }}>
+                    <TableCell style={{ color: 'var(--muted-foreground)', fontSize: 12, maxWidth: 180 }}>
                       <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.observacoes ?? ''}>
                         {r.observacoes || <span style={{ opacity: .4 }}>—</span>}
                       </span>
@@ -439,17 +497,26 @@ export default function Adiantamentos() {
                             <CheckCircle2 size={12} /> Aprovar
                           </button>
                         )}
-                        {r.status === 'pendente' && (
+                        {/* Editar: pendente ou aprovado (não pago) */}
+                        {!isPago && ['pendente','aprovado'].includes(r.status) && (
                           <button onClick={() => openEdit(r)} title="Editar"
                             style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <Pencil size={12} />
                           </button>
                         )}
-                        {r.status === 'aprovado' && (
+                        {/* Cancelar: apenas se NÃO pago */}
+                        {r.status === 'aprovado' && !isPago && (
                           <button onClick={() => setCancelarRow(r)} title="Cancelar aprovação"
                             style={{ height: 28, padding: '0 10px', borderRadius: 6, border: '1px solid #fecaca', background: '#fff5f5', color: '#dc2626', cursor: 'pointer', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
                             <XCircle size={12} /> Cancelar
                           </button>
+                        )}
+                        {/* Ícone de cadeado quando pago */}
+                        {isPago && (
+                          <span title="Pago — exclua o pagamento para editar"
+                            style={{ width: 28, height: 28, borderRadius: 6, background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'help' }}>
+                            🔒
+                          </span>
                         )}
                         {(r.status === 'pendente' || r.status === 'cancelado') && (
                           <button onClick={() => setDeleteId(r.id)} title="Excluir"
@@ -538,12 +605,65 @@ export default function Adiantamentos() {
                 <div style={{ gridColumn: '1/-1' }}>
                   <Label className="mb-1 block">Observações / Motivo</Label>
                   <Textarea value={form.observacoes} onChange={e => setF('observacoes', e.target.value)}
-                    placeholder="Motivo, detalhes…" rows={3} />
+                    placeholder="Motivo, detalhes…" rows={2} />
+                </div>
+              </div>
+
+              {/* ── Bloco: Desconto no Fechamento ── */}
+              <div style={{ border: '1.5px solid #fde68a', borderRadius: 10, padding: '14px 16px', marginTop: 14, background: '#fffbeb' }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: '#b45309', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <CalendarDays size={14} /> Desconto no Fechamento de Ponto (-AD)
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 14px' }}>
+                  {/* Tipo de desconto */}
+                  <div>
+                    <Label className="mb-1 block" style={{ fontSize: 11 }}>Tipo de Desconto *</Label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {([['unico','💳 Pontual / Único'],['parcelado','🔄 Parcelado']] as const).map(([v, l]) => (
+                        <button key={v} type="button" onClick={() => setF('desconto_tipo', v)}
+                          style={{ flex: 1, height: 36, border: `1.5px solid ${form.desconto_tipo === v ? '#b45309' : 'var(--border)'}`,
+                            borderRadius: 8, background: form.desconto_tipo === v ? '#fef3c7' : 'var(--background)',
+                            color: form.desconto_tipo === v ? '#b45309' : 'var(--muted-foreground)',
+                            fontWeight: form.desconto_tipo === v ? 700 : 500, fontSize: 12, cursor: 'pointer' }}>
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* A partir de */}
+                  <div>
+                    <Label className="mb-1 block" style={{ fontSize: 11 }}>Descontar a partir de *</Label>
+                    <input type="month" value={form.desconto_a_partir} onChange={e => setF('desconto_a_partir', e.target.value)}
+                      style={{ height: 36, width: '100%', padding: '0 10px', fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', boxSizing: 'border-box' }} />
+                  </div>
+                  {/* Número de parcelas (só se parcelado) */}
+                  {form.desconto_tipo === 'parcelado' && (
+                    <div>
+                      <Label className="mb-1 block" style={{ fontSize: 11 }}>Número de Parcelas *</Label>
+                      <Input type="number" min="2" max="24" value={form.desconto_parcelas}
+                        onChange={e => setF('desconto_parcelas', e.target.value)} placeholder="Ex: 3" />
+                      {+form.desconto_parcelas > 1 && +form.valor > 0 && (
+                        <div style={{ fontSize: 11, color: '#b45309', marginTop: 4 }}>
+                          ≈ {formatCurrency(parseFloat(form.valor || '0') / parseInt(form.desconto_parcelas || '1'))} / parcela
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {/* Obs do desconto */}
+                  <div style={{ gridColumn: '1/-1' }}>
+                    <Label className="mb-1 block" style={{ fontSize: 11 }}>Obs. do Desconto (aparece no fechamento)</Label>
+                    <Input value={form.desconto_obs} onChange={e => setF('desconto_obs', e.target.value)}
+                      placeholder="Ex: Parcelado em 3x a partir de Abril/2026…" />
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: '#92400e', marginTop: 8, display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+                  <Info size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+                  No Fechamento de Ponto, aparecerá o botão <strong>-AD</strong> para aprovar o desconto parcela a parcela.
                 </div>
               </div>
 
               {/* Dica */}
-              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#1e40af', marginTop: 14 }}>
+              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#1e40af', marginTop: 10 }}>
                 💡 Após registrar, clique em <strong>Aprovar</strong> para enviar à tela de <strong>Pagamentos</strong>.
               </div>
 

@@ -104,8 +104,8 @@ export default function FechamentoPonto() {
 
   // Modal confirmar pagamento
   const [modalLiberar, setModalLiberar] = useState<LancItem | null>(null)
-  // Estado do desconto -AD dentro do modal de liberar
-  const [adDescontoAprovado, setAdDescontoAprovado] = useState(false)
+  // Estado do desconto -AD dentro do modal de liberar — Set de IDs marcados para descontar
+  const [adSelecionados, setAdSelecionados] = useState<Set<string>>(new Set())
   const [adiantsDisponiveis, setAdiantsDisponiveis] = useState<{id:string;valor:number;desconto_tipo:string;desconto_parcelas:number|null;desconto_parcela_atual:number|null;desconto_obs:string|null;desconto_a_partir:string|null}[]>([])
   // AD disponíveis pré-carregados por lançamento (id do lanc → lista de AD)
   const [adPorLanc, setAdPorLanc] = useState<Record<string, {id:string;valor:number;desconto_tipo:string;desconto_parcelas:number|null;desconto_parcela_atual:number|null;desconto_obs:string|null}[]>>({})
@@ -555,9 +555,6 @@ export default function FechamentoPonto() {
   async function abrirModalLiberar(id: string) {
     const lanc = lancamentos.find(l => l.id === id)
     if (!lanc) return
-    setAdDescontoAprovado(false)
-    // Buscar adiantamentos APROVADOS com desconto configurado para este mês ou anterior
-    // O adiantamento foi APROVADO mas o desconto acontece no fechamento (não tem pagamento separado)
     const { data: adData } = await supabase
       .from('adiantamentos')
       .select('id,valor,desconto_tipo,desconto_parcelas,desconto_parcela_atual,desconto_obs,desconto_a_partir')
@@ -565,7 +562,10 @@ export default function FechamentoPonto() {
       .in('status', ['aprovado', 'pendente', 'pago'])
       .is('descontado_em', null)
       .or(`desconto_a_partir.is.null,desconto_a_partir.lte.${mesRef}`)
-    setAdiantsDisponiveis((adData ?? []) as any[])
+    const lista = (adData ?? []) as any[]
+    setAdiantsDisponiveis(lista)
+    // Por padrão, todos os ADs já vêm marcados para descontar
+    setAdSelecionados(new Set(lista.map((a: any) => a.id)))
     setModalLiberar(lanc)
   }
 
@@ -575,18 +575,18 @@ export default function FechamentoPonto() {
     if (!lanc) return
     setSaving(true)
 
-    // Calcular desconto -AD aprovado neste fechamento
-    const descontoAD = adDescontoAprovado && adiantsDisponiveis.length > 0
-      ? adiantsDisponiveis.reduce((s, a) => {
-          const p = a.desconto_parcelas ?? 1
-          return s + (p > 1 ? a.valor / p : a.valor)
-        }, 0)
-      : lanc.desconto_adiant
+    // Calcular desconto -AD: soma apenas os ADs marcados com checkbox no modal
+    const adSelecionadosList = adiantsDisponiveis.filter(a => adSelecionados.has(a.id))
+    const descontoAD = adSelecionadosList.reduce((s, a) => {
+      const p = a.desconto_parcelas ?? 1
+      return s + (p > 1 ? a.valor / p : a.valor)
+    }, 0)
 
+    // Líquido = bruto − VT − INSS − IR − AD selecionados
     const liquidoFinal = lanc.valor_total - lanc.desconto_vt - lanc.inss - lanc.ir - descontoAD
 
     const { error } = await supabase.from('ponto_lancamentos').update({
-      status: 'liberado',
+      status:               'liberado',
       snap_valor_hora:      lanc.vh_usado,
       snap_horas_normais:   lanc.horas_normais,
       snap_horas_extras:    lanc.horas_extras,
@@ -608,27 +608,23 @@ export default function FechamentoPonto() {
 
     if (error) { setSaving(false); toast.error('Erro ao liberar: ' + error.message); return }
 
-    // Marcar adiantamentos como descontados (parcial ou total)
-    if (adDescontoAprovado && adiantsDisponiveis.length > 0) {
-      for (const a of adiantsDisponiveis) {
-        const parcelas = a.desconto_parcelas ?? 1
-        const feitas   = (a.desconto_parcela_atual ?? 0) + 1
-        const totalQuitado = feitas >= parcelas
-        await supabase.from('adiantamentos').update({
-          // Quando quitado totalmente: status = 'pago', descontado_em preenchido
-          // Quando parcial: mantém 'aprovado', só incrementa parcela
-          status:                totalQuitado ? 'pago' : 'aprovado',
-          desconto_parcela_atual: feitas,
-          descontado_em:         totalQuitado ? mesRef : null,
-        }).eq('id', a.id)
-      }
+    // Marcar cada AD selecionado como descontado (parcela ou quitado)
+    for (const a of adSelecionadosList) {
+      const parcelas     = a.desconto_parcelas ?? 1
+      const feitas       = (a.desconto_parcela_atual ?? 0) + 1
+      const totalQuitado = feitas >= parcelas
+      await supabase.from('adiantamentos').update({
+        status:                 totalQuitado ? 'pago' : (a as any).status ?? 'aprovado',
+        desconto_parcela_atual: feitas,
+        descontado_em:          totalQuitado ? mesRef : null,
+      }).eq('id', a.id)
     }
 
     setSaving(false)
     toast.success('✅ Aprovado e liberado para pagamento!')
     setModalLiberar(null)
     setAdiantsDisponiveis([])
-    setAdDescontoAprovado(false)
+    setAdSelecionados(new Set())
     fetchLancamentos(mesRef)
   }
 
@@ -1208,139 +1204,8 @@ export default function FechamentoPonto() {
                               )
                             }
 
-                            // ── BANNER AMARELO: AD pendente de escolha ────
-                            return (
-                              <TableRow style={{ background: 'transparent' }}>
-                                <TableCell colSpan={13} style={{ padding: '0 8px 10px 8px', border: 0 }}>
-                                  <div style={{
-                                    borderRadius: 10,
-                                    border: '2px solid #f59e0b',
-                                    background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
-                                    padding: '12px 16px',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: 10,
-                                    boxShadow: '0 2px 8px rgba(245,158,11,.15)',
-                                  }}>
-                                    {/* Linha principal */}
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                        <span style={{ fontSize: 22 }}>💳</span>
-                                        <div>
-                                          <div style={{ fontWeight: 800, fontSize: 13, color: '#92400e' }}>
-                                            {colab.nome} possui adiantamento a descontar
-                                          </div>
-                                          <div style={{ fontSize: 12, color: '#b45309', marginTop: 2 }}>
-                                            Valor desta parcela: <strong>{formatCurrency(valorAD)}</strong>
-                                            {' · '}Deseja descontar neste fechamento?
-                                          </div>
-                                        </div>
-                                      </div>
-                                      {/* Botões */}
-                                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                                        <button
-                                          onClick={() => setVerADLancId(verDet ? null : lanc.id)}
-                                          style={{ height: 34, padding: '0 14px', borderRadius: 7,
-                                            border: '1.5px solid #d97706', background: '#fff',
-                                            color: '#b45309', fontWeight: 700, fontSize: 12,
-                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                          👁 {verDet ? 'Ocultar' : 'Ver detalhes'}
-                                        </button>
-                                        {emFech && (
-                                          <>
-                                            <button
-                                              disabled={saving}
-                                              onClick={async () => {
-                                                setSaving(true)
-                                                for (const a of adsLanc) {
-                                                  const parcelas = a.desconto_parcelas ?? 1
-                                                  const feitas   = (a.desconto_parcela_atual ?? 0) + 1
-                                                  const quitado  = feitas >= parcelas
-                                                  // Se já está 'pago' (dinheiro entregue), mantém; senão atualiza status
-                                                  const novoStatus = a.desconto_tipo === 'pago' ? 'pago'
-                                                    : quitado ? 'pago' : 'aprovado'
-                                                  await supabase.from('adiantamentos').update({
-                                                    status:                 novoStatus,
-                                                    desconto_parcela_atual: feitas,
-                                                    descontado_em:          quitado ? mesRef : null,
-                                                  }).eq('id', a.id)
-                                                }
-                                                const novoLiquido = lanc.valor_total - lanc.desconto_vt - lanc.inss - lanc.ir - valorAD
-                                                await supabase.from('ponto_lancamentos').update({
-                                                  snap_desconto_adiant: valorAD,
-                                                  snap_liquido:         novoLiquido,
-                                                }).eq('id', lanc.id)
-                                                setSaving(false)
-                                                setVerADLancId(null)
-                                                toast.success(`✅ Adiantamento de ${formatCurrency(valorAD)} descontado de ${colab.nome}!`)
-                                                fetchLancamentos(mesRef)
-                                              }}
-                                              style={{ height: 34, padding: '0 18px', borderRadius: 7,
-                                                border: '1.5px solid #15803d', background: '#dcfce7',
-                                                color: '#15803d', fontWeight: 800, fontSize: 13,
-                                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                              ✅ Descontar agora
-                                            </button>
-                                            <button
-                                              onClick={() => {
-                                                setVerADLancId(null)
-                                                toast('⏭ Adiantamento mantido — aparecerá no próximo fechamento.', { icon: '📅' })
-                                              }}
-                                              style={{ height: 34, padding: '0 14px', borderRadius: 7,
-                                                border: '1.5px solid #9ca3af', background: '#f9fafb',
-                                                color: '#6b7280', fontWeight: 700, fontSize: 12,
-                                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                              ⏭ Não descontar agora
-                                            </button>
-                                          </>
-                                        )}
-                                      </div>
-                                    </div>
-                                    {/* Painel detalhes expandível */}
-                                    {verDet && (
-                                      <div style={{
-                                        marginTop: 4, borderTop: '1px dashed #f59e0b', paddingTop: 10,
-                                        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8,
-                                      }}>
-                                        {adsLanc.map((a, idx) => {
-                                          const p = a.desconto_parcelas ?? 1
-                                          const f = a.desconto_parcela_atual ?? 0
-                                          const vlParc = p > 1 ? a.valor / p : a.valor
-                                          return (
-                                            <div key={a.id} style={{ background: '#fff', borderRadius: 8, border: '1px solid #fde68a', padding: '10px 14px' }}>
-                                              <div style={{ fontWeight: 700, fontSize: 12, color: '#92400e', marginBottom: 6 }}>
-                                                💳 Adiantamento {idx + 1}
-                                              </div>
-                                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                                <div style={{ fontSize: 11, display: 'flex', justifyContent: 'space-between' }}>
-                                                  <span style={{ color: '#6b7280' }}>Valor total:</span>
-                                                  <strong style={{ color: '#b45309' }}>{formatCurrency(a.valor)}</strong>
-                                                </div>
-                                                <div style={{ fontSize: 11, display: 'flex', justifyContent: 'space-between' }}>
-                                                  <span style={{ color: '#6b7280' }}>Tipo desconto:</span>
-                                                  <strong>{p > 1 ? `Parcelado ${p}x` : 'Único'}</strong>
-                                                </div>
-                                                {p > 1 && (
-                                                  <div style={{ fontSize: 11, display: 'flex', justifyContent: 'space-between' }}>
-                                                    <span style={{ color: '#6b7280' }}>Parcela:</span>
-                                                    <strong style={{ color: '#15803d' }}>{f + 1}/{p} → {formatCurrency(vlParc)}</strong>
-                                                  </div>
-                                                )}
-                                                {a.desconto_obs && (
-                                                  <div style={{ fontSize: 11, marginTop: 4, padding: '6px 8px', background: '#fef3c7', borderRadius: 5, color: '#92400e', fontStyle: 'italic' }}>
-                                                    💬 {a.desconto_obs}
-                                                  </div>
-                                                )}
-                                              </div>
-                                            </div>
-                                          )
-                                        })}
-                                      </div>
-                                    )}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            )
+                            // ── AD pendente: não mostra banner amarelo — a escolha fica no modal "Aprovar e Liberar" ────
+                            return null
                           })()}
                           </React.Fragment>
                         )
@@ -1507,66 +1372,99 @@ export default function FechamentoPonto() {
                     <span style={{ fontSize:13, fontWeight:600, color:'#dc2626' }}>- {formatCurrency(modalLiberar.ir)}</span>
                   </div>
                 )}
-                {/* ── BLOCO -AD: desconto de adiantamentos ── */}
-                {adiantsDisponiveis.length > 0 && (
-                  <div style={{ border: '1.5px solid #fde68a', borderRadius: 8, margin: '10px 14px', overflow: 'hidden' }}>
-                    <div style={{ background: '#fffbeb', padding: '9px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#b45309' }}>💳 Desconto de Adiantamento (-AD)</span>
-                      <button
-                        onClick={() => setAdDescontoAprovado(p => !p)}
-                        style={{ height: 28, padding: '0 12px', borderRadius: 6, border: `1.5px solid ${adDescontoAprovado ? '#15803d' : '#b45309'}`,
-                          background: adDescontoAprovado ? '#dcfce7' : '#fef3c7',
-                          color: adDescontoAprovado ? '#15803d' : '#b45309',
-                          fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
-                        {adDescontoAprovado ? '✅ Desconto Aprovado' : '+ Aprovar Desconto'}
-                      </button>
-                    </div>
-                    {adiantsDisponiveis.map(a => {
-                      const parcelas = a.desconto_parcelas ?? 1
-                      const feitas   = a.desconto_parcela_atual ?? 0
-                      const valParcela = parcelas > 1 ? a.valor / parcelas : a.valor
-                      return (
-                        <div key={a.id} style={{ padding: '8px 14px', background: '#fff', borderTop: '1px solid #fef3c7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>
-                              {a.desconto_tipo === 'parcelado'
-                                ? `Parcela ${feitas + 1}/${parcelas} — ${formatCurrency(valParcela)}`
-                                : `Pontual — ${formatCurrency(a.valor)}`}
-                            </div>
-                            {a.desconto_obs && <div style={{ fontSize: 11, color: '#9ca3af' }}>{a.desconto_obs}</div>}
-                          </div>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed' }}>- {formatCurrency(valParcela)}</span>
-                        </div>
-                      )
-                    })}
-                    {!adDescontoAprovado && (
-                      <div style={{ padding: '7px 14px', background: '#fffbeb', fontSize: 11, color: '#92400e' }}>
-                        ⚠ Clique em "Aprovar Desconto" para incluir o desconto no fechamento.
+                {/* ── BLOCO -AD: desconto de adiantamentos com checkbox por item ── */}
+                {adiantsDisponiveis.length > 0 && (() => {
+                  const totalADSel = adiantsDisponiveis
+                    .filter(a => adSelecionados.has(a.id))
+                    .reduce((s, a) => {
+                      const p = a.desconto_parcelas ?? 1
+                      return s + (p > 1 ? a.valor / p : a.valor)
+                    }, 0)
+                  return (
+                    <div style={{ margin: '0 0 0 0', borderTop: '1px solid #f3f4f6' }}>
+                      {/* Header bloco AD */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '9px 14px', background: '#fffbeb', borderBottom: '1px solid #fde68a' }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#b45309' }}>💳 Adiantamentos a Descontar</span>
+                        <span style={{ fontSize: 12, color: '#92400e' }}>
+                          {adSelecionados.size}/{adiantsDisponiveis.length} selecionado(s)
+                        </span>
                       </div>
-                    )}
-                  </div>
-                )}
+                      {/* Um item por AD com checkbox */}
+                      {adiantsDisponiveis.map(a => {
+                        const parcelas   = a.desconto_parcelas ?? 1
+                        const feitas     = a.desconto_parcela_atual ?? 0
+                        const valParcela = parcelas > 1 ? a.valor / parcelas : a.valor
+                        const marcado    = adSelecionados.has(a.id)
+                        return (
+                          <div key={a.id}
+                            onClick={() => {
+                              setAdSelecionados(prev => {
+                                const next = new Set(prev)
+                                marcado ? next.delete(a.id) : next.add(a.id)
+                                return next
+                              })
+                            }}
+                            style={{ padding: '10px 14px', background: marcado ? '#f0fdf4' : '#fff',
+                              borderBottom: '1px solid #f3f4f6', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', gap: 12,
+                              transition: 'background 0.15s' }}>
+                            {/* Checkbox visual */}
+                            <div style={{ width: 20, height: 20, borderRadius: 5, flexShrink: 0,
+                              border: `2px solid ${marcado ? '#16a34a' : '#d1d5db'}`,
+                              background: marcado ? '#16a34a' : '#fff',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {marcado && <span style={{ color: '#fff', fontSize: 12, fontWeight: 900 }}>✓</span>}
+                            </div>
+                            {/* Info do AD */}
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>
+                                {parcelas > 1
+                                  ? `Parcela ${feitas + 1}/${parcelas}`
+                                  : 'Desconto único'}
+                              </div>
+                              {a.desconto_obs && (
+                                <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{a.desconto_obs}</div>
+                              )}
+                            </div>
+                            {/* Valor */}
+                            <span style={{ fontSize: 14, fontWeight: 800,
+                              color: marcado ? '#15803d' : '#9ca3af',
+                              textDecoration: marcado ? 'none' : 'line-through' }}>
+                              - {formatCurrency(valParcela)}
+                            </span>
+                          </div>
+                        )
+                      })}
+                      {/* Subtotal AD */}
+                      {totalADSel > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          padding: '8px 14px', background: '#fef3c7', borderBottom: '1px solid #fde68a' }}>
+                          <span style={{ fontSize: 12, color: '#92400e', fontWeight: 700 }}>Total descontado (-AD)</span>
+                          <span style={{ fontSize: 13, fontWeight: 800, color: '#b45309' }}>- {formatCurrency(totalADSel)}</span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
 
-                {(modalLiberar.desconto_adiant > 0 || (adDescontoAprovado && adiantsDisponiveis.length > 0)) && (
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                    padding:'9px 14px', background:'#fdf4ff', borderBottom:'1px solid #f3f4f6' }}>
-                    <span style={{ fontSize:13, color:'#374151' }}>💳 - Adiantamento (-AD)</span>
-                    <span style={{ fontSize:13, fontWeight:600, color:'#7c3aed' }}>
-                      - {formatCurrency(adDescontoAprovado
-                        ? adiantsDisponiveis.reduce((s, a) => {
-                            const p = a.desconto_parcelas ?? 1
-                            return s + (p > 1 ? a.valor / p : a.valor)
-                          }, 0)
-                        : modalLiberar.desconto_adiant)}
-                    </span>
-                  </div>
-                )}
-                {/* Líquido */}
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                  padding:'12px 14px', background:'#1e3a5f' }}>
-                  <span style={{ fontSize:14, fontWeight:800, color:'#fff' }}>💵 Líquido a Pagar</span>
-                  <span style={{ fontSize:17, fontWeight:900, color:'#86efac' }}>{formatCurrency(modalLiberar.liquido)}</span>
-                </div>
+                {/* Líquido — calculado em tempo real com os ADs selecionados */}
+                {(() => {
+                  const adSel = adiantsDisponiveis
+                    .filter(a => adSelecionados.has(a.id))
+                    .reduce((s, a) => {
+                      const p = a.desconto_parcelas ?? 1
+                      return s + (p > 1 ? a.valor / p : a.valor)
+                    }, 0)
+                  const liquidoReal = modalLiberar.valor_total - modalLiberar.desconto_vt - modalLiberar.inss - modalLiberar.ir - adSel
+                  return (
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                      padding:'12px 14px', background:'#1e3a5f' }}>
+                      <span style={{ fontSize:14, fontWeight:800, color:'#fff' }}>💵 Líquido a Pagar</span>
+                      <span style={{ fontSize:17, fontWeight:900, color:'#86efac' }}>{formatCurrency(liquidoReal)}</span>
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Botões */}

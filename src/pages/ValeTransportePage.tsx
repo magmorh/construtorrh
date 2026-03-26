@@ -20,7 +20,7 @@ import { SummaryCard } from '@/components/Shared'
 import {
   Bus, Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight,
   CheckCircle2, AlertCircle, X, ToggleLeft, ToggleRight,
-  CreditCard, Building2, CheckSquare, Square, Loader2,
+  CreditCard, Building2, CheckSquare, Square, Loader2, FileText,
 } from 'lucide-react'
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
@@ -32,6 +32,8 @@ type ColaboradorVT = Pick<Colaborador, 'id' | 'nome' | 'chapa' | 'salario' | 'vt
   data_admissao?: string | null   // data de início dos trabalhos
   vt_valor_diario?: number | null // valor diário do VT (para lote)
   vt_tipo?: string | null         // tipo do VT (cartao, dinheiro, etc.)
+  pix_chave?: string | null
+  pix_tipo?: string | null
 }
 type VTRow = ValeTransporte & { colaboradores?: ColaboradorVT }
 type FormData = {
@@ -175,8 +177,11 @@ export default function ValeTransportePage() {
   const [pagarId, setPagarId]     = useState<string | null>(null)
   const [savingPagar, setSavingPagar] = useState(false)
 
+  // ── Relatório de Fechamento ────────────────────────────────────────────────
+  const [showRelatorio, setShowRelatorio] = useState(false)
+
   // ── Fechamento em lote por obra ──────────────────────────────────────────
-  const [modalLote, setModalLote] = useState(false)
+  const [modalLote, setModalLote]   = useState(false)
   const [obraLote, setObraLote]   = useState('todas')
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [savingLote, setSavingLote] = useState(false)
@@ -243,8 +248,10 @@ export default function ValeTransportePage() {
           valor_hora_calc: vh,
           salario_mensal_calc: vh != null ? vh * 220 : (c.salario ?? null),
           data_admissao: c.data_admissao ?? null,
-          vt_valor_diario: c.vt_dados?.valor_diario ?? null,
-          vt_tipo: c.vt_dados?.tipo ?? null,
+          vt_valor_diario: vtDiarioColab(c.vt_dados),
+          vt_tipo: (c.vt_dados as any)?.tipo ?? ((c.vt_dados as any)?.modalidade === 'gasolina' ? 'combustivel' : 'cartao'),
+          pix_chave: (c as any).pix_chave ?? null,
+          pix_tipo: (c as any).pix_tipo ?? null,
         }
       }))
     }
@@ -616,7 +623,7 @@ export default function ValeTransportePage() {
   async function handleLancarLote() {
     const selecionadosIds = [...loteIncluir.entries()].filter(([,v]) => v).map(([k]) => k)
     const colabsAptos = loteColabs.filter(c =>
-      selecionadosIds.includes(c.id) && c.vt_valor_diario && c.vt_valor_diario > 0
+      selecionadosIds.includes(c.id) && vtDiarioColab(c.vt_dados as any) > 0
     )
     if (colabsAptos.length === 0) {
       toast.error('Nenhum colaborador apto selecionado (verifique se têm VT configurado)')
@@ -638,7 +645,8 @@ export default function ValeTransportePage() {
 
     const inserts = colabsAptos.map(c => {
       const isCLT = (c.tipo_contrato ?? '').toLowerCase() === 'clt'
-      const valorBruto = +(c.vt_valor_diario! * qtdDias).toFixed(2)
+      const vtDiario = vtDiarioColab(c.vt_dados as any)
+      const valorBruto = +(vtDiario * qtdDias).toFixed(2)
       const salarioBruto = c.salario ?? 0
       const desc6 = (loteDesconto6 && isCLT) ? +Math.min(salarioBruto * 0.06, valorBruto).toFixed(2) : 0
       return {
@@ -761,6 +769,9 @@ export default function ValeTransportePage() {
           </Button>
           <Button variant="outline" className="gap-2" onClick={() => { setObraLote('todas'); setSelecionados(new Set()); setModalLote(true) }}>
             <Building2 size={15} /> Fechar em Lote
+          </Button>
+          <Button variant="outline" className="gap-2" onClick={() => setShowRelatorio(true)}>
+            <FileText size={14} /> Relatório
           </Button>
           <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
           <button onClick={() => navMes(-1)} style={{ width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--card)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1433,6 +1444,176 @@ export default function ValeTransportePage() {
         )
       })()}
 
+      {/* ══ MODAL RELATÓRIO DE FECHAMENTO ══ */}
+      {showRelatorio && (() => {
+        // Filtrar VTs do mês, excluindo cancelados
+        const vtsMes = vtRows.filter(r =>
+          r.competencia === competencia && (r.status as string | undefined) !== 'cancelado'
+        )
+
+        // Montar linhas com dados do colaborador
+        type RelRow = {
+          vt: VTRow
+          chapa: string
+          nome: string
+          funcao_nome: string
+          obra_nome: string
+          tipo_contrato: string
+          pix_chave: string | null | undefined
+          pix_tipo: string | null | undefined
+        }
+        const relRows: RelRow[] = vtsMes.map(vt => {
+          const c = colaboradores.find(x => x.id === vt.colaborador_id)
+          return {
+            vt,
+            chapa:         c?.chapa ?? '—',
+            nome:          c?.nome  ?? vt.colaboradores?.nome ?? '—',
+            funcao_nome:   c?.funcao_nome ?? '—',
+            obra_nome:     c?.obra_nome   ?? '—',
+            tipo_contrato: c?.tipo_contrato ?? '—',
+            pix_chave:     c?.pix_chave,
+            pix_tipo:      c?.pix_tipo,
+          }
+        })
+
+        // Agrupar por função (ordenado A→Z)
+        const grupoMap = new Map<string, RelRow[]>()
+        relRows.forEach(r => {
+          const fn = r.funcao_nome || '(Sem função)'
+          if (!grupoMap.has(fn)) grupoMap.set(fn, [])
+          grupoMap.get(fn)!.push(r)
+        })
+        // Ordenar dentro de cada grupo por nome
+        grupoMap.forEach(rows => rows.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')))
+        // Chaves ordenadas A→Z
+        const gruposOrdenados = [...grupoMap.entries()].sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
+
+        // Total geral
+        const totalGeral = relRows.reduce((s, r) => s + (r.vt.valor_empresa ?? r.vt.valor ?? 0), 0)
+
+        function fmtPeriodo(ini: string | null | undefined, fim: string | null | undefined) {
+          if (!ini || !fim) return '—'
+          const dd = (d: string) => d.slice(8) + '/' + d.slice(5, 7)
+          return `${dd(ini)} → ${dd(fim)}`
+        }
+
+        function badgeStatus(status: string | undefined | null) {
+          if (status === 'pago') return (
+            <span style={{ background:'#dcfce7', color:'#15803d', borderRadius:99, padding:'1px 8px', fontSize:10, fontWeight:700, whiteSpace:'nowrap' }}>✓ Pago</span>
+          )
+          if (status === 'aguardando_pagamento') return (
+            <span style={{ background:'#dbeafe', color:'#1d4ed8', borderRadius:99, padding:'1px 8px', fontSize:10, fontWeight:700, whiteSpace:'nowrap' }}>⏳ Ag. Pgto</span>
+          )
+          return (
+            <span style={{ background:'#fef3c7', color:'#b45309', borderRadius:99, padding:'1px 8px', fontSize:10, fontWeight:700, whiteSpace:'nowrap' }}>Pendente</span>
+          )
+        }
+
+        return (
+          <div style={{ position:'fixed', inset:0, background:'#fff', zIndex:1000, overflow:'auto', padding:'32px 40px' }}>
+            <style>{'@media print { button { display: none !important; } }'}</style>
+
+            {/* Cabeçalho do relatório */}
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24 }}>
+              <div>
+                <h2 style={{ margin:0, fontSize:20, fontWeight:800 }}>Relatório de Fechamento — Vale Transporte</h2>
+                <p style={{ margin:'4px 0 0', fontSize:13, color:'#6b7280' }}>
+                  {MESES[mes-1]} / {ano} · Gerado em {new Date().toLocaleDateString('pt-BR')}
+                </p>
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                <Button onClick={() => window.print()}>🖨️ Imprimir / PDF</Button>
+                <Button variant="outline" onClick={() => setShowRelatorio(false)}>✕ Fechar</Button>
+              </div>
+            </div>
+
+            {relRows.length === 0 ? (
+              <div style={{ textAlign:'center', color:'#6b7280', padding:'60px 0', fontSize:14 }}>
+                Nenhum VT lançado em {MESES[mes-1]}/{ano}
+              </div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:32 }}>
+                {gruposOrdenados.map(([funcaoNome, rows]) => {
+                  const totalGrupo = rows.reduce((s, r) => s + (r.vt.valor_empresa ?? r.vt.valor ?? 0), 0)
+                  return (
+                    <div key={funcaoNome}>
+                      {/* Cabeçalho do grupo */}
+                      <div style={{ background:'#f1f5f9', borderLeft:'4px solid #3b82f6', padding:'8px 14px', marginBottom:0, display:'flex', alignItems:'center', gap:10 }}>
+                        <span style={{ fontWeight:800, fontSize:14, color:'#1e40af' }}>FUNÇÃO: {funcaoNome}</span>
+                        <span style={{ fontSize:12, color:'#64748b' }}>— {rows.length} colaborador(es)</span>
+                      </div>
+
+                      {/* Tabela do grupo */}
+                      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                        <thead>
+                          <tr style={{ background:'#e2e8f0', borderBottom:'2px solid #cbd5e1' }}>
+                            <th style={{ padding:'8px 12px', textAlign:'left', fontWeight:700, whiteSpace:'nowrap' }}>Período</th>
+                            <th style={{ padding:'8px 12px', textAlign:'left', fontWeight:700 }}>Chapa</th>
+                            <th style={{ padding:'8px 12px', textAlign:'left', fontWeight:700 }}>Nome</th>
+                            <th style={{ padding:'8px 12px', textAlign:'left', fontWeight:700 }}>Obra</th>
+                            <th style={{ padding:'8px 12px', textAlign:'right', fontWeight:700, whiteSpace:'nowrap' }}>Valor Empresa</th>
+                            <th style={{ padding:'8px 12px', textAlign:'left', fontWeight:700 }}>PIX / Pagamento</th>
+                            <th style={{ padding:'8px 12px', textAlign:'center', fontWeight:700 }}>Status</th>
+                            <th style={{ padding:'8px 12px', textAlign:'left', fontWeight:700 }}>Obs</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((r, i) => (
+                            <tr key={r.vt.id} style={{ borderBottom:'1px solid #e2e8f0', background: i % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                              <td style={{ padding:'7px 12px', whiteSpace:'nowrap', color:'#374151' }}>
+                                {fmtPeriodo(r.vt.data_inicio, r.vt.data_fim)}
+                              </td>
+                              <td style={{ padding:'7px 12px', color:'#6b7280', fontSize:11 }}>{r.chapa}</td>
+                              <td style={{ padding:'7px 12px', fontWeight:600 }}>{r.nome}</td>
+                              <td style={{ padding:'7px 12px', color:'#4b5563' }}>{r.obra_nome}</td>
+                              <td style={{ padding:'7px 12px', textAlign:'right', fontWeight:700, color:'#1d4ed8' }}>
+                                {formatCurrency(r.vt.valor_empresa ?? r.vt.valor ?? 0)}
+                              </td>
+                              <td style={{ padding:'7px 12px', color:'#374151', fontSize:11 }}>
+                                {r.pix_tipo && r.pix_chave
+                                  ? `${r.pix_tipo}: ${r.pix_chave}`
+                                  : '—'}
+                              </td>
+                              <td style={{ padding:'7px 12px', textAlign:'center' }}>
+                                {badgeStatus(r.vt.status as string | undefined)}
+                              </td>
+                              <td style={{ padding:'7px 12px', color:'#6b7280', fontSize:11 }}>
+                                {r.vt.observacoes ?? '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ background:'#f1f5f9', borderTop:'2px solid #cbd5e1' }}>
+                            <td colSpan={4} style={{ padding:'8px 12px', fontWeight:700, fontSize:12, color:'#374151' }}>
+                              Subtotal — {funcaoNome} ({rows.length} lançamento{rows.length !== 1 ? 's' : ''})
+                            </td>
+                            <td style={{ padding:'8px 12px', textAlign:'right', fontWeight:800, color:'#1d4ed8', fontSize:13 }}>
+                              {formatCurrency(totalGrupo)}
+                            </td>
+                            <td colSpan={3} />
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )
+                })}
+
+                {/* Rodapé geral */}
+                <div style={{ borderTop:'3px solid #1d4ed8', paddingTop:16, display:'flex', justifyContent:'flex-end', alignItems:'center', gap:24 }}>
+                  <div style={{ fontSize:13, color:'#6b7280' }}>
+                    Total de lançamentos: <strong style={{ color:'#111827' }}>{relRows.length}</strong>
+                  </div>
+                  <div style={{ fontSize:16, fontWeight:800, color:'#1d4ed8' }}>
+                    TOTAL GERAL: {formatCurrency(totalGeral)}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
       {/* ══ MODAL LANÇAR EM LOTE ══ */}
       {/* ── Modal Lançar em Lote — 2 passos ── */}
       {modalLancarLote && (
@@ -1527,7 +1708,7 @@ export default function ValeTransportePage() {
             {/* ── PASSO 2 ── */}
             {loteStep === 2 && (() => {
               const selecionadosIds = [...loteIncluir.entries()].filter(([,v]) => v).map(([k]) => k)
-              const semConfig = loteColabs.filter(c => selecionadosIds.includes(c.id) && (!c.vt_valor_diario || c.vt_valor_diario <= 0))
+              const semConfig = loteColabs.filter(c => selecionadosIds.includes(c.id) && !(vtDiarioColab(c.vt_dados as any) > 0))
               // calcular dias do período
               let qtdDias = diasUteisMes.length
               if (loteInicio && loteFim) {
@@ -1540,10 +1721,11 @@ export default function ValeTransportePage() {
                 if(cnt2>0) qtdDias=cnt2
               }
               const totalEstimado = loteColabs
-                .filter(c => selecionadosIds.includes(c.id) && c.vt_valor_diario && c.vt_valor_diario > 0)
+                .filter(c => selecionadosIds.includes(c.id) && vtDiarioColab(c.vt_dados as any) > 0)
                 .reduce((s,c) => {
                   const isCLT = (c.tipo_contrato??'').toLowerCase()==='clt'
-                  const bruto = +(c.vt_valor_diario! * qtdDias).toFixed(2)
+                  const vtDiario = vtDiarioColab(c.vt_dados as any)
+                  const bruto = +(vtDiario * qtdDias).toFixed(2)
                   const desc  = (loteDesconto6 && isCLT) ? +Math.min((c.salario??0)*0.06, bruto).toFixed(2) : 0
                   return s + (bruto - desc)
                 }, 0)
@@ -1593,8 +1775,9 @@ export default function ValeTransportePage() {
                       {colabs.map((c, i) => {
                         const marcado = loteIncluir.get(c.id) ?? false
                         const isCLT = (c.tipo_contrato??'').toLowerCase()==='clt'
-                        const temVT  = c.vt_valor_diario && c.vt_valor_diario > 0
-                        const bruto  = temVT ? +(c.vt_valor_diario! * qtdDias).toFixed(2) : 0
+                        const vtDiario = vtDiarioColab(c.vt_dados as any)
+                        const temVT  = vtDiario > 0
+                        const bruto  = temVT ? +(vtDiario * qtdDias).toFixed(2) : 0
                         const desc6  = (loteDesconto6 && isCLT && temVT) ? +Math.min((c.salario??0)*0.06, bruto).toFixed(2) : 0
                         const empresa= bruto - desc6
                         return (
@@ -1611,13 +1794,14 @@ export default function ValeTransportePage() {
                                 {c.funcao_nome || '—'} ·&nbsp;
                                 <span style={{ color: isCLT ? '#1d4ed8' : '#b45309', fontWeight:600 }}>{isCLT ? 'CLT' : (c.tipo_contrato||'Autôn.')}</span>
                                 {!temVT && <span style={{ color:'#ef4444', marginLeft:6 }}>⚠ Sem VT configurado</span>}
+                                {temVT && <span style={{ color:'#64748b', marginLeft:6 }}>{(c.vt_dados as any)?.modalidade === 'gasolina' ? '⛽ Gasolina' : '🚌 Transporte'} · {formatCurrency(vtDiario)}/dia</span>}
                               </div>
                             </div>
                             {temVT ? (
                               <div style={{ textAlign:'right', fontSize:12 }}>
                                 <div style={{ fontWeight:700, color:'#1d4ed8' }}>{formatCurrency(empresa)}</div>
-                                {desc6>0 && <div style={{ color:'#b45309', fontSize:10 }}>-6%: {formatCurrency(desc6)}</div>}
-                                <div style={{ color:'var(--muted-foreground)', fontSize:10 }}>{qtdDias} dias</div>
+                                <div style={{ color:'var(--muted-foreground)', fontSize:10 }}>{formatCurrency(vtDiario)}/dia × {qtdDias} dias</div>
+                                {desc6>0 && <div style={{ color:'#b45309', fontSize:10 }}>-6%: -{formatCurrency(desc6)}</div>}
                               </div>
                             ) : (
                               <div style={{ fontSize:11, color:'#ef4444' }}>—</div>

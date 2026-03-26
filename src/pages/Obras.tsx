@@ -33,6 +33,7 @@ type FormData = {
   estado: string; cliente: string; responsavel: string
   data_inicio: string; data_previsao_fim: string
   status: string; observacoes: string
+  considera_sabado_util: boolean
 }
 
 const DIAS_SEMANA = [
@@ -67,7 +68,7 @@ const HORARIO_DEFAULT: HorarioDia[] = [
 const EMPTY_FORM: FormData = {
   nome: '', codigo: '', endereco: '', cidade: '', estado: '',
   cliente: '', responsavel: '', data_inicio: '', data_previsao_fim: '',
-  status: 'em_andamento', observacoes: '',
+  status: 'em_andamento', observacoes: '', considera_sabado_util: false,
 }
 
 const STATUS_BORDER_COLOR: Record<string, string> = {
@@ -167,6 +168,7 @@ export default function Obras() {
       responsavel: o.responsavel ?? '', data_inicio: o.data_inicio ?? '',
       data_previsao_fim: o.data_previsao_fim ?? '', status: o.status,
       observacoes: o.observacoes ?? '',
+      considera_sabado_util: (o as any).considera_sabado_util ?? false,
     })
     setHorarios(HORARIO_DEFAULT)
     fetchHorarios(o.id)
@@ -185,13 +187,14 @@ export default function Obras() {
     if (!form.nome.trim()) { toast.error('Nome é obrigatório'); return }
     setSaving(true)
 
-    const payload: Partial<Obra> = {
+    const payload: Partial<Obra> & { considera_sabado_util: boolean } = {
       nome: form.nome.trim(), codigo: form.codigo || null,
       endereco: form.endereco || null, cidade: form.cidade || null,
       estado: form.estado || null, cliente: form.cliente || null,
       responsavel: form.responsavel || null, data_inicio: form.data_inicio || null,
       data_previsao_fim: form.data_previsao_fim || null,
       status: form.status as Obra['status'], observacoes: form.observacoes || null,
+      considera_sabado_util: form.considera_sabado_util,
     }
 
     let obraId = editId
@@ -306,6 +309,11 @@ export default function Obras() {
                           {!o.has_horarios &&
                             <span title="Sem horários cadastrados — configure pelo botão de relógio" style={{ color:'#92400e', fontSize:11, background:'#fef3c7', borderRadius:4, padding:'1px 5px', fontWeight:600 }}>⚠️ Sem horários</span>
                           }
+                          {(o as any).considera_sabado_util && (
+                            <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 99, background: '#dbeafe', color: '#1d4ed8', fontWeight: 700 }}>
+                              Sáb. útil
+                            </span>
+                          )}
                         </div>
                         {o.codigo && <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--muted-foreground)', marginTop: 2 }}>#{o.codigo}</div>}
                       </div>
@@ -412,6 +420,22 @@ export default function Obras() {
                     <SelectContent>{Object.entries(STATUS_LABEL).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
                   </Select>
                 </FG>
+                <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0' }}>
+                  <input
+                    type="checkbox"
+                    id="considera_sabado_util"
+                    checked={form.considera_sabado_util}
+                    onChange={e => setForm(f => ({ ...f, considera_sabado_util: e.target.checked }))}
+                    style={{ width: 16, height: 16, cursor: 'pointer', marginTop: 2, flexShrink: 0 }}
+                  />
+                  <label htmlFor="considera_sabado_util" style={{ fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
+                    <strong>Considera sábado como dia útil</strong>
+                    <span style={{ display: 'block', fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>
+                      Se marcado: sábado conta no cálculo do VT e colaborador que trabalhou sábado recebe VT do dia.
+                      Se desmarcado: sábado já está incluído no valor mensal padrão — não gera VT adicional.
+                    </span>
+                  </label>
+                </div>
                 <FG label="Observações" span={2}><Textarea value={form.observacoes} onChange={e => set('observacoes', e.target.value)} rows={2} placeholder="Observações…" /></FG>
               </div>
               <DialogFooter>

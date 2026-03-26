@@ -51,6 +51,7 @@ export interface Obra {
   data_previsao_fim: string | null
   status: 'em_andamento' | 'concluida' | 'pausada' | 'cancelada'
   observacoes: string | null
+  considera_sabado_util: boolean | null
 }
 
 export interface Colaborador {

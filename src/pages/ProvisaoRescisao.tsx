@@ -169,11 +169,12 @@ export default function ProvisaoRescisao() {
             colaborador_id,
             mes_referencia,
             snap_valor_total,
+            snap_valor_horas,
+            snap_valor_dsr,
             status,
             colaboradores!inner(nome, chapa, tipo_contrato)
           `)
           .in('status', ['liberado', 'pago'])
-          .not('snap_valor_total', 'is', null)
           .eq('colaboradores.tipo_contrato', 'clt')
           .order('mes_referencia', { ascending: false }),
         // rescisões lançadas
@@ -193,23 +194,26 @@ export default function ProvisaoRescisao() {
       if (lancRes.error) throw lancRes.error
       if (rescRes.error) throw rescRes.error
 
-      // Montar linhas de provisão apenas com fechamentos CLT
-      const linhas: LinhaProvisao[] = (lancRes.data ?? []).map((l: any) => {
-        const bruto  = Number(l.snap_valor_total) || 0
-        const fgts   = bruto * PERC_FGTS
-        const ferias = bruto * PERC_FERIAS
-        const dec    = bruto * PERC_13
-        return {
-          colaborador_id: l.colaborador_id,
-          nome:  l.colaboradores?.nome  ?? '—',
-          chapa: l.colaboradores?.chapa ?? '—',
-          mes_referencia: l.mes_referencia ?? '',
-          bruto,
-          fgts,
-          ferias,
-          decimo_terceiro: dec,
-          total: fgts + ferias + dec,
-        }
+      // Montar linhas de provisão — base: horas CLT + DSR apenas (sem produção/prêmio/outros)
+      const linhas: LinhaProvisao[] = (lancRes.data ?? [])
+        .filter((l: any) => (l.snap_valor_horas ?? 0) > 0 || (l.snap_valor_dsr ?? 0) > 0)
+        .map((l: any) => {
+          // Base de cálculo = horas normais/extras + DSR (exclui produção, prêmio, etc.)
+          const bruto  = (Number(l.snap_valor_horas) || 0) + (Number(l.snap_valor_dsr) || 0)
+          const fgts   = bruto * PERC_FGTS
+          const ferias = bruto * PERC_FERIAS
+          const dec    = bruto * PERC_13
+          return {
+            colaborador_id: l.colaborador_id,
+            nome:  l.colaboradores?.nome  ?? '—',
+            chapa: l.colaboradores?.chapa ?? '—',
+            mes_referencia: l.mes_referencia ?? '',
+            bruto,
+            fgts,
+            ferias,
+            decimo_terceiro: dec,
+            total: fgts + ferias + dec,
+          }
       })
 
       setLinhasProvisao(linhas)
@@ -344,7 +348,7 @@ export default function ProvisaoRescisao() {
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Provisões &amp; Rescisão</h1>
             <p style={{ fontSize: 13, color: 'var(--muted-foreground)', margin: '2px 0 0' }}>
-              Baseado nos fechamentos CLT (liberados + pagos) · FGTS 8% · Férias 11,11% · 13º 8,33%
+              Base: Horas CLT + DSR · Exclui produção e prêmios · FGTS 8% · Férias 11,11% · 13º 8,33%
             </p>
           </div>
         </div>
@@ -376,7 +380,7 @@ export default function ProvisaoRescisao() {
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: cfg.color, marginTop: 2 }}>{cfg.label}</div>
               <div style={{ fontSize: 10, color: cfg.color, opacity: .7, marginTop: 2 }}>
-                {totais.lancamentos} fechamento(s) CLT · clique para detalhar
+                {totais.lancamentos} fechamento(s) · horas+DSR · clique para detalhar
               </div>
             </button>
           )

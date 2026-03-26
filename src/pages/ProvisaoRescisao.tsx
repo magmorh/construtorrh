@@ -162,31 +162,43 @@ export default function ProvisaoRescisao() {
     setLoading(true)
     try {
       const [lancRes, rescRes, colabRes] = await Promise.all([
-        // lançamentos PAGOS com snap_valor_total
+        // Fechamentos CLT — status liberado OU pago — com snap_valor_total
         supabase
           .from('ponto_lancamentos')
-          .select('colaborador_id, mes_referencia, snap_valor_total, colaboradores(nome, chapa)')
-          .eq('status', 'pago')
+          .select(`
+            colaborador_id,
+            mes_referencia,
+            snap_valor_total,
+            status,
+            colaboradores!inner(nome, chapa, tipo_contrato)
+          `)
+          .in('status', ['liberado', 'pago'])
           .not('snap_valor_total', 'is', null)
+          .eq('colaboradores.tipo_contrato', 'clt')
           .order('mes_referencia', { ascending: false }),
         // rescisões lançadas
         supabase
           .from('rescisoes')
           .select('*, colaboradores(nome, chapa)')
           .order('data_rescisao', { ascending: false }),
-        // colaboradores ativos para o modal
-        supabase.from('colaboradores').select('id, nome, chapa').eq('status', 'ativo').order('nome'),
+        // colaboradores CLT ativos para o modal
+        supabase
+          .from('colaboradores')
+          .select('id, nome, chapa')
+          .eq('status', 'ativo')
+          .eq('tipo_contrato', 'clt')
+          .order('nome'),
       ])
 
       if (lancRes.error) throw lancRes.error
       if (rescRes.error) throw rescRes.error
 
-      // Montar linhas de provisão a partir dos lançamentos pagos
+      // Montar linhas de provisão apenas com fechamentos CLT
       const linhas: LinhaProvisao[] = (lancRes.data ?? []).map((l: any) => {
-        const bruto = Number(l.snap_valor_total) || 0
-        const fgts  = bruto * PERC_FGTS
+        const bruto  = Number(l.snap_valor_total) || 0
+        const fgts   = bruto * PERC_FGTS
         const ferias = bruto * PERC_FERIAS
-        const dec   = bruto * PERC_13
+        const dec    = bruto * PERC_13
         return {
           colaborador_id: l.colaborador_id,
           nome:  l.colaboradores?.nome  ?? '—',
@@ -332,7 +344,7 @@ export default function ProvisaoRescisao() {
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Provisões &amp; Rescisão</h1>
             <p style={{ fontSize: 13, color: 'var(--muted-foreground)', margin: '2px 0 0' }}>
-              Calculado sobre os salários pagos · FGTS 8% · Férias 11,11% · 13º 8,33%
+              Baseado nos fechamentos CLT (liberados + pagos) · FGTS 8% · Férias 11,11% · 13º 8,33%
             </p>
           </div>
         </div>
@@ -364,7 +376,7 @@ export default function ProvisaoRescisao() {
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: cfg.color, marginTop: 2 }}>{cfg.label}</div>
               <div style={{ fontSize: 10, color: cfg.color, opacity: .7, marginTop: 2 }}>
-                {totais.lancamentos} lançamento(s) pagos · clique para detalhar
+                {totais.lancamentos} fechamento(s) CLT · clique para detalhar
               </div>
             </button>
           )

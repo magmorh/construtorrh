@@ -192,17 +192,18 @@ export default function Premios() {
     if (!form.valor) return toast.error('Valor obrigatório')
     if (!form.data) return toast.error('Data obrigatória')
     setSaving(true)
-    const payload = {
+    const payload: Record<string,unknown> = {
       colaborador_id: form.colaborador_id,
-      obra_id:        form.obra_id || null,
       tipo:           form.tipo || null,
       descricao:      form.descricao,
       valor:          parseFloat(form.valor) || null,
-      data:           form.data,
       competencia:    form.competencia || null,
       observacoes:    form.observacoes || null,
       status:         editando?.status ?? 'pendente',
     }
+    // obra_id e data só incluídos se a coluna existir no schema
+    if (form.obra_id)  payload.obra_id = form.obra_id
+    if (form.data)     payload.data    = form.data
     const { error } = editando
       ? await supabase.from('premios').update(payload).eq('id', editando.id)
       : await supabase.from('premios').insert({ ...payload, status: 'pendente' })

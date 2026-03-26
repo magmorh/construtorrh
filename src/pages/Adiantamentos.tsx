@@ -187,13 +187,14 @@ export default function Adiantamentos() {
     setSaving(true)
     const payload: any = {
       colaborador_id: form.colaborador_id,
-      obra_id:        form.obra_id || null,
       competencia:    form.competencia,
       valor:          parseFloat(form.valor),
       tipo:           form.tipo,
       observacoes:    form.observacoes || null,
       status:         'pendente',
     }
+    // obra_id só incluído se a coluna existir no schema
+    if (form.obra_id) payload.obra_id = form.obra_id
     const { error } = editando
       ? await supabase.from('adiantamentos').update(payload).eq('id', editando.id)
       : await supabase.from('adiantamentos').insert(payload)

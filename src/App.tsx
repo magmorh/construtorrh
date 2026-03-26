@@ -31,6 +31,7 @@ const EncargosPage   = React.lazy(() => import('@/pages/EncargosPage'))
 const Adiantamentos  = React.lazy(() => import('@/pages/Adiantamentos'))
 const PortalAdmin    = React.lazy(() => import('@/pages/PortalAdmin'))
 const Solicitacoes   = React.lazy(() => import('@/pages/Solicitacoes'))
+const Juridico       = React.lazy(() => import('@/pages/Juridico'))
 // Portal externo (sem Layout principal)
 const PortalLogin        = React.lazy(() => import('@/pages/portal/PortalLogin'))
 const PortalHome         = React.lazy(() => import('@/pages/portal/PortalHome'))
@@ -185,6 +186,16 @@ export default function App() {
                   <PrivateRoute>
                     <Layout>
                       <Ocorrencias />
+                    </Layout>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/juridico"
+                element={
+                  <PrivateRoute>
+                    <Layout>
+                      <Juridico />
                     </Layout>
                   </PrivateRoute>
                 }

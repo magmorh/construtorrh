@@ -947,6 +947,9 @@ export default function Colaboradores() {
   const [atualizandoEpis, setAtualizandoEpis] = useState(false)
   const [confirmarAtualizEpis, setConfirmarAtualizEpis] = useState(false)
 
+  // alerta lista negra
+  const [alertaListaNegra, setAlertaListaNegra] = useState<{ nome: string; motivo: string } | null>(null)
+
   // ── fetch ─────────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -979,6 +982,19 @@ export default function Colaboradores() {
 
   // ── helpers form ──────────────────────────────────────────────────────────
   const set = (k: keyof FormData, v: string | boolean) => setForm(p => ({ ...p, [k]: v }))
+
+  // ── verificar lista negra ao digitar CPF ──────────────────────────────────
+  async function verificarListaNegra(cpf: string) {
+    const digits = cpf.replace(/\D/g, '')
+    if (digits.length !== 11) return
+    const { data } = await supabase.from('lista_negra_juridico')
+      .select('nome,motivo').eq('cpf', digits).limit(1)
+    if (data && data.length > 0) {
+      setAlertaListaNegra({ nome: data[0].nome, motivo: data[0].motivo })
+    } else {
+      setAlertaListaNegra(null)
+    }
+  }
 
   // Quando a data de admissão muda e já tem função selecionada → regenera chapa
   const handleDataAdmissao = async (data: string) => {
@@ -1739,7 +1755,16 @@ export default function Colaboradores() {
                       <Input value={form.nome} onChange={e => set('nome', e.target.value)} placeholder="Nome completo" />
                     </Field>
                     <Field label="CPF">
-                      <Input value={form.cpf} onChange={e => set('cpf', maskCPF(e.target.value))} placeholder="000.000.000-00" inputMode="numeric" />
+                      <Input value={form.cpf} onChange={e => { const v = maskCPF(e.target.value); set('cpf', v); verificarListaNegra(v) }} placeholder="000.000.000-00" inputMode="numeric" />
+                      {alertaListaNegra && (
+                        <div style={{ marginTop: 6, background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8, padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                          <span style={{ fontSize: 16, flexShrink: 0 }}>🚫</span>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 12, color: '#dc2626' }}>CPF em Lista Negra Jurídica!</div>
+                            <div style={{ fontSize: 11, color: '#b91c1c', marginTop: 2 }}>{alertaListaNegra.nome} — {alertaListaNegra.motivo}</div>
+                          </div>
+                        </div>
+                      )}
                     </Field>
                     <Field label="RG">
                       <Input value={form.rg} onChange={e => set('rg', maskRG(e.target.value))} placeholder="MG-00.000.000" />

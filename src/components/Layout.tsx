@@ -11,7 +11,7 @@ import {
   AlertTriangle, FileText, Clock, DollarSign, Award,
   Calculator, Bus, BarChart3, Settings, LogOut, Menu,
   HardHat, ChevronLeft, ChevronRight, UserCog,
-  ClipboardList, Lock, CalendarDays, Briefcase, Wallet, Smartphone, Inbox } from 'lucide-react'
+  ClipboardList, Lock, CalendarDays, Briefcase, Wallet, Smartphone, Inbox, Scale } from 'lucide-react'
 
 // ── grupos de navegação ───────────────────────────────────────────────────────
 const NAV_GROUPS = [
@@ -50,6 +50,12 @@ const NAV_GROUPS = [
       { to: '/pagamentos',       label: 'Pagamentos',       icon: DollarSign },
       { to: '/encargos',         label: 'Encargos',         icon: Briefcase },
       { to: '/provisoes',        label: 'Provisões FGTS',   icon: Calculator },
+    ],
+  },
+  {
+    label: 'Jurídico',
+    items: [
+      { to: '/juridico', label: 'Jurídico', icon: Scale },
     ],
   },
   {

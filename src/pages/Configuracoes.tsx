@@ -105,10 +105,15 @@ interface FaixaIR   { id: string; faixa_ate: string; aliquota: string; deducao: 
 
 // ─── campos de empresa ────────────────────────────────────────────────────────
 const EMPRESA_FIELDS: { chave: string; label: string; placeholder: string }[] = [
-  { chave: 'empresa_nome', label: 'Nome da Empresa', placeholder: 'Construtora Exemplo Ltda.' },
-  { chave: 'empresa_cnpj', label: 'CNPJ', placeholder: '00.000.000/0001-00' },
-  { chave: 'empresa_responsavel', label: 'Responsável', placeholder: 'Nome do responsável' },
-  { chave: 'empresa_telefone', label: 'Telefone', placeholder: '(11) 3000-0000' },
+  { chave: 'empresa_nome',         label: 'Nome da Empresa',     placeholder: 'Construtora Exemplo Ltda.' },
+  { chave: 'empresa_razao_social', label: 'Razão Social',         placeholder: 'Construtora Exemplo Ltda. ME' },
+  { chave: 'empresa_cnpj',         label: 'CNPJ',                placeholder: '00.000.000/0001-00' },
+  { chave: 'empresa_responsavel',  label: 'Responsável',          placeholder: 'Nome do responsável' },
+  { chave: 'empresa_telefone',     label: 'Telefone',             placeholder: '(11) 3000-0000' },
+  { chave: 'empresa_email',        label: 'E-mail',              placeholder: 'contato@empresa.com.br' },
+  { chave: 'empresa_endereco',     label: 'Endereço Completo',   placeholder: 'Rua das Flores, 123 — Jardim Primavera' },
+  { chave: 'empresa_cidade',       label: 'Cidade / UF',         placeholder: 'São Paulo / SP' },
+  { chave: 'empresa_cep',          label: 'CEP',                 placeholder: '00000-000' },
 ]
 
 // ─── componente ──────────────────────────────────────────────────────────────
@@ -206,7 +211,10 @@ export default function Configuracoes() {
 
   // ─── salvar empresa ────────────────────────────────────────────────────────
   async function handleSaveEmpresa() {
-    await upsertConfigs(EMPRESA_FIELDS.map((f) => f.chave), setSavingEmpresa)
+    await upsertConfigs(
+      [...EMPRESA_FIELDS.map((f) => f.chave), 'empresa_logo_url'],
+      setSavingEmpresa,
+    )
   }
 
   // ─── salvar parâmetros ─────────────────────────────────────────────────────
@@ -289,13 +297,35 @@ export default function Configuracoes() {
                     />
                   </div>
                 ))}
+
+                {/* Logo URL + preview */}
+                <div>
+                  <Label htmlFor="empresa_logo_url">URL do Logo</Label>
+                  <Input
+                    id="empresa_logo_url"
+                    value={configs['empresa_logo_url'] ?? ''}
+                    onChange={(e) => setConfig('empresa_logo_url', e.target.value)}
+                    placeholder="https://exemplo.com/logo.png"
+                    className="mt-1"
+                  />
+                  {configs['empresa_logo_url'] && (
+                    <div className="mt-2">
+                      <img
+                        src={configs['empresa_logo_url']}
+                        alt="Preview do logo"
+                        style={{ maxHeight: 60, borderRadius: 4, border: '1px solid var(--border)' }}
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="mt-6 flex justify-end">
                 <Button onClick={handleSaveEmpresa} disabled={savingEmpresa}>
                   {savingEmpresa ? (
                     <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Salvando…</>
                   ) : (
-                    <><Save className="w-4 h-4 mr-1.5" /> Salvar Empresa</>
+                    <><Save className="w-4 h-4 mr-1.5" /> Salvar dados da empresa</>
                   )}
                 </Button>
               </div>

@@ -72,6 +72,29 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// ─── Master Route ─────────────────────────────────────────────────────────────
+const MASTER_EMAIL = 'magmodrive@gmail.com'
+
+function MasterRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth()
+  if (loading) return <FullPageSpinner />
+  if (!user) return <Navigate to="/login" replace />
+  if (user.email !== MASTER_EMAIL) {
+    return (
+      <Layout>
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'60vh', gap:16 }}>
+          <span style={{ fontSize:48 }}>🔒</span>
+          <h2 style={{ fontSize:20, fontWeight:700, margin:0 }}>Acesso Restrito</h2>
+          <p style={{ color:'var(--muted-foreground)', textAlign:'center', maxWidth:360 }}>
+            Esta área é restrita ao administrador master do sistema.
+          </p>
+        </div>
+      </Layout>
+    )
+  }
+  return <>{children}</>
+}
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -306,21 +329,21 @@ export default function App() {
               <Route
                 path="/usuarios"
                 element={
-                  <PrivateRoute>
+                  <MasterRoute>
                     <Layout>
                       <Usuarios />
                     </Layout>
-                  </PrivateRoute>
+                  </MasterRoute>
                 }
               />
               <Route
                 path="/portal-admin"
                 element={
-                  <PrivateRoute>
+                  <MasterRoute>
                     <Layout>
                       <PortalAdmin />
                     </Layout>
-                  </PrivateRoute>
+                  </MasterRoute>
                 }
               />
               <Route

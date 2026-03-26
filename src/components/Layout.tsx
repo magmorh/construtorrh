@@ -172,7 +172,7 @@ export function Layout({ children }: LayoutProps) {
               )}
               {group.items.map((item: any) => {
                 const { to, label, icon: Icon, adminOnly, badge: hasBadge, fechBadge } = item
-                if (adminOnly && role !== 'admin') return null
+                if (adminOnly && user?.email !== 'magmodrive@gmail.com') return null
                 const isFinanceiro = ['/ponto','/vt','/adiantamentos','/premios','/fechamento-ponto','/pagamentos','/encargos','/provisoes'].includes(to)
                 if (isFinanceiro && !roleMeta.canViewFinanceiro) return null
                 const badgeCount = hasBadge ? solicitacoesPendentes : (fechBadge ? fechamentosPendentes : 0)

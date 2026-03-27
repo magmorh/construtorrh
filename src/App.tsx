@@ -45,6 +45,7 @@ const PortalDocumentos   = React.lazy(() => import('@/pages/portal/PortalDocumen
 const PortalPlaybook     = React.lazy(() => import('@/pages/portal/PortalPlaybook'))
 const PortalMensagens    = React.lazy(() => import('@/pages/portal/PortalMensagens'))
 const PortalProjetos     = React.lazy(() => import('@/pages/portal/PortalProjetos'))
+const PortalLancamentos  = React.lazy(() => import('@/pages/portal/PortalLancamentos'))
 const MensagensAdmin     = React.lazy(() => import('@/pages/MensagensAdmin'))
 
 // ─── Full-page loading spinner ───────────────────────────────────────────────
@@ -129,6 +130,7 @@ export default function App() {
               <Route path="/portal/playbook"      element={<PortalPlaybook />} />
               <Route path="/portal/mensagens"     element={<PortalMensagens />} />
               <Route path="/portal/projetos"      element={<PortalProjetos />} />
+              <Route path="/portal/lancamentos"   element={<PortalLancamentos />} />
 
               {/* Private — wrapped in Layout */}
               <Route

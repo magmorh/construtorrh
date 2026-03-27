@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   ClipboardList, AlertTriangle, Home, LogOut, UserPlus,
   HardHat, ShieldCheck, FileImage, ChevronRight,
-  BookOpen, MessageSquare, FolderOpen,
+  BookOpen, MessageSquare, FolderOpen, CalendarDays,
 } from 'lucide-react'
 import { clearPortalSession, getPortalSession } from '@/hooks/usePortalAuth'
 
@@ -27,11 +27,12 @@ export default function PortalLayout({ children }: PortalLayoutProps) {
     { to: '/portal/producao',    icon: HardHat,       label: 'Prod.',    color: '#f59e0b' },
   ]
   const navExtra = [
-    { to: '/portal/epis',        icon: ShieldCheck,   label: 'EPIs',     color: '#ef4444' },
-    { to: '/portal/documentos',  icon: FileImage,     label: 'Docs',     color: '#14b8a6' },
-    { to: '/portal/playbook',    icon: BookOpen,      label: 'Playbook', color: '#10b981' },
-    { to: '/portal/mensagens',   icon: MessageSquare, label: 'Msg.',     color: '#7c3aed' },
-    { to: '/portal/projetos',    icon: FolderOpen,    label: 'Projetos', color: '#0369a1' },
+    { to: '/portal/epis',          icon: ShieldCheck,   label: 'EPIs',      color: '#ef4444' },
+    { to: '/portal/documentos',    icon: FileImage,     label: 'Docs',      color: '#14b8a6' },
+    { to: '/portal/playbook',      icon: BookOpen,      label: 'Playbook',  color: '#10b981' },
+    { to: '/portal/mensagens',     icon: MessageSquare, label: 'Msg.',      color: '#7c3aed' },
+    { to: '/portal/projetos',      icon: FolderOpen,    label: 'Projetos',  color: '#0369a1' },
+    { to: '/portal/lancamentos',   icon: CalendarDays,  label: 'Lanç.',     color: '#f59e0b' },
   ]
 
   return (
@@ -134,13 +135,13 @@ export default function PortalLayout({ children }: PortalLayoutProps) {
             </NavLink>
           ))}
         </div>
-        {/* linha 2 — extras */}
-        <div style={{ display:'flex' }}>
+        {/* linha 2 — extras (scroll horizontal se >5 itens) */}
+        <div style={{ display:'flex', overflowX:'auto', scrollbarWidth:'none' }}>
           {navExtra.map(item => (
             <NavLink key={item.to} to={item.to}
               style={({ isActive }) => ({
-                flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                padding: '6px 2px 5px', textDecoration: 'none',
+                flex: '0 0 auto', minWidth: 56, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                padding: '6px 4px 5px', textDecoration: 'none',
                 color: isActive ? item.color : '#b0bec5',
                 borderTop: isActive ? `2px solid ${item.color}` : '2px solid transparent',
                 background: isActive ? `${item.color}08` : 'transparent',
@@ -149,7 +150,7 @@ export default function PortalLayout({ children }: PortalLayoutProps) {
               {({ isActive }) => (
                 <>
                   <item.icon size={isActive ? 17 : 15} strokeWidth={isActive ? 2.2 : 1.8} />
-                  <span style={{ fontSize: 7.5, marginTop: 2, fontWeight: isActive ? 700 : 500, lineHeight: 1 }}>{item.label}</span>
+                  <span style={{ fontSize: 7.5, marginTop: 2, fontWeight: isActive ? 700 : 500, lineHeight: 1, whiteSpace:'nowrap' }}>{item.label}</span>
                 </>
               )}
             </NavLink>

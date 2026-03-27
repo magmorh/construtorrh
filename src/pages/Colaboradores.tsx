@@ -955,7 +955,8 @@ export default function Colaboradores() {
   const [recontStep, setRecontStep]               = useState<1|2>(1)
   const [recontDataEnc, setRecontDataEnc]         = useState('')
   const [recontMotivo, setRecontMotivo]           = useState<string>('mudanca_vinculo')
-  const [recontNovoTipo, setRecontNovoTipo]       = useState<'clt'|'autonomo'|'pj'>('clt')
+  const [recontNovoTipo, setRecontNovoTipo]       = useState<'clt'|'autonomo'>('clt')
+  const [recontNovoFuncaoId, setRecontNovoFuncaoId] = useState<string>('__manter')
   const [recontDataAdm, setRecontDataAdm]         = useState('')
   const [recontSaving, setRecontSaving]           = useState(false)
   const [recontColabId, setRecontColabId]         = useState<string|null>(null)
@@ -1511,7 +1512,7 @@ export default function Colaboradores() {
       tipo_conta:        colabAtual.tipo_conta,
       pix_chave:         colabAtual.pix_chave,
       pix_tipo:          (colabAtual as any).pix_tipo,
-      funcao_id:         colabAtual.funcao_id,
+      funcao_id:         recontNovoFuncaoId !== '__manter' ? recontNovoFuncaoId : colabAtual.funcao_id,
       obra_id:           colabAtual.obra_id,
       vale_transporte:   colabAtual.vale_transporte,
       vt_dados:          colabAtual.vt_dados,
@@ -1539,7 +1540,8 @@ export default function Colaboradores() {
     setRecontSaving(false)
     setModalRecontratar(false)
     setModalOpen(false)
-    toast.success(`✅ Recontratação concluída! Nova chapa: ${novaChapa} (${recontNovoTipo.toUpperCase()})`)
+    const tipoLabel = recontNovoTipo === 'clt' ? 'CLT' : 'Autônomo/PJ'
+    toast.success(`✅ Recontratação concluída! Nova chapa: ${novaChapa} (${tipoLabel})`)
     fetchData()
   }
 
@@ -2237,6 +2239,7 @@ export default function Colaboradores() {
                     setRecontDataAdm(hoje)
                     setRecontMotivo('mudanca_vinculo')
                     setRecontNovoTipo(form.tipo_contrato === 'clt' ? 'autonomo' : 'clt')
+                    setRecontNovoFuncaoId('__manter')
                     setRecontStep(1)
                     setRecontColabId(editId)
                     setModalRecontratar(true)
@@ -2329,8 +2332,8 @@ export default function Colaboradores() {
 
                 <div>
                   <Label className="text-xs">Novo tipo de contrato *</Label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 6 }}>
-                    {(['clt', 'autonomo', 'pj'] as const).map(t => (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
+                    {(['clt', 'autonomo'] as const).map(t => (
                       <button
                         key={t}
                         type="button"
@@ -2343,9 +2346,27 @@ export default function Colaboradores() {
                           textTransform: 'uppercase',
                         }}
                       >
-                        {t === 'clt' ? '🟦 CLT' : t === 'autonomo' ? '🟧 Autônomo' : '🟧 PJ'}
+                        {t === 'clt' ? '🟦 CLT' : '🟧 Autônomo / PJ'}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                {/* Função no novo vínculo */}
+                <div>
+                  <Label className="text-xs">Função no novo vínculo</Label>
+                  <select
+                    value={recontNovoFuncaoId}
+                    onChange={e => setRecontNovoFuncaoId(e.target.value)}
+                    style={{ width:'100%', height:36, borderRadius:6, border:'1px solid var(--border)', background:'var(--background)', color:'var(--foreground)', fontSize:12, paddingLeft:8, marginTop:4 }}
+                  >
+                    <option value="__manter">🔄 Manter função atual</option>
+                    {funcoes.map(f => (
+                      <option key={f.id} value={f.id}>{f.nome}{f.sigla ? ` (${f.sigla})` : ''}</option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize:10, color:'var(--muted-foreground)', marginTop:3 }}>
+                    Deixe "Manter função atual" para copiar a função do vínculo anterior.
                   </div>
                 </div>
 
@@ -3376,7 +3397,7 @@ function FuncaoSection({
               {[...historicoContratos].sort((a,b)=>b.data_inicio.localeCompare(a.data_inicio)).map(p=>{
                 const ativo = p.data_fim === null
                 const cor = p.tipo_contrato==='clt' ? '#1d4ed8' : '#d97706'
-                const label = p.tipo_contrato==='clt' ? '🟦 CLT' : p.tipo_contrato==='pj' ? '🟧 PJ' : '🟧 Autônomo'
+                const label = p.tipo_contrato==='clt' ? '🟦 CLT' : '🟧 Autônomo/PJ'
                 return (
                   <div key={p.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:8,border:`1px solid ${ativo?cor+'66':'var(--border)'}`,background:ativo?cor+'0a':'transparent'}}>
                     <span style={{fontWeight:700,fontSize:12,color:cor,minWidth:80}}>{label}</span>

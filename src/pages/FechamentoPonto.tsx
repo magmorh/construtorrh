@@ -486,8 +486,18 @@ export default function FechamentoPonto() {
         ? calcIR(baseDesconto, inss, tabelaIR.length ? tabelaIR : undefined)
         : 0
 
-      // Líquido = total a receber + VT bruto - desc.VT 6% - INSS - IR - Adiantamento
-      const liquido = valorTotal + vtBruto - descontoVT - inss - ir - descontoAdiant
+      // VT NÃO integra o salário líquido — é pago via cartão/benefício separado.
+      // Apenas os AJUSTES impactam o pagamento em conta:
+      //   − VT Falta  → colaborador perde o VT do dia ausente (desconta do líquido)
+      //   + Sáb/Dom   → colaborador trabalhou dia extra, empresa repassa o VT (soma ao líquido)
+      //   − VT 6%     → desconto legal CLT de 6% do salário (desconta do líquido)
+      const liquido = valorTotal
+        - vtDescontoFaltas      // − dias de falta × VT/dia
+        + vtAdicionalSabDom     // + sáb/dom trabalhados × VT/dia (só obras sem sáb útil)
+        - descontoVT6pct        // − 6% salário bruto (CLT, se aplicável)
+        - inss
+        - ir
+        - descontoAdiant
 
       return {
         id: l.id,
@@ -737,8 +747,15 @@ export default function FechamentoPonto() {
       return s + (p > 1 ? a.valor / p : a.valor)
     }, 0)
 
-    // Líquido = bruto + VT bruto − desc.VT 6% − INSS − IR − AD selecionados
-    const liquidoFinal = lanc.valor_total + (lanc.valor_vt_bruto ?? 0) - lanc.desconto_vt - lanc.inss - lanc.ir - descontoAD
+    // Líquido = bruto − VT Falta + Sáb/Dom − VT 6% − INSS − IR − AD selecionados
+    // (VT base é pago via cartão separado, não entra no salário)
+    const liquidoFinal = lanc.valor_total
+      - (lanc.vt_desconto_faltas ?? 0)
+      + (lanc.vt_adicional_sabdom ?? 0)
+      - (lanc.desconto_vt_6pct ?? 0)
+      - lanc.inss
+      - lanc.ir
+      - descontoAD
 
     const { error } = await supabase.from('ponto_lancamentos').update({
       status:               'liberado',
@@ -1721,7 +1738,13 @@ export default function FechamentoPonto() {
                       const p = a.desconto_parcelas ?? 1
                       return s + (p > 1 ? a.valor / p : a.valor)
                     }, 0)
-                  const liquidoReal = modalLiberar.valor_total + (modalLiberar.valor_vt_bruto ?? 0) - modalLiberar.desconto_vt - modalLiberar.inss - modalLiberar.ir - adSel
+                  const liquidoReal = modalLiberar.valor_total
+                    - (modalLiberar.vt_desconto_faltas ?? 0)
+                    + (modalLiberar.vt_adicional_sabdom ?? 0)
+                    - (modalLiberar.desconto_vt_6pct ?? 0)
+                    - modalLiberar.inss
+                    - modalLiberar.ir
+                    - adSel
                   return (
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
                       padding:'12px 14px', background:'#1e3a5f' }}>

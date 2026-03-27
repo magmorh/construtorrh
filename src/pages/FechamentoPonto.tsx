@@ -51,8 +51,12 @@ interface LancItem {
   desconto_vt: number
   desconto_vt_6pct: number     // parcela do desconto referente ao 6% do VT
   desconto_adiant: number
-  valor_vt_dia: number          // VT/dia (taxa)
-  valor_vt_bruto: number        // VT bruto total do período (dias trabalhados × VT/dia)
+  valor_vt_dia: number          // VT/dia (taxa por dia)
+  valor_vt_bruto: number        // VT total líquido do período (a receber)
+  vt_desconto_faltas: number    // redução de VT por faltas (faltas × VT/dia)
+  vt_adicional_sabdom: number   // VT extra por sáb/dom trabalhados (0 se obra considera sáb útil)
+  vt_sabs_dom_trab: number      // qtd de sáb/dom trabalhados
+  obra_considera_sabado: boolean // se a obra conta sábado como dia útil
   inss: number
   ir: number
   liquido: number
@@ -346,7 +350,11 @@ export default function FechamentoPonto() {
           desconto_vt_6pct: 0,    // snap não guarda separado, usamos 0
           desconto_adiant:l.snap_desconto_adiant ?? 0,
           valor_vt_dia:   l.snap_vt_diario       ?? 0,
-          valor_vt_bruto: (l.snap_vt_diario ?? 0) * (horasAgg.dias - (l.snap_faltas ?? 0)),
+          valor_vt_bruto: (l.snap_vt_diario ?? 0) * Math.max(0, horasAgg.dias - (l.snap_faltas ?? 0)),
+          vt_desconto_faltas: (l.snap_vt_diario ?? 0) * (l.snap_faltas ?? 0),
+          vt_adicional_sabdom: 0,   // snap não guarda, exibe 0
+          vt_sabs_dom_trab:   (horasAgg as any).sabsDomTrab ?? 0,
+          obra_considera_sabado: !!(l.obras?.considera_sabado_util ?? false),
           inss:           l.snap_inss            ?? 0,
           ir:             l.snap_ir              ?? 0,
           liquido:        l.snap_liquido         ?? 0,
@@ -420,6 +428,7 @@ export default function FechamentoPonto() {
       // Dias base = dias trabalhados no período (faltas descontadas)
       // Sáb/Dom trabalhados quando !considera_sabado_util → adicionados ao total de dias VT
       const faltas      = (horasAgg as any).faltas ?? 0
+      const sabsDomTrab = (horasAgg as any).sabsDomTrab ?? 0
 
       // Dados VT do colaborador
       // temVT: verdadeiro se vale_transporte=true OU se vt_dados tem trechos/gasolina configurados
@@ -436,24 +445,40 @@ export default function FechamentoPonto() {
       const temVT = !!(colab?.vale_transporte) || vtDiaValor > 0
       const vtDiario = temVT ? vtDiaValor : 0
 
-            // considera_sabado_util da obra — salvo para referência
-      const _obraConsideraSab = !!(l.obras?.considera_sabado_util ?? false); void _obraConsideraSab
+      // ── Regra considera_sabado_util ─────────────────────────────────────────
+      // TRUE  → sábado é dia útil normal, já está na base do VT mensal
+      //         sáb trabalhado NÃO gera adicional de VT
+      // FALSE → sábado/domingo são dias extras fora da escala normal
+      //         sáb/dom trabalhados GERAM adicional de VT (passagem não estava prevista)
+      const obraConsideraSab = !!(l.obras?.considera_sabado_util ?? false)
 
-      // Dias VT efetivos = dias realmente trabalhados (presença em registro_ponto, sem faltas)
-      // Quando considera_sabado_util = FALSE → sáb/dom já registrados em registro_ponto contam
-      // Quando considera_sabado_util = TRUE  → sáb já embutido no VT mensal cadastrado, idem
-      // Em ambos os casos: vtDiario × diasTrabalhados é a base correta
-      const diasVTEfetivos = Math.max(0, horasAgg.dias - faltas)
-      const vtBruto = vtDiario * diasVTEfetivos
+      // Dias normais trabalhados (Mon-Fri, ou Mon-Sat se considera sab útil) sem sáb/dom extras
+      // horasAgg.dias = todos os dias com registro (incluindo sáb/dom registrados)
+      // sabsDomTrab = sáb/dom com presença (horas > 0, sem falta)
+      // diasNormais = dias da semana útil (excluindo sáb/dom para obras que não consideram sáb útil)
+      const diasNormais = obraConsideraSab
+        ? horasAgg.dias                                // sáb já é normal → todos contam
+        : Math.max(0, horasAgg.dias - sabsDomTrab)     // exclui sáb/dom da base
 
-      const descontoVTFaltas = 0  // faltas já estão fora de diasVTBase
+      // Desconto por falta: cada falta = -1 dia de VT
+      const vtDescontoFaltas = vtDiario * faltas
+
+      // Adicional por sáb/dom trabalhados: só quando a obra NÃO considera sáb como útil
+      // Nesses casos o colaborador foi além da escala e merece VT do transporte extra
+      const vtAdicionalSabDom = obraConsideraSab ? 0 : (vtDiario * sabsDomTrab)
+
+      // VT bruto = (dias normais - faltas) × VT/dia + adicional sáb/dom
+      // Equivale a: (horasAgg.dias - faltas) × vtDiario (fórmula simplificada)
+      const vtBruto = Math.max(0,
+        (diasNormais - faltas) * vtDiario + vtAdicionalSabDom
+      )
 
       // ── Base de desconto: CLT = horas+DSR / Autônomo = total recebido ───────
       const baseDesconto = tipo === 'clt' ? (valorHoras + dsr) : valorTotal
 
       // 6% do salário bruto (baseDesconto) — aplicado somente se descontar_6pct=true no VT do mês
       const descontoVT6pct = setDescontoVT6.has(l.colaborador_id) ? Math.min(baseDesconto * 0.06, vtBruto) : 0
-      const descontoVT     = descontoVTFaltas + descontoVT6pct
+      const descontoVT     = vtDescontoFaltas + descontoVT6pct
       const inss = tipo === 'clt'
         ? calcINSS(baseDesconto, tabelaInss.length ? tabelaInss : undefined)
         : 0   // autônomo não tem INSS retido (é MEI/PJ/autônomo)
@@ -492,6 +517,10 @@ export default function FechamentoPonto() {
         desconto_adiant: descontoAdiant,
         valor_vt_dia: vtDiario,
         valor_vt_bruto: vtBruto,
+        vt_desconto_faltas: vtDescontoFaltas,
+        vt_adicional_sabdom: vtAdicionalSabDom,
+        vt_sabs_dom_trab: sabsDomTrab,
+        obra_considera_sabado: obraConsideraSab,
         inss,
         ir,
         liquido,
@@ -1138,15 +1167,52 @@ export default function FechamentoPonto() {
                               {lanc.faltas > 0 ? lanc.faltas : '—'}
                             </TableCell>
                             <TableCell className="text-right" style={{ color: '#dc2626', fontSize: 12 }}>
-                              {lanc.valor_vt_bruto > 0 ? (() => {
-                                const parts: string[] = []
-                                parts.push(`VT bruto: R$ ${lanc.valor_vt_dia.toFixed(2)}/dia × ${Math.max(0, lanc.dias_trabalhados - lanc.faltas)} dia(s) = R$ ${lanc.valor_vt_bruto.toFixed(2)}`)
-                                if ((lanc.desconto_vt_6pct ?? 0) > 0) parts.push(`Desc. 6% (colaborador): −R$ ${lanc.desconto_vt_6pct.toFixed(2)}`)
+                              {lanc.valor_vt_bruto > 0 || lanc.vt_desconto_faltas > 0 ? (() => {
+                                // ── monta tooltip detalhado ──────────────────────────
+                                const diasBase = lanc.obra_considera_sabado
+                                  ? lanc.dias_trabalhados                                      // sáb é normal
+                                  : Math.max(0, lanc.dias_trabalhados - lanc.vt_sabs_dom_trab) // só Mon-Fri
+                                const tooltipLines: string[] = [
+                                  `VT/dia: R$ ${lanc.valor_vt_dia.toFixed(2)}`,
+                                  `Base (${diasBase} dia${diasBase !== 1 ? 's' : ''}): R$ ${(diasBase * lanc.valor_vt_dia).toFixed(2)}`,
+                                ]
+                                if (lanc.faltas > 0)
+                                  tooltipLines.push(`−VT faltas (${lanc.faltas}×): −R$ ${lanc.vt_desconto_faltas.toFixed(2)}`)
+                                if (lanc.vt_adicional_sabdom > 0)
+                                  tooltipLines.push(`+VT sáb/dom (${lanc.vt_sabs_dom_trab}×): +R$ ${lanc.vt_adicional_sabdom.toFixed(2)}`)
+                                if (lanc.desconto_vt_6pct > 0)
+                                  tooltipLines.push(`Desc. 6% colab.: −R$ ${lanc.desconto_vt_6pct.toFixed(2)}`)
+                                tooltipLines.push(`= VT líquido: R$ ${lanc.valor_vt_bruto.toFixed(2)}`)
+
                                 return (
-                                  <span title={parts.join('\n')}>
-                                    <span style={{ color: '#16a34a', fontWeight: 600 }}>+{formatCurrency(lanc.valor_vt_bruto)}</span>
+                                  <span title={tooltipLines.join('\n')} style={{ cursor: 'help' }}>
+                                    {/* valor bruto total */}
+                                    <span style={{ color: '#16a34a', fontWeight: 700 }}>
+                                      +{formatCurrency(lanc.valor_vt_bruto)}
+                                    </span>
+
+                                    {/* desconto por faltas */}
+                                    {lanc.faltas > 0 && (
+                                      <div style={{ fontSize: 9, color: '#dc2626', lineHeight: 1.3 }}>
+                                        −{formatCurrency(lanc.vt_desconto_faltas)}&nbsp;
+                                        <span style={{ color: '#94a3b8' }}>{lanc.faltas} falta{lanc.faltas !== 1 ? 's' : ''}</span>
+                                      </div>
+                                    )}
+
+                                    {/* adicional sáb/dom */}
+                                    {lanc.vt_adicional_sabdom > 0 && (
+                                      <div style={{ fontSize: 9, color: '#0369a1', lineHeight: 1.3 }}>
+                                        +{formatCurrency(lanc.vt_adicional_sabdom)}&nbsp;
+                                        <span style={{ color: '#94a3b8' }}>{lanc.vt_sabs_dom_trab} sáb/dom</span>
+                                      </div>
+                                    )}
+
+                                    {/* desconto 6% colaborador */}
                                     {(lanc.desconto_vt_6pct ?? 0) > 0 && (
-                                      <div style={{ fontSize: 9, color: '#dc2626' }}>−{formatCurrency(lanc.desconto_vt_6pct)} 6%</div>
+                                      <div style={{ fontSize: 9, color: '#b45309', lineHeight: 1.3 }}>
+                                        −{formatCurrency(lanc.desconto_vt_6pct)}&nbsp;
+                                        <span style={{ color: '#94a3b8' }}>desc. 6%</span>
+                                      </div>
                                     )}
                                   </span>
                                 )
@@ -1491,22 +1557,64 @@ export default function FechamentoPonto() {
                     <span style={{ fontSize:11, color:'#92400e' }}>(descontado no bruto)</span>
                   </div>
                 )}
-                {/* Descontos */}
-                {/* VT — exibir bruto (crédito) e desconto 6% se houver */}
-                {(modalLiberar.valor_vt_bruto > 0 || modalLiberar.desconto_vt > 0) && (
+                {/* VT — exibir bruto (crédito), desconto faltas, adicional sáb/dom e desconto 6% */}
+                {(modalLiberar.valor_vt_bruto > 0 || modalLiberar.vt_desconto_faltas > 0) && (
                   <>
-                    {modalLiberar.valor_vt_bruto > 0 && (
+                    {/* VT base */}
+                    {(() => {
+                      const diasBase = modalLiberar.obra_considera_sabado
+                        ? modalLiberar.dias_trabalhados
+                        : Math.max(0, modalLiberar.dias_trabalhados - modalLiberar.vt_sabs_dom_trab)
+                      const vtBase = diasBase * modalLiberar.valor_vt_dia
+                      return (
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                          padding:'9px 14px', background:'#f0fdf4', borderBottom:'1px solid #dcfce7' }}>
+                          <span style={{ fontSize:13, color:'#374151' }}>
+                            🚌 VT base&nbsp;
+                            <span style={{ fontSize:11, color:'#6b7280' }}>({diasBase} dia{diasBase !== 1 ? 's' : ''} × R$ {modalLiberar.valor_vt_dia.toFixed(2)})</span>
+                          </span>
+                          <span style={{ fontSize:13, fontWeight:600, color:'#16a34a' }}>+ {formatCurrency(vtBase)}</span>
+                        </div>
+                      )
+                    })()}
+
+                    {/* desconto faltas */}
+                    {(modalLiberar.vt_desconto_faltas ?? 0) > 0 && (
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                        padding:'9px 14px', background:'#f0fdf4', borderBottom:'1px solid #dcfce7' }}>
-                        <span style={{ fontSize:13, color:'#374151' }}>🚌 + Vale Transporte</span>
-                        <span style={{ fontSize:13, fontWeight:600, color:'#16a34a' }}>+ {formatCurrency(modalLiberar.valor_vt_bruto)}</span>
+                        padding:'8px 14px', background:'#fff', borderBottom:'1px solid #fee2e2' }}>
+                        <span style={{ fontSize:12, color:'#374151' }}>
+                          🚌 − VT faltas&nbsp;
+                          <span style={{ fontSize:11, color:'#dc2626' }}>({modalLiberar.faltas} falta{modalLiberar.faltas !== 1 ? 's' : ''})</span>
+                        </span>
+                        <span style={{ fontSize:12, fontWeight:600, color:'#dc2626' }}>− {formatCurrency(modalLiberar.vt_desconto_faltas)}</span>
                       </div>
                     )}
-                    {modalLiberar.desconto_vt > 0 && (
+
+                    {/* adicional sáb/dom */}
+                    {(modalLiberar.vt_adicional_sabdom ?? 0) > 0 && (
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                        padding:'9px 14px', background:'#fff', borderBottom:'1px solid #f3f4f6' }}>
-                        <span style={{ fontSize:13, color:'#374151' }}>🚌 − Desc. VT 6% (colaborador)</span>
-                        <span style={{ fontSize:13, fontWeight:600, color:'#dc2626' }}>- {formatCurrency(modalLiberar.desconto_vt)}</span>
+                        padding:'8px 14px', background:'#eff6ff', borderBottom:'1px solid #bfdbfe' }}>
+                        <span style={{ fontSize:12, color:'#374151' }}>
+                          🚌 + Sáb/Dom trabalhados&nbsp;
+                          <span style={{ fontSize:11, color:'#0369a1' }}>({modalLiberar.vt_sabs_dom_trab} dia{modalLiberar.vt_sabs_dom_trab !== 1 ? 's' : ''})</span>
+                        </span>
+                        <span style={{ fontSize:12, fontWeight:600, color:'#0369a1' }}>+ {formatCurrency(modalLiberar.vt_adicional_sabdom)}</span>
+                      </div>
+                    )}
+
+                    {/* VT líquido total */}
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                      padding:'9px 14px', background:'#f0fdf4', borderBottom:'1px solid #dcfce7' }}>
+                      <span style={{ fontSize:13, fontWeight:600, color:'#166534' }}>🚌 = VT líquido</span>
+                      <span style={{ fontSize:13, fontWeight:700, color:'#16a34a' }}>+ {formatCurrency(modalLiberar.valor_vt_bruto)}</span>
+                    </div>
+
+                    {/* desconto 6% colaborador */}
+                    {(modalLiberar.desconto_vt_6pct ?? 0) > 0 && (
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                        padding:'8px 14px', background:'#fffbeb', borderBottom:'1px solid #fde68a' }}>
+                        <span style={{ fontSize:12, color:'#374151' }}>🚌 − Desc. VT 6% (colaborador)</span>
+                        <span style={{ fontSize:12, fontWeight:600, color:'#b45309' }}>− {formatCurrency(modalLiberar.desconto_vt_6pct)}</span>
                       </div>
                     )}
                   </>

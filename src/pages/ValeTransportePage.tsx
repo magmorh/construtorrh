@@ -234,7 +234,7 @@ export default function ValeTransportePage() {
         .select('id,nome,chapa,salario,vt_dados,obra_id,tipo_contrato,funcao_id,data_admissao,pix_chave,pix_tipo,funcoes(nome,valor_hora_clt,valor_hora_autonomo),obras(nome)')
         .eq('status', 'ativo')
         .order('nome'),
-      supabase.from('obras').select('id,nome,considera_sabado_util').order('nome').eq('status', 'em_andamento'),
+      supabase.from('obras').select('id,nome,considera_sabado_util').order('nome').in('status', ['em_andamento','ativo']),
       supabase
         .from('vale_transporte')
         .select('*,colaboradores(id,nome,chapa,salario,vt_dados)')
@@ -263,9 +263,9 @@ export default function ValeTransportePage() {
     if (obraRes.data && obraRes.data.length > 0) {
       setObras(obraRes.data)
     } else {
-      // Fallback: busca obras sem filtro de status (compatibilidade com banco sem considera_sabado_util)
-      const { data: obrasAll } = await supabase.from('obras').select('id,nome').order('nome')
-      if (obrasAll) setObras(obrasAll.map((o: any) => ({ ...o, considera_sabado_util: null })))
+      // Fallback final: busca todas as obras independente do status
+      const { data: obrasAll } = await supabase.from('obras').select('id,nome,considera_sabado_util').order('nome')
+      if (obrasAll) setObras(obrasAll.map((o: any) => ({ ...o, considera_sabado_util: o.considera_sabado_util ?? null })))
     }
     if (vtRes.data)   setVtRows(vtRes.data as VTRow[])
     setLoading(false)

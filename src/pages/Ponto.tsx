@@ -1264,38 +1264,52 @@ export default function Ponto() {
 
       {/* ── Painel esquerdo ── */}
       <div style={{width:272,flexShrink:0,borderRight:'1px solid var(--border)',display:'flex',flexDirection:'column',overflow:'hidden'}}>
-        <div style={{padding:'10px 10px 6px',borderBottom:'1px solid var(--border)',display:'flex',flexDirection:'column',gap:6}}>
-          <div style={{fontWeight:700,fontSize:13}}>🕐 Controle de Ponto</div>
+        {/* ── Cabeçalho estilo "Selecionar Colaborador" ── */}
+        <div style={{padding:'12px 12px 8px',background:'#1e3a5f',display:'flex',flexDirection:'column',gap:8}}>
+          <div style={{fontWeight:700,fontSize:13,color:'#fff'}}>🕐 Controle de Ponto</div>
 
-          {/* ── Barra de resumo do mês ── */}
+          {/* Busca */}
+          <div style={{position:'relative'}}>
+            <Search size={13} style={{position:'absolute',left:9,top:'50%',transform:'translateY(-50%)',color:'#9ca3af'}}/>
+            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Nome, chapa ou CPF…"
+              style={{width:'100%',height:33,border:'1px solid #334155',borderRadius:7,paddingLeft:28,paddingRight:8,fontSize:12,background:'#0f172a',color:'#fff',boxSizing:'border-box'}}/>
+          </div>
+
+          {/* Badges status */}
           {(()=>{
-            const total = colabsFiltrados.length || colaboradores.length
-            const fechados   = Object.values(statusPontoMap).filter(s=>s==='fechado').length
-            const abertos    = Object.values(statusPontoMap).filter(s=>s==='aberto').length
-            const semLanc    = (colaboradores.filter(c=>{
-              const pd=`${ano}-${String(mes).padStart(2,'0')}-01`; const ud=`${ano}-${String(mes).padStart(2,'0')}-31`
+            const fechados = Object.values(statusPontoMap).filter(s=>s==='fechado').length
+            const abertos  = Object.values(statusPontoMap).filter(s=>s==='aberto').length
+            const semLanc  = colaboradores.filter(c=>{
+              const pd=`${ano}-${String(mes).padStart(2,'0')}-01`
+              const ud=`${ano}-${String(mes).padStart(2,'0')}-31`
               if(c.data_admissao && c.data_admissao > ud) return false
               if(c.status !== 'ativo' && c.data_status && c.data_status < pd) return false
               return true
-            }).length) - fechados - abertos
-            const cards=[
-              {label:'Fechados',val:fechados,bg:'#dcfce7',cor:'#15803d',key:'fechado' as const},
-              {label:'Em Aberto',val:abertos,bg:'#fef3c7',cor:'#b45309',key:'aberto' as const},
-              {label:'Sem Ponto',val:semLanc,bg:'#fee2e2',cor:'#dc2626',key:'sem' as const},
-            ]
-            return(
-              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4}}>
-                {cards.map(c=>(
-                  <button key={c.key} onClick={()=>setFiltroStatus(filtroStatus===c.key?'todos':c.key)}
-                    style={{padding:'5px 4px',borderRadius:8,border:`2px solid ${filtroStatus===c.key?c.cor:'transparent'}`,
-                      background:filtroStatus===c.key?c.bg:c.bg+'88',cursor:'pointer',textAlign:'center'}}>
-                    <div style={{fontSize:16,fontWeight:900,color:c.cor}}>{c.val}</div>
-                    <div style={{fontSize:9,fontWeight:600,color:c.cor,lineHeight:1.2}}>{c.label}</div>
+            }).length - fechados - abertos
+            return (
+              <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                {[
+                  {key:'todos'  as const, label:'todos',   val:colaboradores.length, bg:'rgba(255,255,255,.15)', cor:'#fff'},
+                  {key:'fechado'as const, label:'fechados', val:fechados,             bg:'rgba(34,197,94,.25)',   cor:'#86efac'},
+                  {key:'aberto' as const, label:'aberto',   val:abertos,              bg:'rgba(251,191,36,.25)',  cor:'#fde68a'},
+                  {key:'sem'    as const, label:'s/ ponto', val:semLanc,              bg:'rgba(248,113,113,.25)', cor:'#fca5a5'},
+                ].map(b=>(
+                  <button key={b.key} onClick={()=>setFiltroStatus(filtroStatus===b.key&&b.key!=='todos'?'todos':b.key)}
+                    style={{
+                      background: filtroStatus===b.key ? b.bg : 'rgba(255,255,255,.07)',
+                      border:`1.5px solid ${filtroStatus===b.key?b.cor:'transparent'}`,
+                      borderRadius:5,padding:'2px 7px',fontSize:10,fontWeight:700,
+                      color: filtroStatus===b.key?b.cor:'#94a3b8',cursor:'pointer',
+                    }}>
+                    {b.label}: {b.val}
                   </button>
                 ))}
               </div>
             )
           })()}
+        </div>
+
+        <div style={{padding:'6px 8px',borderBottom:'1px solid var(--border)',display:'flex',flexDirection:'column',gap:4}}>
 
           {/* ── Filtro por Obra ── */}
           <Select value={obraFiltro} onValueChange={setObraFiltro}>
@@ -1343,18 +1357,14 @@ export default function Ponto() {
             )
           })()}
 
-          {/* ── Busca ── */}
-          <div style={{position:'relative'}}>
-            <Search size={11} style={{position:'absolute',left:7,top:'50%',transform:'translateY(-50%)',color:'var(--muted-foreground)'}}/>
-            <Input placeholder="Nome ou chapa…" value={busca} onChange={e=>setBusca(e.target.value)} style={{paddingLeft:22,fontSize:12,height:28}}/>
-          </div>
+          {/* ── Busca movida para o cabeçalho ── */}
 
           {/* Indicador de filtros ativos */}
           {(filtroStatus!=='todos'||funcaoFiltro!=='todas')&&(
             <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
               {filtroStatus!=='todos'&&(
                 <button onClick={()=>setFiltroStatus('todos')} style={{fontSize:10,padding:'2px 8px',borderRadius:10,border:'none',background:'#e0e7ff',color:'#3730a3',cursor:'pointer',fontWeight:600}}>
-                  {filtroStatus==='fechado'?'✓ Fechados':filtroStatus==='aberto'?'⚠ Em Aberto':'✕ Sem Ponto'} ×
+                  {filtroStatus==='fechado'?'✓ Fechados':filtroStatus==='aberto'?'⚠ Em Aberto':'✕ S/ Ponto'} ×
                 </button>
               )}
               {funcaoFiltro!=='todas'&&(

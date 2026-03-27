@@ -3,7 +3,7 @@ import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import { toast } from 'sonner'
 import {
   CheckCircle2, Clock, DollarSign, Users, ChevronDown, ChevronRight,
-  Search, Building2, X,
+  Search, Building2, X, Eye,
 } from 'lucide-react'
 import { calcDSRComFaltas } from '@/lib/dsr'
 import { supabase } from '@/lib/supabase'
@@ -20,6 +20,9 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 interface LancItem {
@@ -114,6 +117,22 @@ export default function FechamentoPonto() {
   const [confirmADLancId, setConfirmADLancId] = useState<string | null>(null)
   // Ver detalhes do AD: lancamento_id com painel expandido
   const [verADLancId, setVerADLancId] = useState<string | null>(null)
+
+  // ── Modal Espelho de Ponto ──────────────────────────────────────────────────
+  type DiaPonto = {
+    data: string          // YYYY-MM-DD
+    horas_normais: number
+    horas_extras: number
+    falta: boolean
+    producao: number      // valor de produção nesse dia (0 se não tem)
+    domingo: boolean      // é domingo/feriado (off)
+    atestado?: boolean
+    afastamento?: boolean
+    obs?: string
+  }
+  const [espelhoPorLanc, setEspelhoPorLanc] = useState<Record<string, DiaPonto[]>>({})
+  const [modalEspelhoLancId, setModalEspelhoLancId] = useState<string | null>(null)
+  const [loadingEspelho, setLoadingEspelho] = useState(false)
 
   const mesRef = `${ano}-${String(mes).padStart(2, '0')}`
   const [filtroObraFech,   setFiltroObraFech]   = useState('todos')
@@ -552,6 +571,74 @@ export default function FechamentoPonto() {
   const totalGeral  = useMemo(() => lancamentos.reduce((s, l) => s + l.valor_total, 0), [lancamentos])
   const pendentes    = lancamentos.filter(l => ['em_fechamento','aguardando_aprovacao','aprovado','liberado','rascunho'].includes(l.status))
   const pagos        = lancamentos.filter(l => l.status === 'pago')
+
+  // ── Abrir espelho de ponto de um lançamento ──────────────────────────────
+  async function abrirEspelho(lanc: LancItem) {
+    setModalEspelhoLancId(lanc.id)
+
+    // Se já carregou, reusar
+    if (espelhoPorLanc[lanc.id]) return
+
+    setLoadingEspelho(true)
+
+    const [{ data: pontosRaw }, { data: prodRaw }, { data: atestadosRaw }] = await Promise.all([
+      supabase.from('registro_ponto')
+        .select('data,horas_trabalhadas,horas_extras,falta,observacoes')
+        .eq('lancamento_id', lanc.id)
+        .order('data'),
+      supabase.from('ponto_producao')
+        .select('dias,valor_total')
+        .eq('lancamento_id', lanc.id),
+      supabase.from('ponto_lancamentos')
+        .select('com_afastamento,dias_afastamento,observacoes_atestado')
+        .eq('id', lanc.id)
+        .single(),
+    ])
+
+    // Mapa data → produção proporcional
+    const mapaProdDia: Record<string, number> = {}
+    let totalProdDias = 0
+    ;(prodRaw ?? []).forEach((p: any) => {
+      (p.dias ?? []).forEach((d: string) => {
+        mapaProdDia[d] = (mapaProdDia[d] ?? 0)
+        totalProdDias++
+      })
+    })
+    // Valor de produção por dia = total ÷ nº de dias com prod
+    ;(prodRaw ?? []).forEach((p: any) => {
+      const nDias = (p.dias ?? []).length
+      if (nDias === 0) return
+      const porDia = p.valor_total / nDias
+      ;(p.dias ?? []).forEach((d: string) => {
+        mapaProdDia[d] = (mapaProdDia[d] ?? 0) + porDia
+      })
+    })
+
+    // Expandir range de datas do lançamento
+    const dias: DiaPonto[] = []
+    const cur = new Date(lanc.data_inicio + 'T12:00:00')
+    const fim = new Date(lanc.data_fim   + 'T12:00:00')
+
+    while (cur <= fim) {
+      const dataStr = cur.toISOString().slice(0, 10)
+      const dow = cur.getDay()
+      const ehDomingo = dow === 0
+      const ponto = (pontosRaw ?? []).find((p: any) => p.data === dataStr)
+      dias.push({
+        data: dataStr,
+        horas_normais: ponto?.horas_trabalhadas ?? 0,
+        horas_extras:  ponto?.horas_extras ?? 0,
+        falta:         ponto?.falta ?? false,
+        producao:      mapaProdDia[dataStr] ?? 0,
+        domingo:       ehDomingo,
+        obs:           ponto?.observacoes ?? undefined,
+      })
+      cur.setDate(cur.getDate() + 1)
+    }
+
+    setEspelhoPorLanc(prev => ({ ...prev, [lanc.id]: dias }))
+    setLoadingEspelho(false)
+  }
 
   // ── Aprovar → abre popup de confirmação com resumo ──────────────────────
   async function abrirModalLiberar(id: string) {
@@ -1080,7 +1167,13 @@ export default function FechamentoPonto() {
                               </span>
                             </TableCell>
                             <TableCell>
-                              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                {/* Botão Ver Ponto — sempre visível */}
+                                <Button size="sm" variant="outline"
+                                  style={{ height: 26, fontSize: 11, borderColor: '#1d4ed8', color: '#1d4ed8', gap: 4 }}
+                                  onClick={() => abrirEspelho(lanc)}>
+                                  <Eye size={11} /> Ver Ponto
+                                </Button>
                                 {lanc.status === 'em_fechamento' && (
                                   <>
                                     <Button size="sm" style={{ height: 26, fontSize: 11, background: '#15803d', color: '#fff' }}
@@ -1497,6 +1590,176 @@ export default function FechamentoPonto() {
           </div>
         </div>
       )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+           MODAL ESPELHO DE PONTO
+           Exibe o calendário diário do lançamento selecionado
+      ══════════════════════════════════════════════════════════════════════ */}
+      {modalEspelhoLancId && (() => {
+        const lanc   = lancamentos.find(l => l.id === modalEspelhoLancId)
+        const dias   = espelhoPorLanc[modalEspelhoLancId] ?? []
+        const totalH = dias.reduce((s, d) => s + d.horas_normais + d.horas_extras, 0)
+        const totalFaltas = dias.filter(d => d.falta && !d.domingo).length
+        const totalProd   = dias.reduce((s, d) => s + d.producao, 0)
+        const diasTrab    = dias.filter(d => !d.domingo && (d.horas_normais > 0 || d.producao > 0)).length
+        const DIAS_SEMANA = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+
+        return (
+          <Dialog open onOpenChange={() => setModalEspelhoLancId(null)}>
+            <DialogContent style={{ maxWidth: 700, maxHeight: '90vh', overflowY: 'auto' }}>
+              <DialogHeader>
+                <DialogTitle style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <Eye size={18} style={{ color:'#1d4ed8' }} />
+                  Espelho de Ponto — {lanc?.colaborador_nome}
+                </DialogTitle>
+              </DialogHeader>
+
+              {/* Cabeçalho identificação */}
+              {lanc && (
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:12 }}>
+                  <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:8, padding:'8px 12px' }}>
+                    <div style={{ fontSize:10, color:'#6b7280', marginBottom:2 }}>Colaborador</div>
+                    <div style={{ fontWeight:700, fontSize:13 }}>{lanc.colaborador_nome}</div>
+                    <div style={{ fontSize:11, color:'#6b7280' }}>{lanc.colaborador_chapa} · {lanc.tipo_contrato.toUpperCase()}</div>
+                  </div>
+                  <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:8, padding:'8px 12px' }}>
+                    <div style={{ fontSize:10, color:'#6b7280', marginBottom:2 }}>Período</div>
+                    <div style={{ fontWeight:700, fontSize:13 }}>
+                      {new Date(lanc.data_inicio+'T12:00:00').toLocaleDateString('pt-BR')} → {new Date(lanc.data_fim+'T12:00:00').toLocaleDateString('pt-BR')}
+                    </div>
+                    <div style={{ fontSize:11, color:'#6b7280' }}>{lanc.obra_nome}</div>
+                  </div>
+                  <div style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:8, padding:'8px 12px' }}>
+                    <div style={{ fontSize:10, color:'#6b7280', marginBottom:2 }}>Função</div>
+                    <div style={{ fontWeight:700, fontSize:13 }}>{lanc.funcao_nome}</div>
+                    <div style={{ fontSize:11, color:'#6b7280' }}>{MESES[lanc.mes_referencia.slice(5,7) as any - 1]} / {lanc.mes_referencia.slice(0,4)}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Resumo estatístico */}
+              {lanc && (
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:6, marginBottom:14 }}>
+                  {[
+                    { label:'Dias Trabalhados', val: diasTrab, cor:'#15803d', bg:'#f0fdf4', brd:'#bbf7d0' },
+                    { label:'Horas Totais',     val: fmtHHMM(totalH), cor:'#1d4ed8', bg:'#eff6ff', brd:'#bfdbfe' },
+                    { label:'Faltas',           val: totalFaltas, cor: totalFaltas > 0 ? '#dc2626':'#6b7280', bg: totalFaltas > 0 ? '#fef2f2':'#f9fafb', brd: totalFaltas > 0 ? '#fecaca':'#e5e7eb' },
+                    { label:'Produção',         val: totalProd > 0 ? formatCurrency(totalProd) : '—', cor:'#7c3aed', bg:'#faf5ff', brd:'#e9d5ff' },
+                  ].map(c => (
+                    <div key={c.label} style={{ background:c.bg, border:`1px solid ${c.brd}`, borderRadius:7, padding:'8px 10px', textAlign:'center' }}>
+                      <div style={{ fontSize:10, color:'#6b7280', marginBottom:3 }}>{c.label}</div>
+                      <div style={{ fontSize:15, fontWeight:800, color:c.cor }}>{c.val}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Tabela calendário */}
+              {loadingEspelho ? (
+                <div style={{ textAlign:'center', padding:'30px 0', color:'#6b7280' }}>
+                  <div style={{ fontSize:14 }}>⏳ Carregando espelho…</div>
+                </div>
+              ) : dias.length === 0 ? (
+                <div style={{ textAlign:'center', padding:'30px 0', color:'#6b7280', fontSize:13 }}>
+                  Nenhum registro encontrado para este período.
+                </div>
+              ) : (
+                <div style={{ overflowX:'auto' }}>
+                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                    <thead>
+                      <tr style={{ background:'#1e3a5f', color:'#fff' }}>
+                        <th style={{ padding:'7px 10px', textAlign:'left', whiteSpace:'nowrap' }}>Data</th>
+                        <th style={{ padding:'7px 10px', textAlign:'center' }}>Dia</th>
+                        <th style={{ padding:'7px 10px', textAlign:'center' }}>H. Normais</th>
+                        <th style={{ padding:'7px 10px', textAlign:'center' }}>H. Extras</th>
+                        <th style={{ padding:'7px 10px', textAlign:'center' }}>Produção</th>
+                        <th style={{ padding:'7px 10px', textAlign:'center' }}>Status</th>
+                        <th style={{ padding:'7px 10px', textAlign:'left' }}>Obs</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dias.map((d, i) => {
+                        const dow = new Date(d.data + 'T12:00:00').getDay()
+                        const ehSab = dow === 6
+                        const ehDom = dow === 0
+                        const bg = d.falta
+                          ? '#fef2f2'
+                          : ehDom
+                            ? '#f3f4f6'
+                            : ehSab
+                              ? '#fefce8'
+                              : i % 2 === 0 ? '#fff' : '#f9fafb'
+
+                        const statusLabel = d.falta
+                          ? <span style={{ background:'#fecaca', color:'#dc2626', borderRadius:4, padding:'1px 6px', fontWeight:700 }}>FALTA</span>
+                          : ehDom
+                            ? <span style={{ background:'#e5e7eb', color:'#6b7280', borderRadius:4, padding:'1px 6px' }}>Domingo</span>
+                            : ehSab
+                              ? <span style={{ background:'#fef9c3', color:'#92400e', borderRadius:4, padding:'1px 6px' }}>Sábado</span>
+                              : d.horas_normais > 0 || d.producao > 0
+                                ? <span style={{ background:'#bbf7d0', color:'#15803d', borderRadius:4, padding:'1px 6px', fontWeight:600 }}>✓ OK</span>
+                                : <span style={{ background:'#fed7aa', color:'#9a3412', borderRadius:4, padding:'1px 6px' }}>S/ Registro</span>
+
+                        return (
+                          <tr key={d.data} style={{ background: bg, borderBottom:'1px solid #e5e7eb' }}>
+                            <td style={{ padding:'6px 10px', fontWeight:600, whiteSpace:'nowrap' }}>
+                              {new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR')}
+                            </td>
+                            <td style={{ padding:'6px 10px', textAlign:'center', color:'#6b7280' }}>
+                              {DIAS_SEMANA[dow]}
+                            </td>
+                            <td style={{ padding:'6px 10px', textAlign:'center', fontFamily:'monospace', fontWeight: d.horas_normais > 0 ? 700 : 400, color: d.horas_normais > 0 ? '#1d4ed8' : '#9ca3af' }}>
+                              {d.horas_normais > 0 ? fmtHHMM(d.horas_normais) : '—'}
+                            </td>
+                            <td style={{ padding:'6px 10px', textAlign:'center', fontFamily:'monospace', fontWeight: d.horas_extras > 0 ? 700 : 400, color: d.horas_extras > 0 ? '#7c3aed' : '#9ca3af' }}>
+                              {d.horas_extras > 0 ? fmtHHMM(d.horas_extras) : '—'}
+                            </td>
+                            <td style={{ padding:'6px 10px', textAlign:'center', color: d.producao > 0 ? '#7c3aed':'#9ca3af', fontWeight: d.producao > 0 ? 700:400 }}>
+                              {d.producao > 0 ? formatCurrency(d.producao) : '—'}
+                            </td>
+                            <td style={{ padding:'6px 10px', textAlign:'center' }}>
+                              {statusLabel}
+                            </td>
+                            <td style={{ padding:'6px 10px', color:'#6b7280', fontSize:11, maxWidth:120, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                              {d.obs || ''}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    {/* Totalizador */}
+                    <tfoot>
+                      <tr style={{ background:'#1e3a5f', color:'#fff', fontWeight:700 }}>
+                        <td colSpan={2} style={{ padding:'8px 10px' }}>TOTAL</td>
+                        <td style={{ padding:'8px 10px', textAlign:'center', fontFamily:'monospace' }}>
+                          {fmtHHMM(dias.reduce((s,d) => s + d.horas_normais, 0))}
+                        </td>
+                        <td style={{ padding:'8px 10px', textAlign:'center', fontFamily:'monospace' }}>
+                          {fmtHHMM(dias.reduce((s,d) => s + d.horas_extras, 0))}
+                        </td>
+                        <td style={{ padding:'8px 10px', textAlign:'center' }}>
+                          {totalProd > 0 ? formatCurrency(totalProd) : '—'}
+                        </td>
+                        <td colSpan={2} style={{ padding:'8px 10px', textAlign:'center' }}>
+                          {totalFaltas > 0 && <span style={{ background:'#fecaca', color:'#7f1d1d', borderRadius:4, padding:'1px 8px' }}>{totalFaltas} falta{totalFaltas > 1 ? 's':''}</span>}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* Botão imprimir */}
+              <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:16 }}>
+                <Button variant="outline" onClick={() => setModalEspelhoLancId(null)}>Fechar</Button>
+                <Button onClick={() => window.print()} style={{ background:'#1d4ed8', color:'#fff' }}>
+                  🖨 Imprimir Espelho
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )
+      })()}
     </div>
   )
 }

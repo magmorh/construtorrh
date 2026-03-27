@@ -552,7 +552,7 @@ export default function Ponto() {
   useEffect(()=>{
     const load=async()=>{
       const [{data:colsRaw},{data:obsRaw}]=await Promise.all([
-        supabase.from('colaboradores').select('id,nome,chapa,funcao_id,obra_id,tipo_contrato,data_admissao,status,data_status,funcoes!colaboradores_funcao_id_fkey(id,nome)').order('nome'),
+        supabase.from('colaboradores').select('id,nome,chapa,funcao_id,obra_id,tipo_contrato,data_admissao,status,data_status,funcoes!colaboradores_funcao_id_fkey(id,nome)').in('status',['ativo','afastado','ferias']).order('nome'),
         supabase.from('obras').select('id,nome').order('nome'),
       ])
       setColaboradores((colsRaw??[]).map((c:any)=>({
@@ -1237,9 +1237,11 @@ export default function Ponto() {
     const primeiroDiaMes = `${ano}-${String(mes).padStart(2,'0')}-01`
     const ultimoDiaMes   = `${ano}-${String(mes).padStart(2,'0')}-31`
     let lista=colaboradores.filter(c=> {
-      // 1. Admissão posterior ao mês → não aparece ainda
+      // Colaborador inativo nunca aparece
+      if(c.status === 'inativo') return false
+      // Admissão posterior ao mês → não aparece ainda
       if(c.data_admissao && c.data_admissao > ultimoDiaMes) return false
-      // 2. Inativo/afastado/férias COM data_status antes do início do mês → não aparece mais
+      // Afastado/férias COM data_status antes do início do mês → não aparece mais
       if(c.status !== 'ativo' && c.data_status && c.data_status < primeiroDiaMes) return false
       return true
     })
@@ -1280,6 +1282,7 @@ export default function Ponto() {
             const fechados = Object.values(statusPontoMap).filter(s=>s==='fechado').length
             const abertos  = Object.values(statusPontoMap).filter(s=>s==='aberto').length
             const semLanc  = colaboradores.filter(c=>{
+              if(c.status === 'inativo') return false
               const pd=`${ano}-${String(mes).padStart(2,'0')}-01`
               const ud=`${ano}-${String(mes).padStart(2,'0')}-31`
               if(c.data_admissao && c.data_admissao > ud) return false

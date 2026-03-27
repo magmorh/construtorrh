@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
+import { SummaryCard } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -367,27 +368,33 @@ export default function Adiantamentos() {
 
       {/* ── Cards resumo ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        {[
-          { icon: <Clock size={16} />,        label: 'Pendentes',  value: formatCurrency(totalPend),  sub: `${contAbas.pendente} lançamento(s)`,  color: '#b45309', bg: '#fef3c7', border: '#fde68a', aba: 'pendente'  as const },
-          { icon: <CheckCircle2 size={16} />, label: 'Aprovados',  value: formatCurrency(totalAprov), sub: `${contAbas.aprovado} lançamento(s)`,  color: '#15803d', bg: '#dcfce7', border: '#bbf7d0', aba: 'aprovado'  as const },
-          { icon: <DollarSign size={16} />,   label: 'Pagos',      value: formatCurrency(totalPago),  sub: `${contAbas.pago} lançamento(s)`,      color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', aba: 'pago'      as const },
-          { icon: <Users size={16} />,        label: 'Total mês',  value: formatCurrency(totalGeral), sub: `${rows.length} lançamento(s)`,         color: '#7c3aed', bg: '#ede9fe', border: '#ddd6fe', aba: 'pendente'  as const },
-        ].map((c, i) => (
-          <div key={i}
-            onClick={() => i < 3 ? setAbaStatus(c.aba) : undefined}
-            style={{
-              background: c.bg, border: `1.5px solid ${abaStatus === c.aba && i < 3 ? c.color : c.border}`,
-              borderRadius: 10, padding: '14px 16px', cursor: i < 3 ? 'pointer' : 'default',
-              boxShadow: abaStatus === c.aba && i < 3 ? `0 0 0 2px ${c.color}30` : 'none',
-              transition: 'all 0.15s',
-            }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: c.color, marginBottom: 4 }}>
-              {c.icon}<span style={{ fontSize: 11, fontWeight: 700 }}>{c.label}</span>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: c.color }}>{c.value}</div>
-            <div style={{ fontSize: 11, color: c.color, opacity: .75, marginTop: 2 }}>{c.sub}</div>
-          </div>
-        ))}
+        <SummaryCard
+          sigla="PD" label="PENDENTES"
+          value={formatCurrency(totalPend)}
+          sub={`${contAbas.pendente} lançamento(s)`}
+          color="#b45309" bg="#b45309"
+          onClick={() => setAbaStatus('pendente')}
+        />
+        <SummaryCard
+          sigla="AP" label="APROVADOS"
+          value={formatCurrency(totalAprov)}
+          sub={`${contAbas.aprovado} lançamento(s)`}
+          color="#15803d" bg="#15803d"
+          onClick={() => setAbaStatus('aprovado')}
+        />
+        <SummaryCard
+          sigla="PG" label="PAGOS"
+          value={formatCurrency(totalPago)}
+          sub={`${contAbas.pago} lançamento(s)`}
+          color="#1d4ed8" bg="#1d4ed8"
+          onClick={() => setAbaStatus('pago')}
+        />
+        <SummaryCard
+          sigla="TOT" label="TOTAL GERAL"
+          value={formatCurrency(totalGeral)}
+          sub={`${rows.length} lançamento(s)`}
+          color="#7c3aed" bg="#7c3aed"
+        />
       </div>
 
       {/* ── Filtros ── */}

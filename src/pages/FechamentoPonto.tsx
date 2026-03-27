@@ -142,6 +142,14 @@ export default function FechamentoPonto() {
   const [loadingEspelho, setLoadingEspelho] = useState(false)
 
   const mesRef = `${ano}-${String(mes).padStart(2, '0')}`
+
+  // ── Debounce no mesRef: aguarda 400ms sem mudança antes de buscar ───────
+  const [mesRefDebounced, setMesRefDebounced] = useState(mesRef)
+  useEffect(() => {
+    const t = setTimeout(() => setMesRefDebounced(mesRef), 400)
+    return () => clearTimeout(t)
+  }, [mesRef])
+
   const [filtroObraFech,   setFiltroObraFech]   = useState('todos')
   const [filtroFuncaoFech, setFiltroFuncaoFech] = useState('todos')
   const [obras,   setObras]   = useState<{ id: string; nome: string }[]>([])
@@ -152,6 +160,10 @@ export default function FechamentoPonto() {
     funcaoFallback: Record<string, number>
     loaded: boolean
   }>({ valorHora: {}, funcaoFallback: {}, loaded: false })
+
+  // Timestamp do último fetch bem-sucedido (evita refetch desnecessário ao trocar aba)
+  const lastFetchAt = useRef<number>(0)
+  const CACHE_TTL_MS = 30_000   // 30 segundos
 
   const [, setObrasSabUtil] = useState<Record<string, boolean>>({})
 
@@ -653,6 +665,7 @@ export default function FechamentoPonto() {
     }
 
     setLoading(false)
+    lastFetchAt.current = Date.now()   // registra quando os dados foram carregados
   }, [])
 
   // Carregar tabelas de encargos uma vez
@@ -662,8 +675,18 @@ export default function FechamentoPonto() {
     })
   }, [])
 
-  useEffect(() => { fetchLancamentos(mesRef) }, [mesRef, fetchLancamentos])
+  // mesRefDebounced dispara o fetch — evita múltiplas queries ao girar seletor de mês
+  useEffect(() => { fetchLancamentos(mesRefDebounced) }, [mesRefDebounced, fetchLancamentos])
   useRefreshOnFocus(() => fetchLancamentos(mesRef))
+
+  // ── Troca de aba: refetch se dados tiverem mais de CACHE_TTL_MS ────────
+  function mudarAba(novaAba: typeof abaFechamento) {
+    setAbaFechamento(novaAba)
+    const agora = Date.now()
+    if (agora - lastFetchAt.current > CACHE_TTL_MS) {
+      fetchLancamentos(mesRef)
+    }
+  }
 
   // ── Contadores para as abas ─────────────────────────────────────────────
   const contAbas = useMemo(() => ({
@@ -1037,7 +1060,7 @@ export default function FechamentoPonto() {
           return (
             <button
               key={ab.key}
-              onClick={() => setAbaFechamento(ab.key)}
+              onClick={() => mudarAba(ab.key)}
               style={{
                 padding: '10px 18px',
                 border: 'none',

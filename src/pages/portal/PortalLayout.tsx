@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   ClipboardList, AlertTriangle, Home, LogOut, UserPlus,
   HardHat, ShieldCheck, FileImage, ChevronRight,
+  BookOpen, MessageSquare, FolderOpen,
 } from 'lucide-react'
 import { clearPortalSession, getPortalSession } from '@/hooks/usePortalAuth'
 
@@ -17,14 +18,20 @@ export default function PortalLayout({ children }: PortalLayoutProps) {
     nav('/portal')
   }
 
-  const navItems = [
+  // 2 linhas de nav: primeira linha (principal) e segunda (extras)
+  const navMain = [
     { to: '/portal/home',        icon: Home,          label: 'Início',   color: '#6366f1' },
     { to: '/portal/ponto',       icon: ClipboardList, label: 'Ponto',    color: '#0ea5e9' },
     { to: '/portal/ocorrencias', icon: AlertTriangle, label: 'Ocorr.',   color: '#f97316' },
     { to: '/portal/solicitacoes',icon: UserPlus,      label: 'Cadastro', color: '#8b5cf6' },
+    { to: '/portal/producao',    icon: HardHat,       label: 'Prod.',    color: '#f59e0b' },
+  ]
+  const navExtra = [
     { to: '/portal/epis',        icon: ShieldCheck,   label: 'EPIs',     color: '#ef4444' },
     { to: '/portal/documentos',  icon: FileImage,     label: 'Docs',     color: '#14b8a6' },
-    { to: '/portal/producao',    icon: HardHat,       label: 'Prod.',    color: '#f59e0b' },
+    { to: '/portal/playbook',    icon: BookOpen,      label: 'Playbook', color: '#10b981' },
+    { to: '/portal/mensagens',   icon: MessageSquare, label: 'Msg.',     color: '#7c3aed' },
+    { to: '/portal/projetos',    icon: FolderOpen,    label: 'Projetos', color: '#0369a1' },
   ]
 
   return (
@@ -88,11 +95,11 @@ export default function PortalLayout({ children }: PortalLayoutProps) {
       </div>
 
       {/* ── Content ─────────────────────────────────────── */}
-      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 76 }}>
+      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 116 }}>
         {children}
       </div>
 
-      {/* ── Bottom Navigation ────────────────────────────── */}
+      {/* ── Bottom Navigation (2 linhas) ─────────────────── */}
       <nav style={{
         position: 'fixed',
         bottom: 0,
@@ -102,46 +109,52 @@ export default function PortalLayout({ children }: PortalLayoutProps) {
         maxWidth: 480,
         background: '#ffffff',
         borderTop: '1px solid #e5e7eb',
-        display: 'flex',
         boxShadow: '0 -4px 24px rgba(0,0,0,0.08)',
         zIndex: 50,
         paddingBottom: 'env(safe-area-inset-bottom)',
       }}>
-        {navItems.map(item => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            style={({ isActive }) => ({
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '8px 2px 7px',
-              textDecoration: 'none',
-              color: isActive ? item.color : '#9ca3af',
-              borderTop: isActive ? `2px solid ${item.color}` : '2px solid transparent',
-              background: isActive ? `${item.color}08` : 'transparent',
-              transition: 'all 0.15s',
-              position: 'relative',
-            })}
-          >
-            {({ isActive }) => (
-              <>
-                <item.icon size={isActive ? 22 : 20} strokeWidth={isActive ? 2.2 : 1.8} />
-                <span style={{
-                  fontSize: 9,
-                  marginTop: 3,
-                  fontWeight: isActive ? 700 : 500,
-                  letterSpacing: isActive ? 0.3 : 0,
-                  lineHeight: 1,
-                }}>
-                  {item.label}
-                </span>
-              </>
-            )}
-          </NavLink>
-        ))}
+        {/* linha 1 — principal */}
+        <div style={{ display:'flex', borderBottom:'1px solid #f1f5f9' }}>
+          {navMain.map(item => (
+            <NavLink key={item.to} to={item.to}
+              style={({ isActive }) => ({
+                flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                padding: '7px 2px 6px', textDecoration: 'none',
+                color: isActive ? item.color : '#9ca3af',
+                borderTop: isActive ? `2px solid ${item.color}` : '2px solid transparent',
+                background: isActive ? `${item.color}08` : 'transparent',
+                transition: 'all 0.15s',
+              })}>
+              {({ isActive }) => (
+                <>
+                  <item.icon size={isActive ? 21 : 19} strokeWidth={isActive ? 2.2 : 1.8} />
+                  <span style={{ fontSize: 8, marginTop: 3, fontWeight: isActive ? 700 : 500, lineHeight: 1 }}>{item.label}</span>
+                </>
+              )}
+            </NavLink>
+          ))}
+        </div>
+        {/* linha 2 — extras */}
+        <div style={{ display:'flex' }}>
+          {navExtra.map(item => (
+            <NavLink key={item.to} to={item.to}
+              style={({ isActive }) => ({
+                flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                padding: '6px 2px 5px', textDecoration: 'none',
+                color: isActive ? item.color : '#b0bec5',
+                borderTop: isActive ? `2px solid ${item.color}` : '2px solid transparent',
+                background: isActive ? `${item.color}08` : 'transparent',
+                transition: 'all 0.15s',
+              })}>
+              {({ isActive }) => (
+                <>
+                  <item.icon size={isActive ? 17 : 15} strokeWidth={isActive ? 2.2 : 1.8} />
+                  <span style={{ fontSize: 7.5, marginTop: 2, fontWeight: isActive ? 700 : 500, lineHeight: 1 }}>{item.label}</span>
+                </>
+              )}
+            </NavLink>
+          ))}
+        </div>
       </nav>
     </div>
   )

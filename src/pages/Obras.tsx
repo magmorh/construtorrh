@@ -34,6 +34,8 @@ type FormData = {
   data_inicio: string; data_previsao_fim: string
   status: string; observacoes: string
   considera_sabado_util: boolean
+  link_projetos: string
+  obs_projetos: string
 }
 
 const DIAS_SEMANA = [
@@ -69,6 +71,7 @@ const EMPTY_FORM: FormData = {
   nome: '', codigo: '', endereco: '', cidade: '', estado: '',
   cliente: '', responsavel: '', data_inicio: '', data_previsao_fim: '',
   status: 'em_andamento', observacoes: '', considera_sabado_util: false,
+  link_projetos: '', obs_projetos: '',
 }
 
 const STATUS_BORDER_COLOR: Record<string, string> = {
@@ -169,6 +172,8 @@ export default function Obras() {
       data_previsao_fim: o.data_previsao_fim ?? '', status: o.status,
       observacoes: o.observacoes ?? '',
       considera_sabado_util: (o as any).considera_sabado_util ?? false,
+      link_projetos: (o as any).link_projetos ?? '',
+      obs_projetos: (o as any).obs_projetos ?? '',
     })
     setHorarios(HORARIO_DEFAULT)
     fetchHorarios(o.id)
@@ -195,7 +200,9 @@ export default function Obras() {
       data_previsao_fim: form.data_previsao_fim || null,
       status: form.status as Obra['status'], observacoes: form.observacoes || null,
       considera_sabado_util: form.considera_sabado_util,
-    }
+      link_projetos: form.link_projetos.trim() || null,
+      obs_projetos: form.obs_projetos.trim() || null,
+    } as any
 
     let obraId = editId
     if (editId) {
@@ -437,6 +444,22 @@ export default function Obras() {
                   </label>
                 </div>
                 <FG label="Observações" span={2}><Textarea value={form.observacoes} onChange={e => set('observacoes', e.target.value)} rows={2} placeholder="Observações…" /></FG>
+
+                {/* ── Projetos (Google Drive / nuvem) ── */}
+                <div style={{ gridColumn:'span 2', background:'#f0f9ff', border:'1px solid #bae6fd', borderRadius:10, padding:'12px 14px', marginTop:4 }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#0369a1', marginBottom:10, display:'flex', alignItems:'center', gap:6 }}>
+                    🗂️ Projetos da Obra (Portal)
+                  </div>
+                  <FG label="Link do Google Drive / OneDrive / Nuvem" span={1}>
+                    <Input value={form.link_projetos} onChange={e => set('link_projetos', e.target.value)}
+                      placeholder="https://drive.google.com/drive/folders/…" />
+                    <div style={{ fontSize:10, color:'#6b7280', marginTop:3 }}>Cole o link compartilhado da pasta. O encarregado poderá acessar diretamente pelo portal.</div>
+                  </FG>
+                  <FG label="Orientações para o encarregado" span={1}>
+                    <Input value={form.obs_projetos} onChange={e => set('obs_projetos', e.target.value)}
+                      placeholder="Ex: Visualize e baixe os projetos, não edite." />
+                  </FG>
+                </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setModalOpen(false)} disabled={saving}>Cancelar</Button>

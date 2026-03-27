@@ -42,6 +42,10 @@ const PortalSolicitacoes = React.lazy(() => import('@/pages/portal/PortalSolicit
 const PortalProducao     = React.lazy(() => import('@/pages/portal/PortalProducao'))
 const PortalEpis         = React.lazy(() => import('@/pages/portal/PortalEpis'))
 const PortalDocumentos   = React.lazy(() => import('@/pages/portal/PortalDocumentos'))
+const PortalPlaybook     = React.lazy(() => import('@/pages/portal/PortalPlaybook'))
+const PortalMensagens    = React.lazy(() => import('@/pages/portal/PortalMensagens'))
+const PortalProjetos     = React.lazy(() => import('@/pages/portal/PortalProjetos'))
+const MensagensAdmin     = React.lazy(() => import('@/pages/MensagensAdmin'))
 
 // ─── Full-page loading spinner ───────────────────────────────────────────────
 function FullPageSpinner() {
@@ -122,6 +126,9 @@ export default function App() {
               <Route path="/portal/producao"      element={<PortalProducao />} />
               <Route path="/portal/epis"          element={<PortalEpis />} />
               <Route path="/portal/documentos"    element={<PortalDocumentos />} />
+              <Route path="/portal/playbook"      element={<PortalPlaybook />} />
+              <Route path="/portal/mensagens"     element={<PortalMensagens />} />
+              <Route path="/portal/projetos"      element={<PortalProjetos />} />
 
               {/* Private — wrapped in Layout */}
               <Route
@@ -352,6 +359,16 @@ export default function App() {
                   <PrivateRoute>
                     <Layout>
                       <Solicitacoes />
+                    </Layout>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/mensagens"
+                element={
+                  <PrivateRoute>
+                    <Layout>
+                      <MensagensAdmin />
                     </Layout>
                   </PrivateRoute>
                 }

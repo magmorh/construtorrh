@@ -11,7 +11,7 @@ import {
   AlertTriangle, FileText, Clock, DollarSign, Award,
   Calculator, Bus, BarChart3, Settings, LogOut, Menu,
   HardHat, ChevronLeft, ChevronRight, UserCog,
-  ClipboardList, Lock, CalendarDays, Briefcase, Wallet, Smartphone, Inbox, Scale } from 'lucide-react'
+  ClipboardList, Lock, CalendarDays, Briefcase, Wallet, Smartphone, Inbox, Scale, MessageSquare } from 'lucide-react'
 
 // ── grupos de navegação ───────────────────────────────────────────────────────
 const NAV_GROUPS = [
@@ -20,6 +20,7 @@ const NAV_GROUPS = [
     items: [
       { to: '/',               label: 'Dashboard',      icon: LayoutDashboard },
       { to: '/solicitacoes',   label: 'Solicitações',   icon: Inbox,           badge: true },
+      { to: '/mensagens',      label: 'Mensagens',      icon: MessageSquare,   msgBadge: true },
     ],
   },
   {
@@ -79,6 +80,7 @@ export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate()
   const [solicitacoesPendentes, setSolicitacoesPendentes] = useState(0)
   const [fechamentosPendentes, setFechamentosPendentes] = useState(0)
+  const [mensagensNaoLidas, setMensagensNaoLidas] = useState(0)
 
   const fetchFechamentosPendentes = useCallback(async () => {
     const { count } = await supabase.from('ponto_lancamentos')
@@ -103,7 +105,15 @@ export function Layout({ children }: LayoutProps) {
     setSolicitacoesPendentes((cad.count??0)+(ocor.count??0)+(epi.count??0)+(doc.count??0))
   }, [])
 
+  const fetchMensagensNaoLidas = useCallback(async () => {
+    const { count } = await supabase.from('portal_mensagens')
+      .select('id', { count:'exact', head:true })
+      .eq('remetente','obra').eq('lida', false)
+    setMensagensNaoLidas(count ?? 0)
+  }, [])
+
   useEffect(() => { fetchSolicitacoesPendentes(); const t = setInterval(fetchSolicitacoesPendentes, 60_000); return () => clearInterval(t) }, [fetchSolicitacoesPendentes])
+  useEffect(() => { fetchMensagensNaoLidas(); const t = setInterval(fetchMensagensNaoLidas, 30_000); return () => clearInterval(t) }, [fetchMensagensNaoLidas])
 
   const handleSignOut = async () => { await signOut(); navigate('/login') }
   const userLogin  = profile?.nome || user?.email?.split('@')[0] || 'usuário'
@@ -171,12 +181,12 @@ export function Layout({ children }: LayoutProps) {
                 </div>
               )}
               {group.items.map((item: any) => {
-                const { to, label, icon: Icon, adminOnly, badge: hasBadge, fechBadge } = item
+                const { to, label, icon: Icon, adminOnly, badge: hasBadge, fechBadge, msgBadge } = item
                 if (adminOnly && user?.email !== 'magmodrive@gmail.com') return null
                 const isFinanceiro = ['/ponto','/vt','/adiantamentos','/premios','/fechamento-ponto','/pagamentos','/encargos','/provisoes'].includes(to)
                 if (isFinanceiro && !roleMeta.canViewFinanceiro) return null
-                const badgeCount = hasBadge ? solicitacoesPendentes : (fechBadge ? fechamentosPendentes : 0)
-                const badgeColor  = fechBadge ? '#b45309' : '#ef4444'
+                const badgeCount = hasBadge ? solicitacoesPendentes : (fechBadge ? fechamentosPendentes : (msgBadge ? mensagensNaoLidas : 0))
+                const badgeColor  = fechBadge ? '#b45309' : (msgBadge ? '#7c3aed' : '#ef4444')
 
                 return (
                   <NavLink key={to} to={to} end={to === '/'} title={collapsed ? label : undefined}

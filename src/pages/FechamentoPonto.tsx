@@ -77,6 +77,8 @@ interface LancItem {
   snap_faltas:        number | null
   snap_valor_hora:    number | null
   snap_fechado_em:    string | null
+  // snap imutável da regra de sábado (congelado ao entrar em fechamento)
+  snap_considera_sabado_util: boolean | null
 }
 
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
@@ -183,7 +185,7 @@ export default function FechamentoPonto() {
         snap_valor_hora, snap_horas_normais, snap_horas_extras, snap_valor_horas,
         snap_valor_producao, snap_valor_dsr, snap_valor_premio, snap_valor_total,
         snap_faltas, snap_vt_diario, snap_desconto_vt, snap_desconto_adiant,
-        snap_inss, snap_ir, snap_liquido, snap_fechado_em,
+        snap_inss, snap_ir, snap_liquido, snap_fechado_em, snap_considera_sabado_util,
         colaboradores(nome, chapa, tipo_contrato, funcao_id, vale_transporte, vt_dados, data_admissao, funcoes(nome)),
         obras(nome, considera_sabado_util)
       `)
@@ -434,6 +436,7 @@ export default function FechamentoPonto() {
           snap_faltas:         l.snap_faltas,
           snap_valor_hora:     l.snap_valor_hora,
           snap_fechado_em:     l.snap_fechado_em,
+          snap_considera_sabado_util: l.snap_considera_sabado_util ?? null,
         } as LancItem
       }
       // ══ FIM TRAVA — abaixo: cálculo ao vivo apenas para em_fechamento ══════
@@ -507,11 +510,17 @@ export default function FechamentoPonto() {
       const vtDiario = temVT ? vtDiaValor : 0
 
       // ── Regra considera_sabado_util ─────────────────────────────────────────
+      // ⚠️  REGRA IMUTÁVEL: ao entrar em fechamento, o flag da obra é congelado
+      //     via snap_considera_sabado_util. Mudanças posteriores na obra NÃO
+      //     alteram lançamentos já em fechamento.
+      //     Fallback para lançamentos antigos sem snapshot (usa valor atual da obra).
       // TRUE  → sábado é dia útil normal, já está na base do VT mensal
       //         sáb trabalhado NÃO gera adicional de VT
       // FALSE → sábado/domingo são dias extras fora da escala normal
       //         sáb/dom trabalhados GERAM adicional de VT (passagem não estava prevista)
-      const obraConsideraSab = !!(l.obras?.considera_sabado_util ?? false)
+      const obraConsideraSab = l.snap_considera_sabado_util !== null && l.snap_considera_sabado_util !== undefined
+        ? !!l.snap_considera_sabado_util               // ← snapshot congelado (imutável)
+        : !!(l.obras?.considera_sabado_util ?? false)  // ← fallback para lançamentos antigos
 
       // Dias normais trabalhados (Mon-Fri, ou Mon-Sat se considera sab útil) sem sáb/dom extras
       // horasAgg.dias = todos os dias com registro (incluindo sáb/dom registrados)
@@ -612,6 +621,7 @@ export default function FechamentoPonto() {
         snap_faltas:         l.snap_faltas         ?? null,
         snap_valor_hora:     l.snap_valor_hora     ?? null,
         snap_fechado_em:     l.snap_fechado_em     ?? null,
+        snap_considera_sabado_util: l.snap_considera_sabado_util ?? null,
       }
     })
     setLancamentos(lista.filter(Boolean) as LancItem[])
@@ -892,6 +902,7 @@ export default function FechamentoPonto() {
       snap_liquido: null,
       snap_fechado_em: null,
       snap_fechado_por: null,
+      snap_considera_sabado_util: null,   // resetar → ao re-entrar em fechamento, será snapshottado de novo
       motivo_recusa: `Estornado: ${motivoEstorno}`,
       data_pagamento: null,
       obs_pagamento: null,

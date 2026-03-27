@@ -1153,6 +1153,20 @@ export default function Ponto() {
       const vhParaSnap = (snapLanc != null && snapLanc > 0) ? snapLanc : (valorHora > 0 ? valorHora : 0)
       if(vhParaSnap > 0) payload.valor_hora_snapshot = vhParaSnap
     }
+    // ── SNAPSHOT considera_sabado_util ────────────────────────────────────
+    // Ao entrar em fechamento: congelar a regra de sábado da obra.
+    // Alterações posteriores na obra NÃO reprocessam este lançamento.
+    if (status === 'em_fechamento') {
+      const lanc = lancamentos.find(l => l.id === id)
+      if (lanc?.obra_id) {
+        const { data: obraSnap } = await supabase
+          .from('obras')
+          .select('considera_sabado_util')
+          .eq('id', lanc.obra_id)
+          .single()
+        payload.snap_considera_sabado_util = obraSnap?.considera_sabado_util ?? false
+      }
+    }
     const{error}=await supabase.from('ponto_lancamentos').update(payload).eq('id',id)
     if(error){toast.error('Erro: '+error.message);return}
     const msgs:Record<string,string>={

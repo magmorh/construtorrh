@@ -1069,7 +1069,6 @@ export default function FechamentoPonto() {
                         <TableHead className="text-center" style={{ fontSize: 11 }}>Dias</TableHead>
                         <TableHead style={{ fontSize: 11, color: '#7c3aed', fontWeight: 700, minWidth: 260 }}>💵 Composição do Salário</TableHead>
                         <TableHead className="text-center" style={{ fontSize: 11, color: '#dc2626' }}>Faltas</TableHead>
-                        <TableHead className="text-right" style={{ fontSize: 11, color: '#16a34a', whiteSpace: 'nowrap' }}>+VT</TableHead>
                         <TableHead className="text-right" style={{ fontSize: 11, color: '#dc2626', whiteSpace: 'nowrap' }}>−VT Falta</TableHead>
                         <TableHead className="text-right" style={{ fontSize: 11, color: '#0369a1', whiteSpace: 'nowrap' }}>+Sáb/Dom</TableHead>
                         <TableHead className="text-right" style={{ fontSize: 11, color: '#b45309', whiteSpace: 'nowrap' }}>−VT 6%</TableHead>
@@ -1169,28 +1168,6 @@ export default function FechamentoPonto() {
                             <TableCell className="text-center" style={{ color: lanc.faltas > 0 ? '#dc2626' : 'var(--muted-foreground)', fontSize: 12 }}>
                               {lanc.faltas > 0 ? lanc.faltas : '—'}
                             </TableCell>
-                            {/* ══ +VT base ══ */}
-                            <TableCell className="text-right" style={{ fontSize: 12 }}>
-                              {lanc.valor_vt_dia > 0 ? (() => {
-                                const diasBase = lanc.obra_considera_sabado
-                                  ? lanc.dias_trabalhados
-                                  : Math.max(0, lanc.dias_trabalhados - lanc.vt_sabs_dom_trab)
-                                const vtBase = diasBase * lanc.valor_vt_dia
-                                return (
-                                  <span
-                                    style={{ color: '#16a34a', fontWeight: 600, cursor: 'help' }}
-                                    title={`VT/dia: R$ ${lanc.valor_vt_dia.toFixed(2)}\n${diasBase} dia${diasBase !== 1 ? 's' : ''} × R$ ${lanc.valor_vt_dia.toFixed(2)} = R$ ${vtBase.toFixed(2)}`}
-                                  >
-                                    +{formatCurrency(vtBase)}
-                                    <div style={{ fontSize: 9, color: '#86efac', fontWeight: 400 }}>
-                                      {diasBase}d × {formatCurrency(lanc.valor_vt_dia)}
-                                    </div>
-                                  </span>
-                                )
-                              })()
-                              : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}
-                            </TableCell>
-
                             {/* ══ −VT Falta ══ */}
                             <TableCell className="text-right" style={{ fontSize: 12 }}>
                               {lanc.vt_desconto_faltas > 0

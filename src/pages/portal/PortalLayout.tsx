@@ -1,16 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
-  ClipboardList, AlertTriangle, Home, LogOut, UserPlus,
-  HardHat, ShieldCheck, FileImage, ChevronRight,
+  ClipboardList, AlertTriangle, Home, LogOut,
+  HardHat, ShieldCheck, FileImage,
   BookOpen, MessageSquare, FolderOpen, CalendarDays,
-  Bell, Wifi, WifiOff,
+  WifiOff, UserPlus, Building2, ChevronRight,
 } from 'lucide-react'
 import { clearPortalSession, getPortalSession } from '@/hooks/usePortalAuth'
 
 interface PortalLayoutProps { children: React.ReactNode }
 
-// Rótulos das rotas para o breadcrumb
 const ROUTE_LABELS: Record<string, string> = {
   '/portal/home':        'Início',
   '/portal/ponto':       'Ponto',
@@ -24,6 +23,21 @@ const ROUTE_LABELS: Record<string, string> = {
   '/portal/projetos':    'Projetos',
   '/portal/lancamentos': 'Lançamentos',
 }
+
+// Todos os itens de navegação em uma única linha com scroll
+const navItems = [
+  { to: '/portal/home',         icon: Home,          label: 'Início',    color: '#6366f1', bg: '#ede9fe' },
+  { to: '/portal/ponto',        icon: ClipboardList, label: 'Ponto',     color: '#0ea5e9', bg: '#e0f2fe' },
+  { to: '/portal/ocorrencias',  icon: AlertTriangle, label: 'Ocorrências', color: '#f97316', bg: '#fff7ed' },
+  { to: '/portal/producao',     icon: HardHat,       label: 'Produção',  color: '#f59e0b', bg: '#fffbeb' },
+  { to: '/portal/lancamentos',  icon: CalendarDays,  label: 'Lançamentos',color: '#14b8a6', bg: '#f0fdfa' },
+  { to: '/portal/solicitacoes', icon: UserPlus,      label: 'Cadastro',  color: '#8b5cf6', bg: '#f5f3ff' },
+  { to: '/portal/epis',         icon: ShieldCheck,   label: 'EPIs',      color: '#ef4444', bg: '#fef2f2' },
+  { to: '/portal/documentos',   icon: FileImage,     label: 'Docs',      color: '#0369a1', bg: '#eff6ff' },
+  { to: '/portal/mensagens',    icon: MessageSquare, label: 'Mensagens', color: '#7c3aed', bg: '#f5f3ff' },
+  { to: '/portal/playbook',     icon: BookOpen,      label: 'Playbook',  color: '#10b981', bg: '#f0fdf4' },
+  { to: '/portal/projetos',     icon: FolderOpen,    label: 'Projetos',  color: '#64748b', bg: '#f8fafc' },
+]
 
 export default function PortalLayout({ children }: PortalLayoutProps) {
   const nav      = useNavigate()
@@ -45,25 +59,9 @@ export default function PortalLayout({ children }: PortalLayoutProps) {
   }
 
   const paginaAtual = ROUTE_LABELS[location.pathname] ?? 'Portal'
-
-  // Linha 1 — navegação principal
-  const navMain = [
-    { to: '/portal/home',         icon: Home,          label: 'Início',   color: '#6366f1', bg: '#ede9fe' },
-    { to: '/portal/ponto',        icon: ClipboardList, label: 'Ponto',    color: '#0ea5e9', bg: '#e0f2fe' },
-    { to: '/portal/ocorrencias',  icon: AlertTriangle, label: 'Ocorr.',   color: '#f97316', bg: '#fff7ed' },
-    { to: '/portal/solicitacoes', icon: UserPlus,      label: 'Cadastro', color: '#8b5cf6', bg: '#f5f3ff' },
-    { to: '/portal/producao',     icon: HardHat,       label: 'Prod.',    color: '#f59e0b', bg: '#fffbeb' },
-  ]
-
-  // Linha 2 — navegação extra
-  const navExtra = [
-    { to: '/portal/epis',         icon: ShieldCheck,   label: 'EPIs',      color: '#ef4444' },
-    { to: '/portal/documentos',   icon: FileImage,     label: 'Docs',      color: '#14b8a6' },
-    { to: '/portal/playbook',     icon: BookOpen,      label: 'Playbook',  color: '#10b981' },
-    { to: '/portal/mensagens',    icon: MessageSquare, label: 'Msg.',      color: '#7c3aed' },
-    { to: '/portal/projetos',     icon: FolderOpen,    label: 'Projetos',  color: '#0369a1' },
-    { to: '/portal/lancamentos',  icon: CalendarDays,  label: 'Lanç.',     color: '#f59e0b' },
-  ]
+  // Achar o item ativo para pegar a cor
+  const itemAtivo = navItems.find(i => location.pathname.startsWith(i.to) && (i.to !== '/portal/home' || location.pathname === '/portal/home'))
+  const corAtiva  = itemAtivo?.color ?? '#6366f1'
 
   return (
     <div style={{
@@ -77,114 +75,162 @@ export default function PortalLayout({ children }: PortalLayoutProps) {
       position: 'relative',
     }}>
 
-      {/* ══════════════════════════════════════════
-          TOP BAR
-      ══════════════════════════════════════════ */}
+      {/* ══ TOP BAR ══════════════════════════════════════════════ */}
       <div style={{
-        background: 'linear-gradient(135deg, #0c1628 0%, #1e3a5f 50%, #0f4c75 100%)',
-        padding: '0 16px',
-        height: 60,
+        background: 'linear-gradient(135deg, #0c1628 0%, #1a2f50 60%, #0f3d6e 100%)',
+        padding: '0 14px',
+        height: 58,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         position: 'sticky',
         top: 0,
         zIndex: 50,
-        boxShadow: '0 2px 16px rgba(0,0,0,0.25)',
+        boxShadow: '0 2px 20px rgba(0,0,0,0.35)',
+        gap: 10,
       }}>
 
-        {/* Logo + Info */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-          {/* Ícone */}
+        {/* Esquerda: logo + info */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          {/* Logo */}
           <div style={{
-            width: 38, height: 38, borderRadius: 12,
+            width: 36, height: 36, borderRadius: 11,
             background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 4px 12px rgba(59,130,246,0.5)',
+            boxShadow: '0 3px 10px rgba(59,130,246,0.45)',
             flexShrink: 0,
           }}>
-            <HardHat size={18} color="#fff" strokeWidth={2} />
+            <HardHat size={17} color="#fff" strokeWidth={2.2} />
           </div>
 
           {/* Textos */}
-          <div>
+          <div style={{ minWidth: 0 }}>
             <div style={{
-              color: '#fff', fontWeight: 800, fontSize: 14,
-              lineHeight: 1.2, letterSpacing: '-0.01em',
+              color: '#fff', fontWeight: 800, fontSize: 13,
+              lineHeight: 1.15, letterSpacing: '-0.01em',
+              whiteSpace: 'nowrap',
             }}>
               Portal da Obra
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 1 }}>
+
+            {/* Obra + status online */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
               <div style={{
                 width: 6, height: 6, borderRadius: '50%',
                 background: online ? '#4ade80' : '#f87171',
-                boxShadow: online ? '0 0 6px #4ade80' : '0 0 6px #f87171',
+                boxShadow: online
+                  ? '0 0 0 2px rgba(74,222,128,0.3)'
+                  : '0 0 0 2px rgba(248,113,113,0.3)',
                 flexShrink: 0,
+                animation: online ? 'pulse-green 2s infinite' : 'none',
               }} />
-              <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, lineHeight: 1 }}>
-                {user?.nome ?? user?.login ?? 'Encarregado'}
-              </div>
+              {user?.obra_nome ? (
+                <div style={{
+                  color: 'rgba(255,255,255,0.65)', fontSize: 10.5,
+                  fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap', maxWidth: 140,
+                }}>
+                  {user.obra_nome}
+                </div>
+              ) : (
+                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10 }}>
+                  {user?.nome ?? user?.login ?? 'Encarregado'}
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Ações direita */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Status online */}
+        {/* Direita: badges + sair */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+
+          {/* Offline badge */}
           {!online && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 4,
               background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.4)',
-              borderRadius: 8, padding: '4px 8px',
-              fontSize: 10, fontWeight: 700, color: '#fca5a5',
+              borderRadius: 7, padding: '3px 7px',
+              fontSize: 9.5, fontWeight: 700, color: '#fca5a5',
             }}>
-              <WifiOff size={11} /> Offline
+              <WifiOff size={10} /> Offline
             </div>
           )}
 
-          {/* Página atual (breadcrumb) */}
+          {/* Página atual */}
           <div style={{
-            background: 'rgba(255,255,255,0.1)',
-            border: '1px solid rgba(255,255,255,0.15)',
-            borderRadius: 8, padding: '5px 10px',
-            fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.9)',
+            display: 'flex', alignItems: 'center', gap: 4,
+            background: `${corAtiva}22`,
+            border: `1px solid ${corAtiva}44`,
+            borderRadius: 8, padding: '4px 9px',
+            fontSize: 10.5, fontWeight: 700,
+            color: '#fff',
+            whiteSpace: 'nowrap',
           }}>
+            <div style={{
+              width: 5, height: 5, borderRadius: '50%',
+              background: corAtiva,
+              flexShrink: 0,
+            }} />
             {paginaAtual}
           </div>
 
           {/* Botão Sair */}
           <button onClick={sair} style={{
-            background: 'rgba(239,68,68,0.15)',
-            border: '1px solid rgba(239,68,68,0.3)',
-            borderRadius: 8,
-            padding: '7px 10px',
-            cursor: 'pointer',
-            color: '#fca5a5',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            fontSize: 11,
-            fontWeight: 700,
-            transition: 'all 0.15s',
+            background: 'rgba(239,68,68,0.12)',
+            border: '1px solid rgba(239,68,68,0.25)',
+            borderRadius: 8, padding: '6px 9px',
+            cursor: 'pointer', color: '#fca5a5',
+            display: 'flex', alignItems: 'center', gap: 3,
+            fontSize: 10.5, fontWeight: 700, transition: 'all 0.15s',
           }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.28)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.15)' }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.28)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.12)')}
           >
-            <LogOut size={13} /> Sair
+            <LogOut size={12} /> Sair
           </button>
         </div>
       </div>
 
-      {/* ══════════════════════════════════════════
-          CONTENT
-      ══════════════════════════════════════════ */}
-      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 120 }}>
+      {/* ── Colaborador info bar (quando logado) ────────────── */}
+      {user?.nome && user?.obra_nome && (
+        <div style={{
+          background: 'linear-gradient(90deg, #1e3a5f 0%, #0f4c75 100%)',
+          padding: '5px 14px',
+          display: 'flex', alignItems: 'center', gap: 6,
+          borderBottom: '1px solid rgba(255,255,255,0.07)',
+        }}>
+          <div style={{
+            width: 22, height: 22, borderRadius: 7,
+            background: `linear-gradient(135deg, ${corAtiva} 0%, ${corAtiva}99 100%)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 9, fontWeight: 800, color: '#fff',
+            flexShrink: 0,
+          }}>
+            {user.nome.charAt(0).toUpperCase()}
+          </div>
+          <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 10.5, fontWeight: 600 }}>
+            {user.nome}
+          </div>
+          <ChevronRight size={10} color="rgba(255,255,255,0.3)" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Building2 size={10} color="rgba(255,255,255,0.45)" />
+            <div style={{
+              color: 'rgba(255,255,255,0.55)', fontSize: 10.5,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              maxWidth: 200,
+            }}>
+              {user.obra_nome}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ CONTENT ═══════════════════════════════════════════════ */}
+      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 76 }}>
         {children}
       </div>
 
-      {/* ══════════════════════════════════════════
-          BOTTOM NAVIGATION
-      ══════════════════════════════════════════ */}
+      {/* ══ BOTTOM NAV — única linha com scroll ════════════════════ */}
       <nav style={{
         position: 'fixed',
         bottom: 0,
@@ -193,105 +239,60 @@ export default function PortalLayout({ children }: PortalLayoutProps) {
         width: '100%',
         maxWidth: 480,
         background: '#ffffff',
-        borderTop: '1px solid #e2e8f0',
-        boxShadow: '0 -4px 32px rgba(0,0,0,0.10)',
+        borderTop: '1.5px solid #e8edf3',
+        boxShadow: '0 -4px 24px rgba(0,0,0,0.10)',
         zIndex: 50,
         paddingBottom: 'env(safe-area-inset-bottom)',
+        overflowX: 'auto',
       }}>
-
-        {/* ── Linha 1: principal ─────────────────────── */}
         <div style={{
           display: 'flex',
-          borderBottom: '1px solid #f1f5f9',
-          background: '#fff',
+          minWidth: 'max-content',
+          padding: '0 2px',
         }}>
-          {navMain.map(item => (
-            <NavLink key={item.to} to={item.to} end={item.to === '/portal/home'}
+          {navItems.map(item => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/portal/home'}
               style={({ isActive }) => ({
-                flex: 1,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: '9px 2px 7px',
+                padding: '8px 0 6px',
+                minWidth: 60,
                 textDecoration: 'none',
                 color: isActive ? item.color : '#94a3b8',
                 borderTop: isActive ? `2.5px solid ${item.color}` : '2.5px solid transparent',
                 background: isActive ? `${item.color}0d` : 'transparent',
                 transition: 'all 0.15s',
                 position: 'relative',
-              })}>
+                flexShrink: 0,
+              })}
+            >
               {({ isActive }) => (
                 <>
-                  {/* Ícone com fundo quando ativo */}
                   <div style={{
-                    width: 36, height: 36,
-                    borderRadius: 10,
+                    width: 34, height: 34, borderRadius: 10,
                     background: isActive ? item.bg : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     transition: 'all 0.15s',
                     marginBottom: 2,
                   }}>
                     <item.icon
-                      size={isActive ? 20 : 18}
-                      strokeWidth={isActive ? 2.4 : 1.8}
+                      size={isActive ? 19 : 17}
+                      strokeWidth={isActive ? 2.5 : 1.8}
                       color={isActive ? item.color : '#94a3b8'}
                     />
                   </div>
                   <span style={{
-                    fontSize: 9,
-                    fontWeight: isActive ? 800 : 500,
-                    lineHeight: 1,
-                    letterSpacing: isActive ? '0.01em' : '0',
-                    color: isActive ? item.color : '#94a3b8',
-                  }}>
-                    {item.label}
-                  </span>
-                </>
-              )}
-            </NavLink>
-          ))}
-        </div>
-
-        {/* ── Linha 2: extras com scroll ──────────────── */}
-        <div style={{
-          display: 'flex',
-          overflowX: 'auto',
-          scrollbarWidth: 'none',
-          background: '#fafbfc',
-          padding: '0 4px',
-        }}>
-          {navExtra.map(item => (
-            <NavLink key={item.to} to={item.to}
-              style={({ isActive }) => ({
-                flex: '0 0 auto',
-                minWidth: 60,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '7px 6px 6px',
-                textDecoration: 'none',
-                color: isActive ? item.color : '#94a3b8',
-                borderTop: isActive ? `2px solid ${item.color}` : '2px solid transparent',
-                background: isActive ? `${item.color}0a` : 'transparent',
-                transition: 'all 0.15s',
-              })}>
-              {({ isActive }) => (
-                <>
-                  <item.icon
-                    size={isActive ? 16 : 14}
-                    strokeWidth={isActive ? 2.3 : 1.7}
-                    color={isActive ? item.color : '#94a3b8'}
-                  />
-                  <span style={{
-                    fontSize: 8,
-                    marginTop: 3,
+                    fontSize: 8.5,
                     fontWeight: isActive ? 800 : 500,
                     lineHeight: 1,
                     whiteSpace: 'nowrap',
                     color: isActive ? item.color : '#94a3b8',
-                    letterSpacing: '0.01em',
+                    letterSpacing: isActive ? '0.01em' : '0',
                   }}>
                     {item.label}
                   </span>
@@ -303,8 +304,11 @@ export default function PortalLayout({ children }: PortalLayoutProps) {
       </nav>
 
       <style>{`
-        /* hide scrollbar linha 2 */
-        nav div::-webkit-scrollbar { display: none; }
+        nav::-webkit-scrollbar { display: none; }
+        @keyframes pulse-green {
+          0%, 100% { box-shadow: 0 0 0 2px rgba(74,222,128,0.3); }
+          50%       { box-shadow: 0 0 0 4px rgba(74,222,128,0.15); }
+        }
       `}</style>
     </div>
   )

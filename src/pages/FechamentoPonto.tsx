@@ -189,7 +189,7 @@ export default function FechamentoPonto() {
 
     // ── ROUND-TRIP 1: lançamentos (base) ───────────────────────────────────
     // Fazemos isso separado pois precisamos dos IDs para as queries dependentes
-    const { data: lancsRaw } = await supabase
+    const { data: lancsRaw, error: lancsErr } = await supabase
       .from('ponto_lancamentos')
       .select(`
         id, colaborador_id, obra_id, mes_referencia, data_inicio, data_fim, status,
@@ -201,10 +201,15 @@ export default function FechamentoPonto() {
         colaboradores(nome, chapa, tipo_contrato, funcao_id, vale_transporte, vt_dados, data_admissao, funcoes(nome)),
         obras(nome, considera_sabado_util)
       `)
-      .in('status', ['em_fechamento', 'aprovado', 'liberado', 'pago', 'rascunho', 'recusado'])
+      .in('status', ['em_fechamento', 'aguardando_aprovacao', 'aprovado', 'liberado', 'pago', 'rascunho', 'recusado'])
       .eq('mes_referencia', mr)
       .order('data_inicio')
 
+    if (lancsErr) {
+      console.error('[FechamentoPonto] erro ao buscar lançamentos:', lancsErr)
+      setLoading(false)
+      return
+    }
     if (!lancsRaw) { setLoading(false); return }
 
     const ids      = lancsRaw.map((l: any) => l.id)

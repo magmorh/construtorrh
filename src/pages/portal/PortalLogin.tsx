@@ -37,11 +37,24 @@ export default function PortalLogin() {
     if (error || !data) { setErro('Login inválido ou usuário inativo'); return }
     if (data.senha_hash !== hash) { setErro('Senha incorreta'); return }
 
+    // Buscar nome da primeira obra vinculada para exibição no header
+    const obrasIds: string[] = data.obras_ids ?? []
+    let obraNome: string | null = null
+    if (obrasIds.length > 0) {
+      const { data: obraData } = await supabase
+        .from('obras')
+        .select('nome')
+        .eq('id', obrasIds[0])
+        .single()
+      obraNome = obraData?.nome ?? null
+    }
+
     setPortalSession({
       id:        data.id,
       login:     data.login,
       nome:      data.nome,
-      obras_ids: data.obras_ids ?? [],
+      obras_ids: obrasIds,
+      obra_nome: obraNome,
     })
     nav('/portal/home')
   }

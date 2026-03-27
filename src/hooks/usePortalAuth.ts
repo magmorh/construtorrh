@@ -6,6 +6,7 @@ export interface PortalUser {
   login: string
   nome: string | null
   obras_ids: string[]
+  obra_nome?: string | null  // nome da primeira/principal obra para exibição no header
 }
 
 const KEY = 'portal_session'

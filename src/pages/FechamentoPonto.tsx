@@ -51,7 +51,8 @@ interface LancItem {
   desconto_vt: number
   desconto_vt_6pct: number     // parcela do desconto referente ao 6% do VT
   desconto_adiant: number
-  valor_vt_dia: number
+  valor_vt_dia: number          // VT/dia (taxa)
+  valor_vt_bruto: number        // VT bruto total do período (dias trabalhados × VT/dia)
   inss: number
   ir: number
   liquido: number
@@ -139,14 +140,21 @@ export default function FechamentoPonto() {
   const [filtroFuncaoFech, setFiltroFuncaoFech] = useState('todos')
   const [obras,   setObras]   = useState<{ id: string; nome: string }[]>([])
   const [funcoes, setFuncoes] = useState<{ id: string; nome: string }[]>([])
+  // Mapa obra_id → considera_sabado_util (disponível para uso futuro)
+  const [, setObrasSabUtil] = useState<Record<string, boolean>>({})
 
   // Fetch obras e funções para filtros
   useEffect(() => {
     Promise.all([
-      supabase.from('obras').select('id,nome').order('nome'),
+      supabase.from('obras').select('id,nome,considera_sabado_util').order('nome'),
       supabase.from('funcoes').select('id,nome').order('nome'),
     ]).then(([oRes, fRes]) => {
-      if (oRes.data) setObras(oRes.data)
+      if (oRes.data) {
+        setObras(oRes.data)
+        const mapa: Record<string,boolean> = {}
+        oRes.data.forEach((o: any) => { mapa[o.id] = o.considera_sabado_util ?? false })
+        setObrasSabUtil(mapa)
+      }
       if (fRes.data) setFuncoes(fRes.data)
     })
   }, [])
@@ -164,7 +172,7 @@ export default function FechamentoPonto() {
         snap_faltas, snap_vt_diario, snap_desconto_vt, snap_desconto_adiant,
         snap_inss, snap_ir, snap_liquido, snap_fechado_em,
         colaboradores(nome, chapa, tipo_contrato, funcao_id, vale_transporte, vt_dados, data_admissao, funcoes(nome)),
-        obras(nome)
+        obras(nome, considera_sabado_util)
       `)
       .in('status', ['em_fechamento', 'aprovado', 'liberado', 'pago', 'rascunho', 'recusado'])
       .eq('mes_referencia', mr)
@@ -237,11 +245,11 @@ export default function FechamentoPonto() {
 
     // Agregar horas, faltas e datas de falta por lançamento
     // Também guarda horas por dia para cálculo autônomo (excluir dias de produção)
-    const mapaHoras: Record<string, { norm: number; extra: number; dias: number; faltas: number; diasDatas: Set<string>; datasComFalta: Set<string> }> = {}
+    const mapaHoras: Record<string, { norm: number; extra: number; dias: number; faltas: number; diasDatas: Set<string>; datasComFalta: Set<string>; sabsDomTrab: number }> = {}
     // mapa de horas por dia (para autônomo excluir dias com produção)
     const mapaHorasPorDia: Record<string, Record<string, { norm: number; extra: number }>> = {}
     ;(pontosRaw ?? []).forEach((p: any) => {
-      if (!mapaHoras[p.lancamento_id]) mapaHoras[p.lancamento_id] = { norm: 0, extra: 0, dias: 0, faltas: 0, diasDatas: new Set(), datasComFalta: new Set() }
+      if (!mapaHoras[p.lancamento_id]) mapaHoras[p.lancamento_id] = { norm: 0, extra: 0, dias: 0, faltas: 0, diasDatas: new Set(), datasComFalta: new Set(), sabsDomTrab: 0 }
       mapaHoras[p.lancamento_id].norm   += (p.horas_trabalhadas ?? 0)
       mapaHoras[p.lancamento_id].extra  += (p.horas_extras ?? 0)
       mapaHoras[p.lancamento_id].dias   += 1
@@ -253,6 +261,13 @@ export default function FechamentoPonto() {
         mapaHoras[p.lancamento_id].diasDatas.add(p.data)
         if (!mapaHorasPorDia[p.lancamento_id]) mapaHorasPorDia[p.lancamento_id] = {}
         mapaHorasPorDia[p.lancamento_id][p.data] = { norm: p.horas_trabalhadas ?? 0, extra: p.horas_extras ?? 0 }
+        // Conta sábados e domingos efetivamente trabalhados (horas > 0 e não é falta)
+        const dow = new Date(p.data + 'T12:00:00').getDay()
+        const ehSabDom = dow === 0 || dow === 6
+        const temHoras = (p.horas_trabalhadas ?? 0) > 0 || (p.horas_extras ?? 0) > 0
+        if (ehSabDom && temHoras && !p.falta) {
+          mapaHoras[p.lancamento_id].sabsDomTrab = (mapaHoras[p.lancamento_id].sabsDomTrab ?? 0) + 1
+        }
       }
     })
 
@@ -288,19 +303,10 @@ export default function FechamentoPonto() {
       return doms + ferDiasUteis
     }
 
-    // ── Função VT (INSS e IR vêm do lib/encargos) ───────────────────────────
-    function vtDia(vtDados: any): number {
-      if (!vtDados) return 0
-      const ida   = (vtDados.trechos_ida   ?? []).reduce((s: number, t: any) => s + (parseFloat(t.valor) || 0), 0)
-      const volta = (vtDados.trechos_volta ?? []).reduce((s: number, t: any) => s + (parseFloat(t.valor) || 0), 0)
-      const gasolina = vtDados.gasolina_valor_dia ?? 0
-      return vtDados.modalidade === 'gasolina' ? gasolina : (ida + volta)
-    }
-
     const lista: LancItem[] = lancsRaw.map((l: any) => {
       const colab = l.colaboradores
       const tipo  = colab?.tipo_contrato ?? 'clt'
-      const horasAgg = mapaHoras[l.id] ?? { norm: 0, extra: 0, dias: 0, diasDatas: new Set() }
+      const horasAgg = mapaHoras[l.id] ?? { norm: 0, extra: 0, dias: 0, faltas: 0, diasDatas: new Set(), datasComFalta: new Set(), sabsDomTrab: 0 }
 
       // Segurança: ignorar lançamento se inicio for antes da admissão do colaborador
       if (colab?.data_admissao && l.data_inicio < colab.data_admissao) {
@@ -340,6 +346,7 @@ export default function FechamentoPonto() {
           desconto_vt_6pct: 0,    // snap não guarda separado, usamos 0
           desconto_adiant:l.snap_desconto_adiant ?? 0,
           valor_vt_dia:   l.snap_vt_diario       ?? 0,
+          valor_vt_bruto: (l.snap_vt_diario ?? 0) * (horasAgg.dias - (l.snap_faltas ?? 0)),
           inss:           l.snap_inss            ?? 0,
           ir:             l.snap_ir              ?? 0,
           liquido:        l.snap_liquido         ?? 0,
@@ -405,18 +412,47 @@ export default function FechamentoPonto() {
       // ── Adiantamento: desconto de adiantamentos pagos não descontados ─────
       const descontoAdiant = mapaAdiant[l.colaborador_id] ?? 0
 
-      // ── VT: desconto por faltas + desconto 6% sobre salário bruto (se configurado no VT) ──
-      const faltas     = (horasAgg as any).faltas ?? 0
-      const vtDiario   = (colab?.vale_transporte && colab?.vt_dados) ? vtDia(colab.vt_dados) : 0
-      const descontoVTFaltas = vtDiario * faltas          // desconta passagem por dia de falta
+      // ── VT: cálculo por dias reais trabalhados ─────────────────────────────
+      // Regra:
+      //   - considera_sabado_util = TRUE  → sábado já incluso no VT mensal, não conta como extra
+      //   - considera_sabado_util = FALSE → sábado/domingo trabalhados DEVEM ter VT pago
+      // VT diário = vt_dados (trechos ida+volta ou gasolina)
+      // Dias base = dias trabalhados no período (faltas descontadas)
+      // Sáb/Dom trabalhados quando !considera_sabado_util → adicionados ao total de dias VT
+      const faltas      = (horasAgg as any).faltas ?? 0
+
+      // Dados VT do colaborador
+      // temVT: verdadeiro se vale_transporte=true OU se vt_dados tem trechos/gasolina configurados
+      const vtDados   = colab?.vt_dados as any
+      function calcVtDia(vd: any): number {
+        if (!vd) return 0
+        if (vd.modalidade === 'gasolina') return vd.gasolina_valor_dia ?? 0
+        const ida   = (vd.trechos_ida   ?? []).reduce((s: number, t: any) => s + (parseFloat(t.valor) || 0), 0)
+        const volta = (vd.trechos_volta ?? []).reduce((s: number, t: any) => s + (parseFloat(t.valor) || 0), 0)
+        return ida + volta
+      }
+      const vtDiaValor = calcVtDia(vtDados)
+      // Considera VT se: flag vale_transporte=true OU se vt_dados retorna valor >0
+      const temVT = !!(colab?.vale_transporte) || vtDiaValor > 0
+      const vtDiario = temVT ? vtDiaValor : 0
+
+            // considera_sabado_util da obra — salvo para referência
+      const _obraConsideraSab = !!(l.obras?.considera_sabado_util ?? false); void _obraConsideraSab
+
+      // Dias VT efetivos = dias realmente trabalhados (presença em registro_ponto, sem faltas)
+      // Quando considera_sabado_util = FALSE → sáb/dom já registrados em registro_ponto contam
+      // Quando considera_sabado_util = TRUE  → sáb já embutido no VT mensal cadastrado, idem
+      // Em ambos os casos: vtDiario × diasTrabalhados é a base correta
+      const diasVTEfetivos = Math.max(0, horasAgg.dias - faltas)
+      const vtBruto = vtDiario * diasVTEfetivos
+
+      const descontoVTFaltas = 0  // faltas já estão fora de diasVTBase
 
       // ── Base de desconto: CLT = horas+DSR / Autônomo = total recebido ───────
-      // CLT: desconto sobre salário (horas+DSR), NÃO sobre prêmio de produção
-      // Autônomo: desconto sobre total (horas + produção)
       const baseDesconto = tipo === 'clt' ? (valorHoras + dsr) : valorTotal
 
       // 6% do salário bruto (baseDesconto) — aplicado somente se descontar_6pct=true no VT do mês
-      const descontoVT6pct = setDescontoVT6.has(l.colaborador_id) ? baseDesconto * 0.06 : 0
+      const descontoVT6pct = setDescontoVT6.has(l.colaborador_id) ? Math.min(baseDesconto * 0.06, vtBruto) : 0
       const descontoVT     = descontoVTFaltas + descontoVT6pct
       const inss = tipo === 'clt'
         ? calcINSS(baseDesconto, tabelaInss.length ? tabelaInss : undefined)
@@ -425,8 +461,8 @@ export default function FechamentoPonto() {
         ? calcIR(baseDesconto, inss, tabelaIR.length ? tabelaIR : undefined)
         : 0
 
-      // Líquido = total a receber - desconto VT - INSS - IR
-      const liquido = valorTotal - descontoVT - inss - ir - descontoAdiant
+      // Líquido = total a receber + VT bruto - desc.VT 6% - INSS - IR - Adiantamento
+      const liquido = valorTotal + vtBruto - descontoVT - inss - ir - descontoAdiant
 
       return {
         id: l.id,
@@ -455,6 +491,7 @@ export default function FechamentoPonto() {
         desconto_vt_6pct: descontoVT6pct,
         desconto_adiant: descontoAdiant,
         valor_vt_dia: vtDiario,
+        valor_vt_bruto: vtBruto,
         inss,
         ir,
         liquido,
@@ -671,8 +708,8 @@ export default function FechamentoPonto() {
       return s + (p > 1 ? a.valor / p : a.valor)
     }, 0)
 
-    // Líquido = bruto − VT − INSS − IR − AD selecionados
-    const liquidoFinal = lanc.valor_total - lanc.desconto_vt - lanc.inss - lanc.ir - descontoAD
+    // Líquido = bruto + VT bruto − desc.VT 6% − INSS − IR − AD selecionados
+    const liquidoFinal = lanc.valor_total + (lanc.valor_vt_bruto ?? 0) - lanc.desconto_vt - lanc.inss - lanc.ir - descontoAD
 
     const { error } = await supabase.from('ponto_lancamentos').update({
       status:               'liberado',
@@ -1003,7 +1040,7 @@ export default function FechamentoPonto() {
                         <TableHead className="text-center" style={{ fontSize: 11 }}>Dias</TableHead>
                         <TableHead style={{ fontSize: 11, color: '#7c3aed', fontWeight: 700, minWidth: 260 }}>💵 Composição do Salário</TableHead>
                         <TableHead className="text-center" style={{ fontSize: 11, color: '#dc2626' }}>Faltas</TableHead>
-                        <TableHead className="text-right" style={{ fontSize: 11, color: '#dc2626' }}>− VT</TableHead>
+                        <TableHead className="text-right" style={{ fontSize: 11, color: '#16a34a' }}>VT</TableHead>
                         <TableHead className="text-right" style={{ fontSize: 11, color: '#dc2626' }}>− INSS</TableHead>
                         <TableHead className="text-right" style={{ fontSize: 11, color: '#dc2626' }}>− IR</TableHead>
                         <TableHead className="text-right" style={{ fontSize: 11, color: '#b45309', fontWeight: 700 }}>💳 -AD</TableHead>
@@ -1101,16 +1138,15 @@ export default function FechamentoPonto() {
                               {lanc.faltas > 0 ? lanc.faltas : '—'}
                             </TableCell>
                             <TableCell className="text-right" style={{ color: '#dc2626', fontSize: 12 }}>
-                              {lanc.desconto_vt > 0 ? (() => {
+                              {lanc.valor_vt_bruto > 0 ? (() => {
                                 const parts: string[] = []
-                                const vtFalta = lanc.desconto_vt - (lanc.desconto_vt_6pct ?? 0)
-                                if (vtFalta > 0) parts.push(`Falta: R$ ${lanc.valor_vt_dia.toFixed(2)}/dia × ${lanc.faltas} falta(s)`)
-                                if ((lanc.desconto_vt_6pct ?? 0) > 0) parts.push(`Desc. VT 6%: R$ ${lanc.desconto_vt_6pct.toFixed(2)}`)
+                                parts.push(`VT bruto: R$ ${lanc.valor_vt_dia.toFixed(2)}/dia × ${Math.max(0, lanc.dias_trabalhados - lanc.faltas)} dia(s) = R$ ${lanc.valor_vt_bruto.toFixed(2)}`)
+                                if ((lanc.desconto_vt_6pct ?? 0) > 0) parts.push(`Desc. 6% (colaborador): −R$ ${lanc.desconto_vt_6pct.toFixed(2)}`)
                                 return (
                                   <span title={parts.join('\n')}>
-                                    −{formatCurrency(lanc.desconto_vt)}
+                                    <span style={{ color: '#16a34a', fontWeight: 600 }}>+{formatCurrency(lanc.valor_vt_bruto)}</span>
                                     {(lanc.desconto_vt_6pct ?? 0) > 0 && (
-                                      <div style={{ fontSize: 9, color: '#b45309' }}>incl. 6% VT</div>
+                                      <div style={{ fontSize: 9, color: '#dc2626' }}>−{formatCurrency(lanc.desconto_vt_6pct)} 6%</div>
                                     )}
                                   </span>
                                 )
@@ -1456,12 +1492,24 @@ export default function FechamentoPonto() {
                   </div>
                 )}
                 {/* Descontos */}
-                {modalLiberar.desconto_vt > 0 && (
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                    padding:'9px 14px', background:'#fff', borderBottom:'1px solid #f3f4f6' }}>
-                    <span style={{ fontSize:13, color:'#374151' }}>🚌 - Vale Transporte</span>
-                    <span style={{ fontSize:13, fontWeight:600, color:'#dc2626' }}>- {formatCurrency(modalLiberar.desconto_vt)}</span>
-                  </div>
+                {/* VT — exibir bruto (crédito) e desconto 6% se houver */}
+                {(modalLiberar.valor_vt_bruto > 0 || modalLiberar.desconto_vt > 0) && (
+                  <>
+                    {modalLiberar.valor_vt_bruto > 0 && (
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                        padding:'9px 14px', background:'#f0fdf4', borderBottom:'1px solid #dcfce7' }}>
+                        <span style={{ fontSize:13, color:'#374151' }}>🚌 + Vale Transporte</span>
+                        <span style={{ fontSize:13, fontWeight:600, color:'#16a34a' }}>+ {formatCurrency(modalLiberar.valor_vt_bruto)}</span>
+                      </div>
+                    )}
+                    {modalLiberar.desconto_vt > 0 && (
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                        padding:'9px 14px', background:'#fff', borderBottom:'1px solid #f3f4f6' }}>
+                        <span style={{ fontSize:13, color:'#374151' }}>🚌 − Desc. VT 6% (colaborador)</span>
+                        <span style={{ fontSize:13, fontWeight:600, color:'#dc2626' }}>- {formatCurrency(modalLiberar.desconto_vt)}</span>
+                      </div>
+                    )}
+                  </>
                 )}
                 {modalLiberar.inss > 0 && (
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
@@ -1561,7 +1609,7 @@ export default function FechamentoPonto() {
                       const p = a.desconto_parcelas ?? 1
                       return s + (p > 1 ? a.valor / p : a.valor)
                     }, 0)
-                  const liquidoReal = modalLiberar.valor_total - modalLiberar.desconto_vt - modalLiberar.inss - modalLiberar.ir - adSel
+                  const liquidoReal = modalLiberar.valor_total + (modalLiberar.valor_vt_bruto ?? 0) - modalLiberar.desconto_vt - modalLiberar.inss - modalLiberar.ir - adSel
                   return (
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
                       padding:'12px 14px', background:'#1e3a5f' }}>

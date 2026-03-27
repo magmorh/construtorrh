@@ -11,61 +11,69 @@ import {
   AlertTriangle, FileText, Clock, DollarSign, Award,
   Calculator, Bus, BarChart3, Settings, LogOut, Menu,
   HardHat, ChevronLeft, ChevronRight, UserCog,
-  ClipboardList, Lock, CalendarDays, Briefcase, Wallet, Smartphone, Inbox, Scale, MessageSquare } from 'lucide-react'
+  ClipboardList, Lock, CalendarDays, Briefcase, Wallet,
+  Smartphone, Inbox, Scale, MessageSquare, X,
+} from 'lucide-react'
 
 // ── grupos de navegação ───────────────────────────────────────────────────────
 const NAV_GROUPS = [
   {
     label: 'Principal',
+    color: '#6366f1',
     items: [
-      { to: '/',               label: 'Dashboard',      icon: LayoutDashboard },
-      { to: '/solicitacoes',   label: 'Solicitações',   icon: Inbox,           badge: true },
-      { to: '/mensagens',      label: 'Mensagens',      icon: MessageSquare,   msgBadge: true },
+      { to: '/',               label: 'Dashboard',      icon: LayoutDashboard, color: '#6366f1' },
+      { to: '/solicitacoes',   label: 'Solicitações',   icon: Inbox,           color: '#ef4444', badge: true },
+      { to: '/mensagens',      label: 'Mensagens',      icon: MessageSquare,   color: '#7c3aed', msgBadge: true },
     ],
   },
   {
     label: 'Cadastros',
+    color: '#0ea5e9',
     items: [
-      { to: '/colaboradores',  label: 'Colaboradores',  icon: Users },
-      { to: '/obras',          label: 'Obras',          icon: Building2 },
-      { to: '/playbooks',      label: 'Playbooks',      icon: ClipboardList },
-      { to: '/feriados',       label: 'Feriados',       icon: CalendarDays },
+      { to: '/colaboradores',  label: 'Colaboradores',  icon: Users,           color: '#0ea5e9' },
+      { to: '/obras',          label: 'Obras',          icon: Building2,       color: '#14b8a6' },
+      { to: '/playbooks',      label: 'Playbooks',      icon: ClipboardList,   color: '#8b5cf6' },
+      { to: '/feriados',       label: 'Feriados',       icon: CalendarDays,    color: '#f59e0b' },
     ],
   },
   {
     label: 'Saúde & Seg.',
+    color: '#ef4444',
     items: [
-      { to: '/epis',           label: 'EPIs',           icon: Shield },
-      { to: '/ocorrencias',    label: 'Ocorrências',    icon: AlertTriangle },
-      { to: '/documentos',     label: 'Documentos',     icon: FileText },
+      { to: '/epis',           label: 'EPIs',           icon: Shield,          color: '#ef4444' },
+      { to: '/ocorrencias',    label: 'Ocorrências',    icon: AlertTriangle,   color: '#f97316' },
+      { to: '/documentos',     label: 'Documentos',     icon: FileText,        color: '#64748b' },
     ],
   },
   {
     label: 'Financeiro',
+    color: '#10b981',
     items: [
-      { to: '/ponto',            label: 'Ponto',            icon: Clock },
-      { to: '/vt',               label: 'Vale Transporte',  icon: Bus },
-      { to: '/adiantamentos',    label: 'Adiantamentos',    icon: Wallet },
-      { to: '/premios',          label: 'Prêmios',          icon: Award },
-      { to: '/fechamento-ponto', label: 'Fechamento',       icon: Lock,        fechBadge: true },
-      { to: '/pagamentos',       label: 'Pagamentos',       icon: DollarSign },
-      { to: '/encargos',         label: 'Encargos',         icon: Briefcase },
-      { to: '/provisoes',        label: 'Provisões Rescisão', icon: Calculator },
+      { to: '/ponto',            label: 'Ponto',              icon: Clock,        color: '#0ea5e9' },
+      { to: '/vt',               label: 'Vale Transporte',    icon: Bus,          color: '#06b6d4' },
+      { to: '/adiantamentos',    label: 'Adiantamentos',      icon: Wallet,       color: '#10b981' },
+      { to: '/premios',          label: 'Prêmios',            icon: Award,        color: '#f59e0b' },
+      { to: '/fechamento-ponto', label: 'Fechamento',         icon: Lock,         color: '#f97316', fechBadge: true },
+      { to: '/pagamentos',       label: 'Pagamentos',         icon: DollarSign,   color: '#22c55e' },
+      { to: '/encargos',         label: 'Encargos',           icon: Briefcase,    color: '#8b5cf6' },
+      { to: '/provisoes',        label: 'Provisões Rescisão', icon: Calculator,   color: '#ec4899' },
     ],
   },
   {
     label: 'Jurídico',
+    color: '#64748b',
     items: [
-      { to: '/juridico', label: 'Jurídico', icon: Scale },
+      { to: '/juridico', label: 'Jurídico', icon: Scale, color: '#64748b' },
     ],
   },
   {
     label: 'Sistema',
+    color: '#475569',
     items: [
-      { to: '/relatorios',     label: 'Relatórios',      icon: BarChart3 },
-      { to: '/usuarios',       label: 'Usuários',        icon: UserCog,  adminOnly: true },
-      { to: '/portal-admin',   label: 'Portal da Obra',  icon: Smartphone, adminOnly: true },
-      { to: '/configuracoes',  label: 'Configurações',    icon: Settings },
+      { to: '/relatorios',     label: 'Relatórios',      icon: BarChart3,  color: '#6366f1' },
+      { to: '/usuarios',       label: 'Usuários',         icon: UserCog,   color: '#0ea5e9', adminOnly: true },
+      { to: '/portal-admin',   label: 'Portal da Obra',   icon: Smartphone, color: '#10b981', adminOnly: true },
+      { to: '/configuracoes',  label: 'Configurações',    icon: Settings,  color: '#64748b' },
     ],
   },
 ]
@@ -73,14 +81,14 @@ const NAV_GROUPS = [
 interface LayoutProps { children: React.ReactNode }
 
 export function Layout({ children }: LayoutProps) {
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed]   = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const { user, signOut } = useAuth()
   const { profile } = useProfile()
   const navigate = useNavigate()
   const [solicitacoesPendentes, setSolicitacoesPendentes] = useState(0)
-  const [fechamentosPendentes, setFechamentosPendentes] = useState(0)
-  const [mensagensNaoLidas, setMensagensNaoLidas] = useState(0)
+  const [fechamentosPendentes,  setFechamentosPendentes]  = useState(0)
+  const [mensagensNaoLidas,     setMensagensNaoLidas]     = useState(0)
 
   const fetchFechamentosPendentes = useCallback(async () => {
     const { count } = await supabase.from('ponto_lancamentos')
@@ -122,25 +130,28 @@ export function Layout({ children }: LayoutProps) {
   const role       = profile?.role ?? 'visualizador'
   const roleMeta   = ROLE_PERMISSIONS[role]
 
-  const W = collapsed ? 60 : 224
+  const W = collapsed ? 64 : 232
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--background)' }}>
 
       {/* overlay mobile */}
       {mobileOpen && (
         <div onClick={() => setMobileOpen(false)}
-          style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.55)' }} />
+          style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(2px)' }} />
       )}
 
-      {/* SIDEBAR */}
+      {/* ═══════════════════════════════════════════
+          SIDEBAR
+      ═══════════════════════════════════════════ */}
       <aside style={{
         width: W, minWidth: W, maxWidth: W,
         display: 'flex', flexDirection: 'column',
-        background: '#0f1729',
-        borderRight: '1px solid rgba(255,255,255,0.07)',
-        transition: 'width 200ms, min-width 200ms, max-width 200ms',
+        background: '#0c1628',
+        borderRight: '1px solid rgba(255,255,255,0.06)',
+        transition: 'width 220ms cubic-bezier(0.4,0,0.2,1), min-width 220ms cubic-bezier(0.4,0,0.2,1), max-width 220ms cubic-bezier(0.4,0,0.2,1)',
         flexShrink: 0, zIndex: 50,
+        boxShadow: '4px 0 24px rgba(0,0,0,0.15)',
       }}
         className={cn(
           'max-lg:!fixed max-lg:inset-y-0 max-lg:left-0',
@@ -148,64 +159,113 @@ export function Layout({ children }: LayoutProps) {
           'transition-transform lg:transition-none',
         )}
       >
-        {/* logo */}
+        {/* ── Logo ─────────────────────────────────────── */}
         <div style={{
-          height: 56, flexShrink: 0, display: 'flex', alignItems: 'center',
-          padding: collapsed ? '0 14px' : '0 16px', gap: 10,
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
+          height: 60, flexShrink: 0, display: 'flex', alignItems: 'center',
+          padding: collapsed ? '0 16px' : '0 18px', gap: 11,
+          borderBottom: '1px solid rgba(255,255,255,0.05)',
+          background: 'linear-gradient(135deg, rgba(59,130,246,0.15) 0%, transparent 100%)',
         }}>
           <div style={{
-            width: 32, height: 32, minWidth: 32, borderRadius: 8, background: '#3b82f6',
+            width: 34, height: 34, minWidth: 34, borderRadius: 10,
+            background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 4px 12px rgba(59,130,246,0.4)',
+            flexShrink: 0,
           }}>
-            <HardHat size={16} color="#fff" />
+            <HardHat size={17} color="#fff" />
           </div>
           {!collapsed && (
-            <div style={{ overflow: 'hidden' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', whiteSpace: 'nowrap' }}>ConstrutorRH</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', whiteSpace: 'nowrap' }}>Gestão de RH</div>
+            <div style={{ overflow: 'hidden', transition: 'opacity 180ms' }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#f1f5f9', whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>ConstrutorRH</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.32)', whiteSpace: 'nowrap', letterSpacing: '0.03em' }}>GESTÃO DE RH</div>
             </div>
           )}
         </div>
 
-        {/* nav */}
-        <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '10px 0' }}>
+        {/* ── Nav ─────────────────────────────────────── */}
+        <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '8px 0 4px' }}
+          className="sidebar-scroll">
           {NAV_GROUPS.map((group, gi) => (
-            <div key={gi}>
+            <div key={gi} style={{ marginBottom: 2 }}>
               {gi > 0 && (
-                <div style={{ margin: collapsed ? '6px 12px' : '4px 12px 2px', borderTop: '1px solid rgba(255,255,255,0.06)' }} />
+                <div style={{ margin: collapsed ? '4px 12px' : '4px 14px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }} />
               )}
               {!collapsed && (
-                <div style={{ padding: '6px 16px 3px', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'rgba(255,255,255,0.28)', userSelect: 'none' }}>
+                <div style={{
+                  padding: '8px 18px 4px',
+                  fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase',
+                  letterSpacing: '0.1em', color: 'rgba(255,255,255,0.22)',
+                  userSelect: 'none', display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <span style={{ width: 12, height: 1.5, background: group.color, borderRadius: 2, opacity: 0.7, display: 'inline-block' }} />
                   {group.label}
                 </div>
               )}
               {group.items.map((item: any) => {
-                const { to, label, icon: Icon, adminOnly, badge: hasBadge, fechBadge, msgBadge } = item
+                const { to, label, icon: Icon, adminOnly, badge: hasBadge, fechBadge, msgBadge, color } = item
                 if (adminOnly && user?.email !== 'magmodrive@gmail.com') return null
                 const isFinanceiro = ['/ponto','/vt','/adiantamentos','/premios','/fechamento-ponto','/pagamentos','/encargos','/provisoes'].includes(to)
                 if (isFinanceiro && !roleMeta.canViewFinanceiro) return null
                 const badgeCount = hasBadge ? solicitacoesPendentes : (fechBadge ? fechamentosPendentes : (msgBadge ? mensagensNaoLidas : 0))
-                const badgeColor  = fechBadge ? '#b45309' : (msgBadge ? '#7c3aed' : '#ef4444')
+                const badgeColor = fechBadge ? '#f97316' : (msgBadge ? '#7c3aed' : '#ef4444')
 
                 return (
                   <NavLink key={to} to={to} end={to === '/'} title={collapsed ? label : undefined}
                     onClick={() => setMobileOpen(false)} style={{ textDecoration: 'none' }}
-                    className={({ isActive }) => cn('nav-item', isActive ? 'nav-item--active' : 'nav-item--default')}
+                    className={({ isActive }) => cn('nav-item-v2', isActive ? 'nav-item-v2--active' : 'nav-item-v2--default')}
                   >
-                    <span className="nav-icon" style={{ position:'relative' }}>
-                      <Icon size={15} />
-                      {collapsed && badgeCount > 0 && (
-                        <span style={{ position:'absolute', top:-4, right:-5, background:badgeColor, color:'#fff', borderRadius:10, fontSize:8, fontWeight:800, padding:'0 3px', minWidth:13, textAlign:'center', lineHeight:'13px' }}>
-                          {badgeCount > 99 ? '99+' : badgeCount}
+                    {({ isActive }) => (
+                      <>
+                        {/* Ícone com cor individual */}
+                        <span className="nav-icon-v2" style={{
+                          background: isActive ? `${color}22` : 'transparent',
+                          color: isActive ? color : 'rgba(255,255,255,0.45)',
+                          transition: 'all 0.15s',
+                          position: 'relative',
+                        }}>
+                          <Icon size={15} strokeWidth={isActive ? 2.2 : 1.8} />
+                          {collapsed && badgeCount > 0 && (
+                            <span style={{
+                              position: 'absolute', top: -3, right: -3,
+                              background: badgeColor, color: '#fff',
+                              borderRadius: 10, fontSize: 7, fontWeight: 800,
+                              padding: '0 3px', minWidth: 12, textAlign: 'center', lineHeight: '12px',
+                              boxShadow: '0 0 0 1.5px #0c1628',
+                            }}>
+                              {badgeCount > 99 ? '99+' : badgeCount}
+                            </span>
+                          )}
                         </span>
-                      )}
-                    </span>
-                    {!collapsed && <span className="nav-label" style={{ flex:1 }}>{label}</span>}
-                    {!collapsed && badgeCount > 0 && (
-                      <span style={{ background:badgeColor, color:'#fff', borderRadius:10, padding:'0 6px', fontSize:10, fontWeight:800, marginLeft:'auto', minWidth:18, textAlign:'center' }}>
-                        {badgeCount > 99 ? '99+' : badgeCount}
-                      </span>
+
+                        {!collapsed && (
+                          <span className="nav-label-v2" style={{ color: isActive ? '#f1f5f9' : 'rgba(255,255,255,0.55)', flex: 1 }}>
+                            {label}
+                          </span>
+                        )}
+
+                        {/* Badge inline */}
+                        {!collapsed && badgeCount > 0 && (
+                          <span style={{
+                            background: badgeColor, color: '#fff',
+                            borderRadius: 10, padding: '1px 6px',
+                            fontSize: 10, fontWeight: 800,
+                            minWidth: 18, textAlign: 'center',
+                            boxShadow: `0 2px 6px ${badgeColor}55`,
+                          }}>
+                            {badgeCount > 99 ? '99+' : badgeCount}
+                          </span>
+                        )}
+
+                        {/* Indicador ativo */}
+                        {isActive && (
+                          <span style={{
+                            position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)',
+                            width: 3, height: 18, borderRadius: '2px 0 0 2px',
+                            background: color,
+                          }} />
+                        )}
+                      </>
                     )}
                   </NavLink>
                 )
@@ -214,36 +274,53 @@ export function Layout({ children }: LayoutProps) {
           ))}
         </nav>
 
-        {/* footer com role badge */}
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
+        {/* ── Footer ─────────────────────────────────────── */}
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
           {!collapsed && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px' }}>
-              <Avatar style={{ width: 28, height: 28, flexShrink: 0 }}>
-                <AvatarFallback style={{ fontSize: 10, fontWeight: 700, background: '#1e3a5f', color: '#93c5fd' }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)',
+            }}>
+              <Avatar style={{ width: 32, height: 32, flexShrink: 0 }}>
+                <AvatarFallback style={{
+                  fontSize: 11, fontWeight: 800,
+                  background: 'linear-gradient(135deg, #1e3a5f 0%, #1d4ed8 100%)',
+                  color: '#93c5fd',
+                }}>
                   {initials}
                 </AvatarFallback>
               </Avatar>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {userLogin}
                 </div>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {userEmail}
                 </div>
-                {/* Role badge */}
                 <span style={{
-                  display: 'inline-block', marginTop: 3,
-                  padding: '1px 7px', borderRadius: 10, fontSize: 9, fontWeight: 700,
-                  background: roleMeta.bg, color: roleMeta.color, letterSpacing: '0.04em',
+                  display: 'inline-block', marginTop: 2,
+                  padding: '1px 7px', borderRadius: 10,
+                  fontSize: 9, fontWeight: 800,
+                  background: roleMeta.bg, color: roleMeta.color,
+                  letterSpacing: '0.05em',
                 }}>
                   {roleMeta.label}
                 </span>
               </div>
             </div>
           )}
+
           {collapsed && (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: roleMeta.color }} title={roleMeta.label} />
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0 4px' }}>
+              <Avatar style={{ width: 30, height: 30 }}>
+                <AvatarFallback style={{
+                  fontSize: 10, fontWeight: 800,
+                  background: 'linear-gradient(135deg, #1e3a5f 0%, #1d4ed8 100%)',
+                  color: '#93c5fd',
+                }}>
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
             </div>
           )}
 
@@ -252,50 +329,109 @@ export function Layout({ children }: LayoutProps) {
               display: 'flex', alignItems: 'center',
               gap: collapsed ? 0 : 8,
               justifyContent: collapsed ? 'center' : 'flex-start',
-              width: '100%', padding: collapsed ? '12px 0' : '9px 14px',
-              fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.38)',
+              width: '100%', padding: collapsed ? '10px 0' : '9px 16px',
+              fontSize: 12, fontWeight: 600,
+              color: 'rgba(255,255,255,0.30)',
               background: 'none', border: 'none', cursor: 'pointer',
+              transition: 'all 0.15s',
             }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#f87171'; (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.1)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = ''; (e.currentTarget as HTMLElement).style.background = '' }}
+            onMouseEnter={e => {
+              const el = e.currentTarget as HTMLElement
+              el.style.color = '#f87171'
+              el.style.background = 'rgba(239,68,68,0.08)'
+            }}
+            onMouseLeave={e => {
+              const el = e.currentTarget as HTMLElement
+              el.style.color = 'rgba(255,255,255,0.30)'
+              el.style.background = ''
+            }}
           >
             <LogOut size={14} />
-            {!collapsed && <span>Sair</span>}
+            {!collapsed && <span>Sair da conta</span>}
           </button>
         </div>
       </aside>
 
-      {/* MAIN */}
+      {/* ═══════════════════════════════════════════
+          MAIN AREA
+      ═══════════════════════════════════════════ */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+
+        {/* ── Header ─────────────────────────────────────── */}
         <header style={{
-          height: 56, flexShrink: 0, display: 'flex', alignItems: 'center',
-          padding: '0 16px', gap: 8, background: 'var(--card)', borderBottom: '1px solid var(--border)',
+          height: 60, flexShrink: 0,
+          display: 'flex', alignItems: 'center',
+          padding: '0 20px', gap: 10,
+          background: 'var(--card)',
+          borderBottom: '1px solid var(--border)',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
         }}>
-          <button onClick={() => setCollapsed(v => !v)} title={collapsed ? 'Expandir' : 'Recolher'}
+          {/* Toggle sidebar — desktop */}
+          <button onClick={() => setCollapsed(v => !v)} title={collapsed ? 'Expandir menu' : 'Recolher menu'}
             className="hidden lg:flex"
-            style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--muted-foreground)', cursor: 'pointer' }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'var(--muted)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            style={{
+              width: 34, height: 34,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: 8, border: '1px solid var(--border)',
+              background: 'transparent', color: 'var(--muted-foreground)',
+              cursor: 'pointer', transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--muted)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--ring)' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
           >
-            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+            {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
           </button>
+
+          {/* Toggle sidebar — mobile */}
           <button onClick={() => setMobileOpen(true)} className="lg:hidden"
-            style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--muted-foreground)', cursor: 'pointer' }}>
+            style={{
+              width: 34, height: 34,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: 8, border: '1px solid var(--border)',
+              background: 'transparent', color: 'var(--muted-foreground)', cursor: 'pointer',
+            }}>
             <Menu size={16} />
           </button>
+
+          {/* Fechar mobile (aparece só quando aberto) */}
+          {mobileOpen && (
+            <button onClick={() => setMobileOpen(false)} className="lg:hidden"
+              style={{
+                width: 34, height: 34,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: 8, border: '1px solid var(--border)',
+                background: 'transparent', color: 'var(--muted-foreground)', cursor: 'pointer',
+              }}>
+              <X size={16} />
+            </button>
+          )}
+
           <div style={{ flex: 1 }} />
-          {/* Role badge no topbar */}
-          <span style={{ padding: '3px 10px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: roleMeta.bg, color: roleMeta.color }}>
+
+          {/* Role badge */}
+          <span style={{
+            padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+            background: roleMeta.bg, color: roleMeta.color,
+            border: `1px solid ${roleMeta.color}30`,
+            letterSpacing: '0.03em',
+          }}>
             {roleMeta.label}
           </span>
-          <Avatar style={{ width: 32, height: 32 }}>
-            <AvatarFallback style={{ fontSize: 11, fontWeight: 700, background: 'var(--primary)', color: 'var(--primary-foreground)' }}>
+
+          {/* Avatar */}
+          <Avatar style={{ width: 34, height: 34, cursor: 'default' }}>
+            <AvatarFallback style={{
+              fontSize: 12, fontWeight: 800,
+              background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)',
+              color: '#bfdbfe',
+            }}>
               {initials}
             </AvatarFallback>
           </Avatar>
         </header>
 
-        <main style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+        {/* ── Main content ─────────────────────────────────────── */}
+        <main style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', background: 'var(--background)' }}>
           <ErrorBoundary>
             {children}
           </ErrorBoundary>
@@ -303,12 +439,62 @@ export function Layout({ children }: LayoutProps) {
       </div>
 
       <style>{`
-        .nav-item { display:flex; flex-direction:row; align-items:center; margin:1px 8px; padding:7px 10px; border-radius:6px; font-size:13px; font-weight:500; text-decoration:none; gap:10px; white-space:nowrap; overflow:hidden; transition:background 120ms,color 120ms; color:rgba(255,255,255,0.55); }
-        .nav-item:hover { background:rgba(255,255,255,0.07); color:rgba(255,255,255,0.90); }
-        .nav-item--active { background:#1d4ed8 !important; color:#fff !important; }
-        .nav-item--active:hover { background:#1d4ed8 !important; }
-        .nav-icon { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; min-width:16px; flex-shrink:0; }
-        .nav-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:1; }
+        /* Scrollbar sidebar */
+        .sidebar-scroll::-webkit-scrollbar { width: 3px; }
+        .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+        .sidebar-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+        /* Nav item base */
+        .nav-item-v2 {
+          display: flex;
+          flex-direction: row;
+          align-items: center;
+          position: relative;
+          margin: 1px 8px;
+          padding: 7px 8px;
+          border-radius: 8px;
+          font-size: 12.5px;
+          font-weight: 500;
+          text-decoration: none;
+          gap: 9px;
+          white-space: nowrap;
+          overflow: hidden;
+          transition: background 140ms ease, color 140ms ease;
+          cursor: pointer;
+        }
+        .nav-item-v2--default:hover {
+          background: rgba(255,255,255,0.05);
+        }
+        .nav-item-v2--default:hover .nav-icon-v2 {
+          color: rgba(255,255,255,0.75) !important;
+        }
+        .nav-item-v2--active {
+          background: rgba(255,255,255,0.06);
+        }
+
+        /* Ícone */
+        .nav-icon-v2 {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 28px;
+          height: 28px;
+          min-width: 28px;
+          border-radius: 7px;
+          flex-shrink: 0;
+          transition: all 0.15s;
+        }
+
+        /* Label */
+        .nav-label-v2 {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          line-height: 1;
+          font-size: 12.5px;
+          transition: color 0.15s;
+        }
       `}</style>
     </div>
   )

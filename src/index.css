@@ -197,13 +197,30 @@
   }
 
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
   }
   ::-webkit-scrollbar-track {
     @apply bg-transparent;
   }
   ::-webkit-scrollbar-thumb {
     @apply bg-muted-foreground/20 rounded-full hover:bg-muted-foreground/40;
+  }
+
+  /* Transições suaves globais para inputs, botões e cards */
+  button, input, select, textarea {
+    transition: all 0.15s ease;
+  }
+
+  /* Focus ring refinado */
+  *:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Remove outline padrão browser */
+  *:focus:not(:focus-visible) {
+    outline: none;
   }
 }

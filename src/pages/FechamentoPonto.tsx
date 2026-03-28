@@ -695,7 +695,7 @@ export default function FechamentoPonto() {
 
   // ── Contadores para as abas ─────────────────────────────────────────────
   const contAbas = useMemo(() => ({
-    fechamento:  lancamentos.filter(l => ['em_fechamento','rascunho'].includes(l.status)).length,
+    fechamento:  lancamentos.filter(l => ['em_fechamento','rascunho','aguardando_aprovacao'].includes(l.status)).length,
     pendente:    lancamentos.filter(l => l.status === 'aguardando_aprovacao').length,
     aprovado:    lancamentos.filter(l => l.status === 'aprovado').length,       // aguardando liberação
     liberado:    lancamentos.filter(l => l.status === 'liberado').length,       // liberado p/ pagamento
@@ -708,7 +708,7 @@ export default function FechamentoPonto() {
     const q = busca.toLowerCase()
     // Filtro por aba
     const statusAba: string[] = abaFechamento === 'fechamento'
-      ? ['em_fechamento', 'rascunho']
+      ? ['em_fechamento', 'rascunho', 'aguardando_aprovacao']
       : abaFechamento === 'pendente'
         ? ['aguardando_aprovacao']
         : abaFechamento === 'aprovado'
@@ -1054,7 +1054,7 @@ export default function FechamentoPonto() {
       {/* ── Abas de status ── */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)', flexWrap: 'wrap' }}>
         {([
-          { key: 'fechamento',  label: '🔒 Em Fechamento',          cnt: contAbas.fechamento,  cor: '#1d4ed8' },
+          { key: 'fechamento',  label: '🔒 Pendentes / Em Fechamento',  cnt: contAbas.fechamento,  cor: '#1d4ed8' },
           { key: 'pendente',    label: '⏳ Ag. Aprovação',           cnt: contAbas.pendente,    cor: '#b45309' },
           { key: 'aprovado',    label: '✅ Aprovado',                cnt: contAbas.aprovado,    cor: '#059669' },
           { key: 'liberado',    label: '💜 Liberado p/ Pagamento',   cnt: contAbas.liberado,    cor: '#7c3aed' },

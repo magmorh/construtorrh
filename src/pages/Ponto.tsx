@@ -1156,6 +1156,7 @@ export default function Ponto() {
     // ── SNAPSHOT considera_sabado_util ────────────────────────────────────
     // Ao entrar em fechamento: congelar a regra de sábado da obra.
     // Alterações posteriores na obra NÃO reprocessam este lançamento.
+    /* 
     if (status === 'em_fechamento') {
       const lanc = lancamentos.find(l => l.id === id)
       if (lanc?.obra_id) {
@@ -1167,6 +1168,7 @@ export default function Ponto() {
         payload.snap_considera_sabado_util = obraSnap?.considera_sabado_util ?? false
       }
     }
+    */
     const{error}=await supabase.from('ponto_lancamentos').update(payload).eq('id',id)
     if(error){toast.error('Erro: '+error.message);return}
     const msgs:Record<string,string>={

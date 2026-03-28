@@ -78,7 +78,7 @@ interface LancItem {
   snap_valor_hora:    number | null
   snap_fechado_em:    string | null
   // snap imutável da regra de sábado (congelado ao entrar em fechamento)
-  snap_considera_sabado_util: boolean | null
+  snap_considera_sabado_util?: boolean | null
 }
 
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
@@ -197,7 +197,7 @@ export default function FechamentoPonto() {
         snap_valor_hora, snap_horas_normais, snap_horas_extras, snap_valor_horas,
         snap_valor_producao, snap_valor_dsr, snap_valor_premio, snap_valor_total,
         snap_faltas, snap_vt_diario, snap_desconto_vt, snap_desconto_adiant,
-        snap_inss, snap_ir, snap_liquido, snap_fechado_em, snap_considera_sabado_util,
+        snap_inss, snap_ir, snap_liquido, snap_fechado_em,
         colaboradores(nome, chapa, tipo_contrato, funcao_id, vale_transporte, vt_dados, data_admissao, funcoes(nome)),
         obras(nome, considera_sabado_util)
       `)
@@ -639,7 +639,6 @@ export default function FechamentoPonto() {
         snap_faltas:         l.snap_faltas         ?? null,
         snap_valor_hora:     l.snap_valor_hora     ?? null,
         snap_fechado_em:     l.snap_fechado_em     ?? null,
-        snap_considera_sabado_util: l.snap_considera_sabado_util ?? null,
       }
     })
     setLancamentos(lista.filter(Boolean) as LancItem[])
@@ -931,7 +930,6 @@ export default function FechamentoPonto() {
       snap_liquido: null,
       snap_fechado_em: null,
       snap_fechado_por: null,
-      snap_considera_sabado_util: null,   // resetar → ao re-entrar em fechamento, será snapshottado de novo
       motivo_recusa: `Estornado: ${motivoEstorno}`,
       data_pagamento: null,
       obs_pagamento: null,

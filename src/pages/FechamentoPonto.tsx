@@ -1679,33 +1679,24 @@ export default function FechamentoPonto() {
                     <span style={{ fontSize:11, color:'#92400e' }}>(descontado no bruto)</span>
                   </div>
                 )}
-                {/* VT — exibir bruto (crédito), desconto faltas, adicional sáb/dom e desconto 6% */}
-                {(modalLiberar.valor_vt_bruto > 0 || modalLiberar.vt_desconto_faltas > 0) && (
+                {/* VT — apenas ajustes que impactam o salário: falta e sáb/dom */}
+                {/* VT BASE é pago via cartão/benefício separado — não aparece aqui */}
+                {((modalLiberar.vt_desconto_faltas ?? 0) > 0 || (modalLiberar.vt_adicional_sabdom ?? 0) > 0 || (modalLiberar.desconto_vt_6pct ?? 0) > 0) && (
                   <>
-                    {/* VT base */}
-                    {(() => {
-                      const diasBase = modalLiberar.obra_considera_sabado
-                        ? modalLiberar.dias_trabalhados
-                        : Math.max(0, modalLiberar.dias_trabalhados - modalLiberar.vt_sabs_dom_trab)
-                      const vtBase = diasBase * modalLiberar.valor_vt_dia
-                      return (
-                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                          padding:'9px 14px', background:'#f0fdf4', borderBottom:'1px solid #dcfce7' }}>
-                          <span style={{ fontSize:13, color:'#374151' }}>
-                            🚌 VT base&nbsp;
-                            <span style={{ fontSize:11, color:'#6b7280' }}>({diasBase} dia{diasBase !== 1 ? 's' : ''} × R$ {modalLiberar.valor_vt_dia.toFixed(2)})</span>
-                          </span>
-                          <span style={{ fontSize:13, fontWeight:600, color:'#16a34a' }}>+ {formatCurrency(vtBase)}</span>
-                        </div>
-                      )
-                    })()}
+                    {/* INFO: VT pago separado */}
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                      padding:'7px 14px', background:'#f8fafc', borderBottom:'1px solid #e2e8f0' }}>
+                      <span style={{ fontSize:11, color:'#64748b', fontStyle:'italic' }}>
+                        🚌 Vale Transporte — pago via cartão/benefício (fora da folha)
+                      </span>
+                    </div>
 
                     {/* desconto faltas */}
                     {(modalLiberar.vt_desconto_faltas ?? 0) > 0 && (
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
                         padding:'8px 14px', background:'#fff', borderBottom:'1px solid #fee2e2' }}>
                         <span style={{ fontSize:12, color:'#374151' }}>
-                          🚌 − VT faltas&nbsp;
+                          🚌 − VT faltas 
                           <span style={{ fontSize:11, color:'#dc2626' }}>({modalLiberar.faltas} falta{modalLiberar.faltas !== 1 ? 's' : ''})</span>
                         </span>
                         <span style={{ fontSize:12, fontWeight:600, color:'#dc2626' }}>− {formatCurrency(modalLiberar.vt_desconto_faltas)}</span>
@@ -1717,30 +1708,24 @@ export default function FechamentoPonto() {
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
                         padding:'8px 14px', background:'#eff6ff', borderBottom:'1px solid #bfdbfe' }}>
                         <span style={{ fontSize:12, color:'#374151' }}>
-                          🚌 + Sáb/Dom trabalhados&nbsp;
+                          🚌 + Sáb/Dom trabalhados 
                           <span style={{ fontSize:11, color:'#0369a1' }}>({modalLiberar.vt_sabs_dom_trab} dia{modalLiberar.vt_sabs_dom_trab !== 1 ? 's' : ''})</span>
                         </span>
                         <span style={{ fontSize:12, fontWeight:600, color:'#0369a1' }}>+ {formatCurrency(modalLiberar.vt_adicional_sabdom)}</span>
                       </div>
                     )}
 
-                    {/* VT líquido total */}
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                      padding:'9px 14px', background:'#f0fdf4', borderBottom:'1px solid #dcfce7' }}>
-                      <span style={{ fontSize:13, fontWeight:600, color:'#166534' }}>🚌 = VT líquido</span>
-                      <span style={{ fontSize:13, fontWeight:700, color:'#16a34a' }}>+ {formatCurrency(modalLiberar.valor_vt_bruto)}</span>
-                    </div>
-
                     {/* desconto 6% colaborador */}
                     {(modalLiberar.desconto_vt_6pct ?? 0) > 0 && (
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
                         padding:'8px 14px', background:'#fffbeb', borderBottom:'1px solid #fde68a' }}>
-                        <span style={{ fontSize:12, color:'#374151' }}>🚌 − Desc. VT 6% (colaborador)</span>
+                        <span style={{ fontSize:12, color:'#374151' }}>🚌 − Desc. VT 6% <span style={{fontSize:11,color:'#92400e'}}>(desconto legal CLT)</span></span>
                         <span style={{ fontSize:12, fontWeight:600, color:'#b45309' }}>− {formatCurrency(modalLiberar.desconto_vt_6pct)}</span>
                       </div>
                     )}
                   </>
                 )}
+
                 {modalLiberar.inss > 0 && (
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
                     padding:'9px 14px', background:'#f9fafb', borderBottom:'1px solid #f3f4f6' }}>

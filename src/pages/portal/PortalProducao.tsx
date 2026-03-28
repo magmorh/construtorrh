@@ -11,7 +11,7 @@ interface PlaybookItem { id: string; descricao: string; unidade: string }
 interface LancRow    { id: string; obra_id: string; data_inicio: string; data_fim: string }
 interface ProducaoRow{
   id: string; criado_em: string; quantidade: number; valor_unitario: number | null
-  obs: string | null; colaboradores?: { nome: string }; playbook_items?: { descricao: string; unidade: string }
+  obs: string | null; colaboradores?: { nome: string }; playbook_itens?: { descricao: string; unidade: string }
   sincronizado_em: string | null
 }
 
@@ -50,7 +50,7 @@ export default function PortalProducao() {
     if (!oid) return
     const [{ data: c }, { data: pb }, { data: lc }] = await Promise.all([
       supabase.from('colaboradores').select('id,nome,chapa').eq('obra_id', oid).eq('status','ativo').order('nome'),
-      supabase.from('playbook_items').select('id,descricao,unidade').eq('obra_id', oid).order('descricao'),
+      supabase.from('playbook_itens').select('id,descricao,unidade').eq('obra_id', oid).order('descricao'),
       supabase.from('ponto_lancamentos').select('id,obra_id,data_inicio,data_fim').eq('obra_id', oid).order('data_inicio'),
     ])
     setColabs(c ?? []); setPlaybook(pb ?? []); setLancamentos(lc ?? [])
@@ -61,7 +61,7 @@ export default function PortalProducao() {
     if (!oid) return
     const { data } = await supabase
       .from('portal_producao')
-      .select('id,criado_em,quantidade,valor_unitario,obs,sincronizado_em,colaboradores(nome),playbook_items(descricao,unidade)')
+      .select('id,criado_em,quantidade,valor_unitario,obs,sincronizado_em,colaboradores(nome),playbook_itens(descricao,unidade)')
       .eq('obra_id', oid)
       .order('criado_em', { ascending: false })
       .limit(60)
@@ -241,7 +241,7 @@ export default function PortalProducao() {
               Nenhum lançamento de produção registrado ainda
             </div>
           ) : historico.map(h => {
-            const pb = (h as any).playbook_items
+            const pb = (h as any).playbook_itens
             const colab = (h as any).colaboradores
             const jaSync = !!h.sincronizado_em
             return (

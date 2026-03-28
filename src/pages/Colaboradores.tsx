@@ -91,6 +91,7 @@ type FormData = {
   vt_cartao_numero: string
   vt_trechos_ida: VtTrecho[]
   vt_trechos_volta: VtTrecho[]
+  salario: string;
   status: string; data_status: string; observacoes: string
 }
 
@@ -98,6 +99,7 @@ const EMPTY: FormData = {
   nome: '', chapa: '', cpf: '', rg: '', pis_nit: '', data_nascimento: '',
   genero: '', estado_civil: '', telefone: '', email: '', endereco: '',
   cidade: '', estado: '', cep: '', funcao_id: '', obra_id: '',
+  salario: '',
   tipo_contrato: 'clt', data_admissao: '', ctps_numero: '', ctps_serie: '',
   banco: '', agencia: '', conta: '', tipo_conta: '',
   pix_tipo: '', pix_chave: '',
@@ -1232,6 +1234,7 @@ export default function Colaboradores() {
       telefone: c.telefone ?? '', email: c.email ?? '', endereco: c.endereco ?? '',
       cidade: c.cidade ?? '', estado: c.estado ?? '', cep: c.cep ?? '',
       funcao_id: c.funcao_id ?? '', obra_id: c.obra_id ?? '',
+      salario: c.salario ? String(c.salario) : '',
       tipo_contrato: c.tipo_contrato ?? 'clt', data_admissao: c.data_admissao ?? '',
       ctps_numero: c.ctps_numero ?? '', ctps_serie: c.ctps_serie ?? '',
       banco: c.banco ?? '', agencia: c.agencia ?? '', conta: c.conta ?? '',
@@ -3582,6 +3585,17 @@ function FuncaoSection({
                 </SelectContent>
               </Select>
             )}
+          </Field>
+
+          {/* Salário */}
+          <Field label="Salário Mensal (R$)">
+            <input
+              type="text"
+              placeholder="0,00"
+              value={form.salario}
+              onChange={e => onSet('salario', e.target.value)}
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--background)', color: 'var(--foreground)', fontSize: 13, width: '100%' }}
+            />
           </Field>
 
           {/* Card de valor/hora — computed acima, sem IIFE */}

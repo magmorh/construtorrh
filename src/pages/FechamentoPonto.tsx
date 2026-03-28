@@ -197,7 +197,7 @@ export default function FechamentoPonto() {
         snap_valor_hora, snap_horas_normais, snap_horas_extras, snap_valor_horas,
         snap_valor_producao, snap_valor_dsr, snap_valor_premio, snap_valor_total,
         snap_faltas, snap_vt_diario, snap_desconto_vt, snap_desconto_adiant,
-        snap_inss, snap_ir, snap_liquido, snap_fechado_em,
+        snap_inss, snap_ir, snap_liquido, snap_fechado_em, snap_considera_sabado_util,
         colaboradores(nome, chapa, tipo_contrato, funcao_id, vale_transporte, vt_dados, data_admissao, funcoes(nome)),
         obras(nome, considera_sabado_util)
       `)
@@ -517,9 +517,9 @@ export default function FechamentoPonto() {
       const vtDados   = colab?.vt_dados as any
       function calcVtDia(vd: any): number {
         if (!vd) return 0
-        if (vd.modalidade === 'gasolina') return vd.gasolina_valor_dia ?? 0
-        const ida   = (vd.trechos_ida   ?? []).reduce((s: number, t: any) => s + (parseFloat(t.valor) || 0), 0)
-        const volta = (vd.trechos_volta ?? []).reduce((s: number, t: any) => s + (parseFloat(t.valor) || 0), 0)
+        if (vd.modalidade === 'gasolina') return parseFloat(String(vd.gasolina_valor_dia)) || 0
+        const ida   = (vd.trechos_ida   ?? []).reduce((s: number, t: any) => s + (parseFloat(String(t.valor)) || 0), 0)
+        const volta = (vd.trechos_volta ?? []).reduce((s: number, t: any) => s + (parseFloat(String(t.valor)) || 0), 0)
         return ida + volta
       }
       const vtDiaValor = calcVtDia(vtDados)

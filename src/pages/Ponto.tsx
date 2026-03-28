@@ -226,7 +226,7 @@ export default function Ponto() {
     setLoadingPortalProd(true)
     const q = supabase
       .from('portal_producao')
-      .select('id,colaborador_id,obra_id,playbook_item_id,lancamento_id,data,quantidade,obs,sincronizado_em,colaboradores(nome),obras(nome),playbook_items(nome)')
+      .select('id,colaborador_id,obra_id,playbook_item_id,lancamento_id,data,quantidade,obs,sincronizado_em,colaboradores(nome),obras(nome),playbook_itens(descricao)')
       .gte('data', inicio)
       .lte('data', fim)
       .order('obra_id').order('data')
@@ -243,7 +243,7 @@ export default function Ponto() {
       obs: r.obs ?? null,
       sincronizado_em: r.sincronizado_em,
       playbook_item_id: r.playbook_item_id,
-      item_nome: r.playbook_items?.nome ?? null,
+      item_nome: r.playbook_itens?.descricao ?? null,
       lancamento_id: r.lancamento_id,
     })))
     setLoadingPortalProd(false)

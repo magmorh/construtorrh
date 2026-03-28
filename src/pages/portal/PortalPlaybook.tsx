@@ -43,7 +43,7 @@ export default function PortalPlaybook() {
     if (!obraId) return
     setLoading(true)
     const { data } = await supabase
-      .from('playbook_items')
+      .from('playbook_itens')
       .select('id,descricao,unidade,categoria,ordem')
       .eq('obra_id', obraId)
       .order('ordem', { ascending: true })

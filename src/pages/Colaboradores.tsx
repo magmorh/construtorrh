@@ -1013,8 +1013,14 @@ export default function Colaboradores() {
 
   // ── filtros ───────────────────────────────────────────────────────────────
   const filtered = rows.filter(c => {
-    const q = search.toLowerCase()
-    const matchQ = !q || c.nome.toLowerCase().includes(q) || (c.chapa ?? '').toLowerCase().includes(q) || (c.cpf ?? '').replace(/\D/g,'').includes(q.replace(/\D/g,''))
+    const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    const q = norm(search)
+    const matchQ = !q
+      || norm(c.nome).includes(q)
+      || norm(c.chapa ?? '').includes(q)
+      || (c.cpf ?? '').replace(/\D/g,'').includes(q.replace(/\D/g,''))
+      || norm((c as any).funcoes?.nome ?? '').includes(q)
+      || norm((c as any).obras?.nome ?? '').includes(q)
     const matchS = filterStatus === 'todos' || c.status === filterStatus
     const matchF = filterFuncao === 'todas' || (c as any).funcao_id === filterFuncao
     const matchC = filterContrato === 'todos' || (c.tipo_contrato ?? '').toLowerCase() === filterContrato

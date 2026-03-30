@@ -821,7 +821,7 @@ export default function ValeTransportePage() {
 
   // ─── render ───────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', height: '100%', flexDirection: 'column', gap: 0 }}>
+    <div style={{ display: 'flex', height: '100%', flexDirection: 'column', gap: 0, padding: 24 }}>
 
       {/* Header */}
       <div style={{ paddingBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>

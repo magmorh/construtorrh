@@ -410,11 +410,11 @@ export default function Epis() {
   }, [funcaoSelecionada, fetchVinculos])
 
   // ── filtro busca catálogo ───────────────────────────────────────────────────
-  const filtered = epis.filter(e =>
-    e.nome.toLowerCase().includes(search.toLowerCase()) ||
-    (e.categoria ?? '').toLowerCase().includes(search.toLowerCase()) ||
-    (e.numero_ca ?? '').toLowerCase().includes(search.toLowerCase()),
-  )
+  const normStr = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const filtered = epis.filter(e => {
+    const q = normStr(search)
+    return !q || normStr(e.nome).includes(q) || normStr(e.categoria ?? '').includes(q) || normStr(e.numero_ca ?? '').includes(q)
+  })
 
   // ── filtro busca funções ────────────────────────────────────────────────────
   const funcoesFiltradas = funcoes.filter(f =>
@@ -840,7 +840,7 @@ export default function Epis() {
 
   // ─── render ────────────────────────────────────────────────────────────────
   return (
-    <div>
+    <div style={{ padding: 24 }}>
       <PageHeader
         title="EPIs"
         subtitle="Equipamentos de Proteção Individual — catálogo, vínculos e solicitações"

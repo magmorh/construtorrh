@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
+import { fetchEmpresaData, CABECALHO_CSS, gerarCabecalhoHTML } from '@/lib/relatorioHeader'
 import {
   Scale, UserX, Search, Plus, Trash2, FileText, ChevronDown, ChevronUp,
   Loader2, ShieldAlert, X, Building2, Calendar, CreditCard, Clock,
@@ -143,8 +144,9 @@ export default function Juridico() {
   }
 
   // ── Gerar PDF do dossiê completo ─────────────────────────────────────────
-  function gerarPDF() {
+  async function gerarPDF() {
     if (!fichaData.colab) return
+    const emp     = await fetchEmpresaData()
     const d       = fichaData.colab as any
     const ocs     = (fichaData.ocorrencias    as any[]) ?? []
     const ats     = (fichaData.atestados      as any[]) ?? []
@@ -293,13 +295,13 @@ export default function Juridico() {
         </div>`).join('')}</div>`
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Dossiê — ${d.nome}</title>
-    <style>${CSS}</style></head><body>
+    <style>${CSS}\n${CABECALHO_CSS}</style></head><body>
 
     <!-- CAPA -->
     <div class="capa">
       <div>
         <h1>⚖️ Dossiê Completo do Colaborador</h1>
-        <div class="sub">ConstrutorRH · Gerado em ${new Date().toLocaleString('pt-BR')} · CONFIDENCIAL</div>
+        <div class="sub">${emp.nome || 'ConstrutorRH'} · Gerado em ${new Date().toLocaleString('pt-BR')} · CONFIDENCIAL</div>
         <div style="margin-top:10px;font-size:16px;font-weight:900">${d.nome}</div>
         <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <span style="background:rgba(255,255,255,.15);border-radius:4px;padding:2px 8px;font-size:11px">Chapa: ${d.chapa ?? '—'}</span>

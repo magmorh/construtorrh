@@ -1,15 +1,14 @@
 /**
  * Cálculo do DSR com regra de perda por falta semanal.
  *
- * NOVA REGRA (atualizada):
- *   - Feriados e sábados são DIAS NORMAIS — não entram mais como candidatos a DSR.
- *   - O DSR é calculado apenas sobre os DOMINGOS do período.
+ * REGRAS VIGENTES:
+ *   - Candidatos a DSR = Domingos + Feriados em Seg–Sex (dia não trabalhado com direito ao feriado).
+ *   - Sábado NÃO é candidato a DSR (já recebe +50% nas horas trabalhadas).
  *   - Se o funcionário tiver QUALQUER falta (injustificada) em uma semana
- *     (Segunda a Sábado), perde o direito ao DSR daquele domingo.
- *   - Feriados: tratados separadamente por calcFeriados() em Ponto.tsx.
+ *     (Segunda a Sábado), perde o direito ao DSR daquele domingo/feriado dessa semana.
  *
  * Fórmula:
- *   DSR = (valorHoras / diasUteisComputados) × domingosSemFalta
+ *   DSR = (valorHoras / diasUteisComputados) × candidatosSemFalta
  */
 
 function expandRange(inicio: string, fim: string): string[] {
@@ -25,7 +24,7 @@ function expandRange(inicio: string, fim: string): string[] {
 
 export interface DSRResult {
   dsr: number          // valor total do DSR a pagar
-  diasUteis: number    // Seg–Sab no período (feriados não excluídos)
+  diasUteis: number    // Seg–Sex no período (feriados excluídos dos dias úteis contáveis)
   domingosPagos: number
   domingosPerdidos: number
 }
@@ -35,35 +34,56 @@ export interface DSRResult {
  * @param inicio       data início do período "YYYY-MM-DD"
  * @param fim          data fim do período "YYYY-MM-DD"
  * @param datasComFalta Set de datas (YYYY-MM-DD) onde houve falta
- * @param _feriadosSet  ignorado — feriados não são mais candidatos a DSR
+ * @param feriadosSet   Set de datas de feriados (feriados Seg–Sex são candidatos ao DSR)
  */
 export function calcDSRComFaltas(
   valorHoras: number,
   inicio: string,
   fim: string,
   datasComFalta: Set<string>,
-  _feriadosSet?: Set<string>   // mantido na assinatura para compatibilidade
+  feriadosSet?: Set<string>
 ): DSRResult {
   const todas = expandRange(inicio, fim)
+  const fer = feriadosSet ?? new Set<string>()
 
-  // Dias úteis Seg–Sab (feriados INCLUÍDOS — são dias normais)
+  // Dias úteis = Seg–Sex NÃO feriados + Sábados
+  // (feriados saem da base de dias úteis pois são "pagos" pelo direito ao feriado)
   const diasUteis = todas.filter(d => {
     const dow = new Date(d + 'T12:00:00').getDay()
-    return dow >= 1 && dow <= 6   // Seg-Sab
+    if (dow === 0) return false          // Domingo: não é dia útil
+    if (dow >= 1 && dow <= 5 && fer.has(d)) return false  // Feriado Seg–Sex: não conta como dia útil (é candidato a DSR)
+    return true   // Sáb (dow=6) e Seg–Sex normais
   }).length
 
-  // Candidatos a DSR: apenas Domingos (feriados não entram mais)
-  const domingos = todas.filter(d => new Date(d + 'T12:00:00').getDay() === 0)
+  // Candidatos a DSR:
+  //   1. Domingos do período
+  //   2. Feriados em Seg–Sex (o trabalhador tem direito ao dia)
+  const candidatos = todas.filter(d => {
+    const dow = new Date(d + 'T12:00:00').getDay()
+    if (dow === 0) return true                          // Domingo
+    if (dow >= 1 && dow <= 5 && fer.has(d)) return true // Feriado em dia útil
+    return false
+  })
 
   let domingosPagos = 0
   let domingosPerdidos = 0
 
-  for (const cand of domingos) {
+  for (const cand of candidatos) {
     const candDate = new Date(cand + 'T12:00:00')
+    const dow = candDate.getDay()
 
-    // Semana do domingo: Seg a Sab anteriores (dom - 6 dias até dom - 1)
-    const seg = new Date(candDate)
-    seg.setDate(candDate.getDate() - 6)
+    // Para domingo: verifica semana Seg–Sab anterior (dom-6 até dom-1)
+    // Para feriado Seg–Sex: verifica semana da qual faz parte (Seg dessa semana até Sab)
+    let seg: Date
+    if (dow === 0) {
+      // Domingo → semana anterior: dom-6 até dom-1
+      seg = new Date(candDate)
+      seg.setDate(candDate.getDate() - 6)
+    } else {
+      // Feriado Seg–Sex → semana corrente: seg da semana até sab
+      seg = new Date(candDate)
+      seg.setDate(candDate.getDate() - (dow - 1))
+    }
     const sab = new Date(seg)
     sab.setDate(seg.getDate() + 5)
 
@@ -71,7 +91,12 @@ export function calcDSRComFaltas(
     let temFalta = false
     const iter = new Date(seg)
     while (iter <= sab) {
-      if (datasComFalta.has(iter.toISOString().slice(0, 10))) {
+      const dd = iter.toISOString().slice(0, 10)
+      // Falta em feriado da mesma semana NÃO conta como falta para perda do DSR
+      // (o trabalhador simplesmente não foi — é o próprio feriado)
+      const dw = iter.getDay()
+      const eFeriadoIter = dw >= 1 && dw <= 5 && fer.has(dd)
+      if (!eFeriadoIter && datasComFalta.has(dd)) {
         temFalta = true
         break
       }

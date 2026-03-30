@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select'
 import {
   Building2, Plus, Search, Pencil, Trash2, MapPin, Clock, AlertTriangle,
-  Calendar, Users, X, ChevronRight,
+  Calendar, Users, X, ChevronRight, ExternalLink,
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { traduzirErro } from '@/lib/erros'
@@ -34,6 +34,7 @@ type FormData = {
   data_inicio: string; data_previsao_fim: string
   status: string; observacoes: string
   considera_sabado_util: boolean
+  desconta_vt: boolean
   link_projetos: string
   obs_projetos: string
 }
@@ -70,7 +71,7 @@ const HORARIO_DEFAULT: HorarioDia[] = [
 const EMPTY_FORM: FormData = {
   nome: '', codigo: '', endereco: '', cidade: '', estado: '',
   cliente: '', responsavel: '', data_inicio: '', data_previsao_fim: '',
-  status: 'em_andamento', observacoes: '', considera_sabado_util: false,
+  status: 'em_andamento', observacoes: '', considera_sabado_util: false, desconta_vt: false,
   link_projetos: '', obs_projetos: '',
 }
 
@@ -172,6 +173,7 @@ export default function Obras() {
       data_previsao_fim: o.data_previsao_fim ?? '', status: o.status,
       observacoes: o.observacoes ?? '',
       considera_sabado_util: (o as any).considera_sabado_util ?? false,
+      desconta_vt: (o as any).desconta_vt ?? false,
       link_projetos: (o as any).link_projetos ?? '',
       obs_projetos: (o as any).obs_projetos ?? '',
     })
@@ -200,6 +202,7 @@ export default function Obras() {
       data_previsao_fim: form.data_previsao_fim || null,
       status: form.status as Obra['status'], observacoes: form.observacoes || null,
       considera_sabado_util: form.considera_sabado_util,
+      desconta_vt: form.desconta_vt,
       link_projetos: form.link_projetos.trim() || null,
       obs_projetos: form.obs_projetos.trim() || null,
     } as any
@@ -338,6 +341,13 @@ export default function Obras() {
                         {[o.cidade, o.estado].filter(Boolean).join(' — ')}
                       </div>
                     ) : <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>—</span>}
+                    {/* Link de projetos — exibe botão direto se houver */}
+                    {(o as any).link_projetos && (
+                      <a href={(o as any).link_projetos} target="_blank" rel="noopener noreferrer"
+                        style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:10, fontWeight:700, color:'#1d4ed8', background:'#eff6ff', borderRadius:4, padding:'2px 7px', marginTop:4, textDecoration:'none', border:'1px solid #bfdbfe' }}>
+                        <ExternalLink size={10}/> Ver projetos
+                      </a>
+                    )}
                   </TableCell>
                   <TableCell style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
                     {o.data_inicio ? (
@@ -440,6 +450,23 @@ export default function Obras() {
                     <span style={{ display: 'block', fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>
                       Se marcado: sábado conta no cálculo do VT e colaborador que trabalhou sábado recebe VT do dia.
                       Se desmarcado: sábado já está incluído no valor mensal padrão — não gera VT adicional.
+                    </span>
+                  </label>
+                </div>
+                {/* Desconto VT 6% */}
+                <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0', borderTop: '1px solid var(--border)' }}>
+                  <input
+                    type="checkbox"
+                    id="desconta_vt"
+                    checked={form.desconta_vt}
+                    onChange={e => setForm(f => ({ ...f, desconta_vt: e.target.checked }))}
+                    style={{ width: 16, height: 16, cursor: 'pointer', marginTop: 2, flexShrink: 0 }}
+                  />
+                  <label htmlFor="desconta_vt" style={{ fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
+                    <strong>💰 Descontar 6% do VT no holerite (somente CLT)</strong>
+                    <span style={{ display: 'block', fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>
+                      Se marcado: colaboradores CLT desta obra terão 6% do salário bruto descontado do VT (limitado ao valor do VT).
+                      Autônomos/PJ nunca sofrem este desconto, independente desta configuração.
                     </span>
                   </label>
                 </div>

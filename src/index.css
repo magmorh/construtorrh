@@ -43,24 +43,24 @@
   --radius: 0.5rem;
 
   /* Core UI Tokens */
-  --background: oklch(0.99 0.002 220);
+  --background: #f0f2f5;
   --foreground: oklch(0.15 0.01 220);
-  --card: oklch(1 0 0);
+  --card: #ffffff;
   --card-foreground: oklch(0.15 0.01 220);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.15 0.01 220);
-  --primary: oklch(0.32 0.08 220);
+  --primary: #0d3f56;
   --primary-foreground: oklch(0.98 0.005 220);
   --secondary: oklch(0.94 0.01 220);
   --secondary-foreground: oklch(0.2 0.015 220);
-  --muted: oklch(0.96 0.005 220);
+  --muted: #f4f6f9;
   --muted-foreground: oklch(0.48 0.01 220);
   --accent: oklch(0.62 0.18 25);
   --accent-foreground: oklch(0.99 0.005 25);
   --destructive: oklch(0.55 0.22 15);
   --destructive-foreground: oklch(0.99 0.005 15);
-  --border: oklch(0.89 0.005 220);
-  --input: oklch(0.89 0.005 220);
+  --border: #e4e8f0;
+  --input: #e4e8f0;
   --ring: oklch(0.62 0.18 25);
   
   /* Chart Tokens */
@@ -71,13 +71,13 @@
   --chart-5: oklch(0.48 0.12 280);
   
   /* Sidebar Tokens */
-  --sidebar: oklch(0.28 0.09 220);
+  --sidebar: #0d3f56;
   --sidebar-foreground: oklch(0.95 0.01 220);
   --sidebar-primary: oklch(0.62 0.18 25);
   --sidebar-primary-foreground: oklch(0.99 0.005 25);
-  --sidebar-accent: oklch(0.38 0.1 220);
+  --sidebar-accent: #0a3347;
   --sidebar-accent-foreground: oklch(0.98 0.005 220);
-  --sidebar-border: oklch(0.35 0.08 220);
+  --sidebar-border: rgba(255,255,255,0.10);
   --sidebar-ring: oklch(0.62 0.18 25);
 }
 
@@ -223,4 +223,68 @@
   *:focus:not(:focus-visible) {
     outline: none;
   }
+}
+
+/* ─── Estilos globais de card, tabela e inputs ─────────────────────────── */
+
+/* Cards — sombra sutil estilo ERP */
+.card, [class*="card"] {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0,0,0,0.04);
+}
+
+/* Sombra nos divs usados como card inline */
+div[style*="border-radius"][style*="background: var(--card)"],
+div[style*="border-radius"][style*="background:var(--card)"],
+div[style*="borderRadius"][style*="background: var(--card)"],
+div[style*="borderRadius"][style*="background:var(--card)"],
+div[style*="border-radius: 12"][style*="background: #fff"],
+div[style*="border-radius: 16"][style*="background: #fff"],
+div[style*="borderRadius:12"][style*="background:'#fff'"],
+div[style*="borderRadius:16"][style*="background:'#fff'"] {
+  box-shadow: 0 1px 6px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.04);
+}
+
+/* Inputs mais elegantes */
+input[type="text"], input[type="email"], input[type="password"],
+input[type="date"], input[type="number"], input[type="search"],
+textarea, select {
+  background: #fff !important;
+}
+
+/* Tabelas — linhas com hover suave */
+tr:hover td {
+  background: #f7f9fd;
+}
+
+/* Badges de status — mais arredondados */
+.badge {
+  border-radius: 20px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+}
+
+/* Botão primário com azul-royal */
+button[style*="background:#1d4ed8"],
+button[style*="background: #1d4ed8"],
+button[style*="background: rgb(29, 78, 216)"] {
+  background: #1565C0 !important;
+}
+button[style*="background:#1d4ed8"]:hover,
+button[style*="background: #1d4ed8"]:hover {
+  background: #0D47A1 !important;
+}
+
+/* Scrollbar global mais fina e elegante */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Animação de entrada suave para modais/dropdowns */
+@keyframes fadeInDown {
+  from { opacity:0; transform:translateY(-8px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+[role="dialog"], [data-radix-popper-content-wrapper] {
+  animation: fadeInDown 0.15s ease;
 }

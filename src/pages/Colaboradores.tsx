@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import type { Colaborador, Funcao, Obra } from '@/lib/supabase'
 import { formatCPF, formatDate, formatCurrency, cn } from '@/lib/utils'
 import { maskCPF, maskRG, maskPIS, maskCEP, maskTelefone, maskCTPS, maskCTPSSerie, maskAgencia, maskConta } from '@/lib/masks'
+import { fetchEmpresaData, CABECALHO_CSS, gerarCabecalhoHTML } from '@/lib/relatorioHeader'
 import { PageHeader, BadgeStatus, EmptyState, LoadingSkeleton } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -487,7 +488,8 @@ function FuncoesTab() {
 
 // ─── SOLICITAÇÕES DO PORTAL ───────────────────────────────────────────────────
 // ─── helper: gera e imprime o PDF via window.print() ────────────────────────
-function gerarPDF(r: any, funcoes: Funcao[], obras: Obra[]) {
+async function gerarPDF(r: any, funcoes: Funcao[], obras: Obra[]) {
+  const emp = await fetchEmpresaData()
   const d = r.dados ?? {}
   const fn  = funcoes.find(f => f.id === d.funcao_id)?.nome ?? '—'
   const ob  = obras.find(o => o.id === r.obra_id)?.nome ?? '—'
@@ -514,8 +516,7 @@ function gerarPDF(r: any, funcoes: Funcao[], obras: Obra[]) {
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:20px 28px}
-  h1{font-size:16px;font-weight:800;color:#1e3a5f;margin-bottom:2px}
-  .sub{font-size:11px;color:#555;margin-bottom:14px}
+  ${CABECALHO_CSS}
   .sec{margin-bottom:12px}
   .sec-title{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
     color:#fff;background:#1e3a5f;padding:4px 8px;border-radius:3px 3px 0 0}
@@ -528,8 +529,11 @@ function gerarPDF(r: any, funcoes: Funcao[], obras: Obra[]) {
   @media print{body{padding:10px 14px}}
 </style></head><body>
 
-<h1>👷 Ficha de Cadastro de Colaborador</h1>
-<div class="sub">Obra: <strong>${ob}</strong> &nbsp;|&nbsp; Solicitado em: ${new Date(r.criado_em).toLocaleString('pt-BR')} &nbsp;|&nbsp; Status: ${r.status.toUpperCase()}</div>
+${gerarCabecalhoHTML(emp, {
+  titulo: 'Ficha de Cadastro de Colaborador',
+  subtitulo: `Obra: ${ob} · Status: ${r.status?.toUpperCase() ?? '—'}`,
+  periodo: `Solicitado em ${new Date(r.criado_em).toLocaleString('pt-BR')}`,
+})}
 
 <div class="sec">
   <div class="sec-title">Identificação</div>
@@ -910,6 +914,13 @@ export default function Colaboradores() {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('todos')
   const [filterFuncao, setFilterFuncao] = useState('todas')
+  const [filterContrato, setFilterContrato] = useState('todos')
+
+  // Contadores
+  const totalAtivos    = rows.filter(r => r.status === 'ativo').length
+  const totalCLT       = rows.filter(r => r.status === 'ativo' && (r.tipo_contrato ?? '').toLowerCase() === 'clt').length
+  const totalAutonomo  = rows.filter(r => r.status === 'ativo' && (r.tipo_contrato ?? '').toLowerCase() !== 'clt').length
+  const totalInativos  = rows.filter(r => r.status === 'inativo').length
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editId, setEditId]       = useState<string | null>(null)
@@ -1003,10 +1014,11 @@ export default function Colaboradores() {
   // ── filtros ───────────────────────────────────────────────────────────────
   const filtered = rows.filter(c => {
     const q = search.toLowerCase()
-    const matchQ = !q || c.nome.toLowerCase().includes(q) || (c.chapa ?? '').toLowerCase().includes(q) || (c.cpf ?? '').includes(q)
+    const matchQ = !q || c.nome.toLowerCase().includes(q) || (c.chapa ?? '').toLowerCase().includes(q) || (c.cpf ?? '').replace(/\D/g,'').includes(q.replace(/\D/g,''))
     const matchS = filterStatus === 'todos' || c.status === filterStatus
     const matchF = filterFuncao === 'todas' || (c as any).funcao_id === filterFuncao
-    return matchQ && matchS && matchF
+    const matchC = filterContrato === 'todos' || (c.tipo_contrato ?? '').toLowerCase() === filterContrato
+    return matchQ && matchS && matchF && matchC
   })
 
   // ── helpers form ──────────────────────────────────────────────────────────
@@ -1382,7 +1394,7 @@ export default function Colaboradores() {
       status:                  'inativo',
       data_status:             inativarData,
       data_encerramento:       inativarData,
-      motivo_encerramento:     inativarMotivo || 'Inativado manualmente',
+      motivo_encerramento:     inativarMotivo || 'outros',
       inativado_por:           userEmail,
       inativado_em:            agora,
       confirmou_sem_pendencias: true,
@@ -1736,6 +1748,25 @@ export default function Colaboradores() {
       {/* ── ABA COLABORADORES ───────────────────────────────────────────── */}
       {pageTab === 'colaboradores' && (
         <>
+          {/* Contadores rápidos */}
+          <div style={{ display:'flex', gap:10, marginBottom:14, flexWrap:'wrap' }}>
+            {[
+              { label:'Ativos',    value: totalAtivos,   color:'#16a34a', bg:'#f0fdf4', border:'#bbf7d0', filter:'ativo', field:'status' },
+              { label:'CLT',       value: totalCLT,      color:'#1d4ed8', bg:'#eff6ff', border:'#bfdbfe', filter:'clt',   field:'contrato' },
+              { label:'Autônomo',  value: totalAutonomo, color:'#7c3aed', bg:'#faf5ff', border:'#ddd6fe', filter:'autonomo', field:'contrato' },
+              { label:'Inativos',  value: totalInativos, color:'#dc2626', bg:'#fff1f2', border:'#fecdd3', filter:'inativo', field:'status' },
+            ].map(c => (
+              <div key={c.label}
+                onClick={() => { if(c.field==='status'){setFilterStatus(f => f===c.filter?'todos':c.filter);setFilterContrato('todos')} else {setFilterContrato(f => f===c.filter?'todos':c.filter);setFilterStatus('todos')} }}
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 14px', borderRadius:10, border:`1.5px solid ${c.border}`, background:c.bg, cursor:'pointer', userSelect:'none', transition:'box-shadow 0.1s' }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.boxShadow='0 2px 8px rgba(0,0,0,0.12)'}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.boxShadow=''}
+              >
+                <span style={{ fontSize:20, fontWeight:800, color:c.color, lineHeight:1 }}>{c.value}</span>
+                <span style={{ fontSize:11, fontWeight:600, color:c.color, opacity:0.8 }}>{c.label}</span>
+              </div>
+            ))}
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
             <div style={{ display: 'flex', gap: 8, flex: 1, flexWrap: 'wrap' }}>
               <div style={{ position: 'relative', width: 280 }}>
@@ -1759,6 +1790,14 @@ export default function Colaboradores() {
                   {funcoes.map(f => (
                     <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+              <Select value={filterContrato} onValueChange={v => { setFilterContrato(v); setFilterStatus('todos') }}>
+                <SelectTrigger style={{ width: 160 }}><SelectValue placeholder="Tipo de contrato" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os contratos</SelectItem>
+                  <SelectItem value="clt">CLT</SelectItem>
+                  <SelectItem value="autonomo">Autônomo</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -2767,10 +2806,24 @@ export default function Colaboradores() {
               </div>
             </div>
             <div>
-              <Label className="text-xs">Motivo da inativação</Label>
-              <Textarea value={inativarMotivo} onChange={e => setInativarMotivo(e.target.value)}
-                placeholder="Ex.: Demissão por justa causa, término de contrato, etc."
-                className="mt-1" rows={2} />
+              <Label className="text-xs">Motivo da inativação *</Label>
+              <select
+                value={inativarMotivo}
+                onChange={e => setInativarMotivo(e.target.value)}
+                style={{ width:'100%', height:38, border:'1px solid var(--border)', borderRadius:6, padding:'0 10px', fontSize:13, background:'var(--background)', marginTop:4, color: inativarMotivo ? 'inherit' : '#9ca3af' }}
+              >
+                <option value="">Selecione o motivo…</option>
+                <option value="demissao_sem_justa_causa">Demissão sem justa causa</option>
+                <option value="demissao_por_justa_causa">Demissão por justa causa</option>
+                <option value="pedido_demissao">Pedido de demissão (colaborador)</option>
+                <option value="termino_contrato">Término de contrato</option>
+                <option value="rescisao_amigavel">Rescisão amigável</option>
+                <option value="abandono_emprego">Abandono de emprego</option>
+                <option value="aposentadoria">Aposentadoria</option>
+                <option value="falecimento">Falecimento</option>
+                <option value="mudanca_vinculo">Mudança de vínculo (CLT ↔ Autônomo)</option>
+                <option value="outros">Outros</option>
+              </select>
             </div>
 
             {/* Confirmação de responsabilidade */}

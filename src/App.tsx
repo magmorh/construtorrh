@@ -47,6 +47,7 @@ const PortalMensagens    = React.lazy(() => import('@/pages/portal/PortalMensage
 const PortalProjetos     = React.lazy(() => import('@/pages/portal/PortalProjetos'))
 const PortalLancamentos  = React.lazy(() => import('@/pages/portal/PortalLancamentos'))
 const MensagensAdmin     = React.lazy(() => import('@/pages/MensagensAdmin'))
+const CestaBasica        = React.lazy(() => import('@/pages/CestaBasica'))
 
 // ─── Full-page loading spinner ───────────────────────────────────────────────
 function FullPageSpinner() {
@@ -291,6 +292,16 @@ export default function App() {
                   <PrivateRoute>
                     <Layout>
                       <ValeTransportePage />
+                    </Layout>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/cesta-basica"
+                element={
+                  <PrivateRoute>
+                    <Layout>
+                      <CestaBasica />
                     </Layout>
                   </PrivateRoute>
                 }

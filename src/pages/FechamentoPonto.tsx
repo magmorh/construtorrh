@@ -108,6 +108,11 @@ export default function FechamentoPonto() {
   const [saving, setSaving] = useState(false)
   const [tabelaInss, setTabelaInss] = useState<FaixaINSS[]>([])
   const [tabelaIR, setTabelaIR]     = useState<FaixaIR[]>([])
+  // Coeficientes de HE lidos do banco (fallback: legislação CLT)
+  const [heCoef50,  setHeCoef50]  = useState(1.5)   // Seg-Sex dia útil (+50%)
+  const [heCoef100, setHeCoef100] = useState(2.0)   // Domingo/Feriado (+100%)
+  const [heSab,     setHeSab]     = useState(1.5)   // Sábado (+50%)
+  const [heDom,     setHeDom]     = useState(2.0)   // Domingo (+100%)
   const [modalEstornar, setModalEstornar] = useState<string | null>(null)
   const [motivoEstorno, setMotivoEstorno] = useState('')
   // Aba ativa: 'pendente' | 'aprovado' | 'recusado' | 'fechamento'
@@ -330,13 +335,25 @@ export default function FechamentoPonto() {
 
     // Agregar horas, faltas e datas de falta por lançamento
     // Também guarda horas por dia para cálculo autônomo (excluir dias de produção)
-    const mapaHoras: Record<string, { norm: number; extra: number; dias: number; faltas: number; diasDatas: Set<string>; datasComFalta: Set<string>; sabsDomTrab: number }> = {}
+    const mapaHoras: Record<string, { norm: number; extra: number; extra50: number; extra100: number; dias: number; faltas: number; diasDatas: Set<string>; datasComFalta: Set<string>; sabsDomTrab: number }> = {}
     // mapa de horas por dia (para autônomo excluir dias com produção)
-    const mapaHorasPorDia: Record<string, Record<string, { norm: number; extra: number }>> = {}
+    const mapaHorasPorDia: Record<string, Record<string, { norm: number; extra: number; extra50: number; extra100: number }>> = {}
     ;(pontosRaw ?? []).forEach((p: any) => {
-      if (!mapaHoras[p.lancamento_id]) mapaHoras[p.lancamento_id] = { norm: 0, extra: 0, dias: 0, faltas: 0, diasDatas: new Set(), datasComFalta: new Set(), sabsDomTrab: 0 }
+      if (!mapaHoras[p.lancamento_id]) mapaHoras[p.lancamento_id] = { norm: 0, extra: 0, extra50: 0, extra100: 0, dias: 0, faltas: 0, diasDatas: new Set(), datasComFalta: new Set(), sabsDomTrab: 0 }
       mapaHoras[p.lancamento_id].norm   += (p.horas_trabalhadas ?? 0)
       mapaHoras[p.lancamento_id].extra  += (p.horas_extras ?? 0)
+      // Separar HE por tipo via dia da semana para aplicar coeficiente correto
+      if (p.data && (p.horas_extras ?? 0) > 0) {
+        const dow = new Date(p.data + 'T12:00:00').getDay()
+        // Dom(0) ou feriado_remunerado → 100%; Sáb(6) → coef sab; Seg-Sex → coef dia útil
+        if (dow === 0) {
+          mapaHoras[p.lancamento_id].extra100 += (p.horas_extras ?? 0)
+        } else if (dow === 6) {
+          mapaHoras[p.lancamento_id].extra50  += (p.horas_extras ?? 0)
+        } else {
+          mapaHoras[p.lancamento_id].extra50  += (p.horas_extras ?? 0)
+        }
+      }
       mapaHoras[p.lancamento_id].dias   += 1
       if (p.falta) {
         mapaHoras[p.lancamento_id].faltas += 1
@@ -345,10 +362,12 @@ export default function FechamentoPonto() {
       if (p.data) {
         mapaHoras[p.lancamento_id].diasDatas.add(p.data)
         if (!mapaHorasPorDia[p.lancamento_id]) mapaHorasPorDia[p.lancamento_id] = {}
-        mapaHorasPorDia[p.lancamento_id][p.data] = { norm: p.horas_trabalhadas ?? 0, extra: p.horas_extras ?? 0 }
+        const dow2 = new Date(p.data + 'T12:00:00').getDay()
+        const e50 = (dow2 !== 0) ? (p.horas_extras ?? 0) : 0
+        const e100 = (dow2 === 0) ? (p.horas_extras ?? 0) : 0
+        mapaHorasPorDia[p.lancamento_id][p.data] = { norm: p.horas_trabalhadas ?? 0, extra: p.horas_extras ?? 0, extra50: e50, extra100: e100 }
         // Conta sábados e domingos efetivamente trabalhados (horas > 0 e não é falta)
-        const dow = new Date(p.data + 'T12:00:00').getDay()
-        const ehSabDom = dow === 0 || dow === 6
+        const ehSabDom = dow2 === 0 || dow2 === 6
         const temHoras = (p.horas_trabalhadas ?? 0) > 0 || (p.horas_extras ?? 0) > 0
         if (ehSabDom && temHoras && !p.falta) {
           mapaHoras[p.lancamento_id].sabsDomTrab = (mapaHoras[p.lancamento_id].sabsDomTrab ?? 0) + 1
@@ -470,8 +489,15 @@ export default function FechamentoPonto() {
       let valorHoras = 0
 
       if (tipo === 'clt') {
-        // CLT: horas totais (não exclui dias de produção)
-        valorHoras = horasAgg.norm * vh + horasAgg.extra * vh * 1.5
+        // CLT: aplica coeficientes configurados separados por tipo de HE
+        // extra50 = HE dias úteis (Seg-Sex) e sábado; extra100 = domingos
+        const e50  = (horasAgg as any).extra50  ?? horasAgg.extra
+        const e100 = (horasAgg as any).extra100 ?? 0
+        // Sábado: usa heSab; Dom: usa heDom; Dia útil: usa heCoef50
+        // (separação dom vs sáb via extra100 e extra50)
+        valorHoras = horasAgg.norm * vh
+          + e50  * vh * heCoef50    // Seg-Sex + Sáb usam heCoef50 (ex: 1.60 = 60%)
+          + e100 * vh * heCoef100   // Dom/Feriado usam heCoef100 (ex: 2.00 = 100%)
         // DSR com regra de perda por falta semanal
         const datasComFaltaLanc = (horasAgg as any).datasComFalta ?? new Set<string>()
         const dsrRes = calcDSRComFaltas(valorHoras, dataInicioEfetivo, l.data_fim, datasComFaltaLanc)
@@ -488,14 +514,17 @@ export default function FechamentoPonto() {
         const diasComProdLanc = mapaProdDias[l.id] ?? new Set<string>()
         const horasPorDia = mapaHorasPorDia[l.id] ?? {}
         // Somar horas apenas dos dias SEM produção
-        let normSemProd = 0, extraSemProd = 0
+        let normSemProd = 0, extraSemProd50 = 0, extraSemProd100 = 0
         Object.entries(horasPorDia).forEach(([data, h]) => {
           if (!diasComProdLanc.has(data)) {
-            normSemProd  += h.norm
-            extraSemProd += h.extra
+            normSemProd     += h.norm
+            extraSemProd50  += (h as any).extra50  ?? h.extra
+            extraSemProd100 += (h as any).extra100 ?? 0
           }
         })
-        valorHoras = normSemProd * vh + extraSemProd * vh * 1.5
+        valorHoras = normSemProd * vh
+          + extraSemProd50  * vh * heCoef50
+          + extraSemProd100 * vh * heCoef100
         // Total = horas (dias sem prod) + produção
         valorTotal = valorHoras + valorProd
       }
@@ -674,11 +703,26 @@ export default function FechamentoPonto() {
     lastFetchAt.current = Date.now()   // registra quando os dados foram carregados
   }, [])
 
-  // Carregar tabelas de encargos uma vez
+  // Carregar tabelas de encargos e coeficientes de HE uma vez
   useEffect(() => {
     fetchTabelasEncargos(supabase).then(({ tabelaInss: ti, tabelaIR: tir }) => {
       setTabelaInss(ti); setTabelaIR(tir)
     })
+    // Carregar coeficientes de HE configurados no banco
+    supabase.from('configuracoes').select('chave, valor')
+      .in('chave', ['he_percentual_60', 'he_percentual_100', 'he_percentual_sabado', 'he_percentual_domingo'])
+      .then(({ data }) => {
+        const m: Record<string, string> = {}
+        ;(data ?? []).forEach((r: any) => { m[r.chave] = r.valor })
+        const pct60  = parseFloat(m['he_percentual_60']  ?? '') || 60
+        const pct100 = parseFloat(m['he_percentual_100'] ?? '') || 100
+        const pctSab = parseFloat(m['he_percentual_sabado']  ?? '') || 50
+        const pctDom = parseFloat(m['he_percentual_domingo'] ?? '') || 100
+        setHeCoef50 (1 + pct60  / 100)   // ex: 60% → 1.60
+        setHeCoef100(1 + pct100 / 100)   // ex: 100% → 2.00
+        setHeSab    (1 + pctSab / 100)   // ex: 50% → 1.50
+        setHeDom    (1 + pctDom / 100)   // ex: 100% → 2.00
+      })
   }, [])
 
   // mesRefDebounced dispara o fetch — evita múltiplas queries ao girar seletor de mês

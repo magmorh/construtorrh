@@ -32,6 +32,7 @@ export default function PortalPonto() {
   const obras = session?.obras_ids ?? []
   const [obraId,    setObraId]    = useState(params.get('obra') ?? obras[0] ?? '')
   const [obrasData, setObrasData] = useState<{id:string;nome:string}[]>([])
+  const [buscaColab, setBuscaColab] = useState('')
   const [dataSel,   setDataSel]   = useState(new Date().toISOString().slice(0, 10))
   const [colaboradores, setColaboradores] = useState<ColabRow[]>([])
   const [pontos,    setPontos]    = useState<Record<string, PontoRow>>({})
@@ -42,6 +43,7 @@ export default function PortalPonto() {
 
   // ── Relatório ──────────────────────────────────────────────────────────────
   const [relColabId, setRelColabId] = useState('')
+  const [relBusca,   setRelBusca]   = useState('')
   const [relDtIni,   setRelDtIni]   = useState(() => {
     const d = new Date(); d.setDate(1); return d.toISOString().slice(0,10)
   })
@@ -52,6 +54,7 @@ export default function PortalPonto() {
   // ── Avulso ─────────────────────────────────────────────────────────────────
   const [avulsoColabId,  setAvulsoColabId]  = useState('')
   const [avulsoColabs,   setAvulsoColabs]   = useState<ColabRow[]>([])
+  const [avulsoBusca,    setAvulsoBusca]    = useState('')
   const [avulsoObraId,   setAvulsoObraId]   = useState(obraId)
   const [avulsoStatus,   setAvulsoStatus]   = useState<StatusPonto>('presente')
   const [avulsoSaving,   setAvulsoSaving]   = useState(false)
@@ -60,6 +63,12 @@ export default function PortalPonto() {
 
   const [confirmExcluir, setConfirmExcluir] = useState<{colabId:string; nome:string; id:string} | null>(null)
   const [excluindo, setExcluindo]           = useState(false)
+  const [rlsErro,   setRlsErro]             = useState(false)
+
+  // Modal de edição inline do relatório
+  interface EditRelRow { id:string; colaborador_nome:string; data:string; status:StatusPonto; horas_extra:number; horas_falta:number; observacoes:string }
+  const [editRel,     setEditRel]     = useState<EditRelRow | null>(null)
+  const [savingRel,   setSavingRel]   = useState(false)
 
   // tela de conferência antes de salvar
   interface ConfPonto { colabId:string; nome:string; chapa?:string; funcao?:string; status:StatusPonto; he:number; hf:number; obs:string }
@@ -166,7 +175,13 @@ export default function PortalPonto() {
     setExcluindo(true)
     const { error } = await supabase.from('portal_ponto_diario').delete().eq('id', confirmExcluir.id)
     if (error) { alert('Erro ao excluir: ' + error.message) }
-    else { await fetchPontos(); setConfirmExcluir(null) }
+    else {
+      // Atualiza lista do relatório imediatamente sem reload
+      setRelRows(prev => prev.filter(r => (r as any).id !== confirmExcluir.id))
+      // Atualiza aba de ponto (pontos do dia)
+      await fetchPontos()
+      setConfirmExcluir(null)
+    }
     setExcluindo(false)
   }
 
@@ -212,7 +227,18 @@ export default function PortalPonto() {
     } else {
       ;({ error: err } = await supabase.from('portal_ponto_diario').insert(payload))
     }
-    if (!err) await fetchPontos()
+    if (err) {
+      // Erro de RLS: instruir o usuário a executar o SQL de correção
+      if (err.code === '42501' || err.message?.includes('row-level security') || err.message?.includes('violates row-level')) {
+        setRlsErro(true)
+        alert('⚠️ Permissão negada pelo banco de dados.\n\nExecute o arquivo EXECUTAR_NO_SUPABASE.sql no Supabase para corrigir as políticas de acesso do Portal.')
+      } else {
+        alert('Erro ao salvar ponto: ' + err.message)
+      }
+    } else {
+      setRlsErro(false)
+      await fetchPontos()
+    }
     setSaving(prev => { const s = new Set(prev); s.delete(colabId); return s })
     setEditandoId(null)
   }
@@ -240,18 +266,53 @@ export default function PortalPonto() {
       ;({ error: err } = await supabase.from('portal_ponto_diario').insert({ obra_id: avulsoObraId, colaborador_id: avulsoColabId, data: dataSel, status: avulsoStatus, portal_usuario_id: session?.id }))
     }
     setAvulsoSaving(false)
-    if (err) { setAvulsoErro('Erro: ' + err.message); return }
+    if (err) {
+      if (err.code === '42501' || err.message?.includes('row-level security') || err.message?.includes('violates row-level')) {
+        setAvulsoErro('⚠️ Permissão negada. Execute o EXECUTAR_NO_SUPABASE.sql no Supabase para liberar o Portal.')
+      } else {
+        setAvulsoErro('Erro: ' + err.message)
+      }
+      return
+    }
     setAvulsoSucesso(true); setAvulsoColabId('')
     setTimeout(() => setAvulsoSucesso(false), 2500)
   }
 
   // ── Relatório ──────────────────────────────────────────────────────────────
+  // ── Salvar edição inline do relatório ─────────────────────────────────
+  async function salvarEditRel() {
+    if (!editRel) return
+    setSavingRel(true)
+    const { error } = await supabase.from('portal_ponto_diario').update({
+      status:      editRel.status,
+      horas_extra: editRel.horas_extra,
+      horas_falta: editRel.horas_falta,
+      observacoes: editRel.observacoes || null,
+    }).eq('id', editRel.id)
+    setSavingRel(false)
+    if (error) {
+      if (error.code === '42501' || error.message?.includes('row-level security') || error.message?.includes('violates row-level')) {
+        alert('⚠️ Permissão negada. Execute EXECUTAR_NO_SUPABASE.sql no Supabase.')
+      } else {
+        alert('Erro ao salvar: ' + error.message)
+      }
+      return
+    }
+    // Atualiza a linha na lista do relatório imediatamente (sem re-query)
+    setRelRows(prev => prev.map(r =>
+      (r as any).id === editRel.id
+        ? { ...r, status: editRel.status, horas_extra: editRel.horas_extra, horas_falta: editRel.horas_falta, observacoes: editRel.observacoes }
+        : r
+    ))
+    setEditRel(null)
+  }
+
   async function gerarRelatorio() {
     // garante que avulsoColabs está carregado (usado para "Todos")
     if (!avulsoColabs.length) await fetchAvulsos()
     setRelLoading(true)
     let q = supabase.from('portal_ponto_diario')
-      .select('data,status,horas_extra,horas_falta,observacoes,obra_id,colaborador_id')
+      .select('id,data,status,horas_extra,horas_falta,observacoes,obra_id,colaborador_id')
       .gte('data', relDtIni).lte('data', relDtFim)
       .order('colaborador_id').order('data')
     if (relColabId) q = q.eq('colaborador_id', relColabId)
@@ -398,7 +459,12 @@ export default function PortalPonto() {
 
   // ── Filtro por data_admissao + agrupa por função ───────────────────────────
   const colaboradoresVisiveis = useMemo(() => {
-    const filtrados = colaboradores.filter(c => !c.data_admissao || c.data_admissao <= dataSel)
+    const q = buscaColab.toLowerCase().trim()
+    const filtrados = colaboradores.filter(c => {
+      if (c.data_admissao && c.data_admissao > dataSel) return false
+      if (!q) return true
+      return c.nome.toLowerCase().includes(q) || (c.chapa ?? '').toLowerCase().includes(q)
+    })
     // Ordenar por função depois por nome
     return [...filtrados].sort((a, b) => {
       const fa = (a.funcao ?? 'Sem função').toLowerCase()
@@ -407,7 +473,7 @@ export default function PortalPonto() {
       if (fa > fb) return 1
       return a.nome.localeCompare(b.nome)
     })
-  }, [colaboradores, dataSel])
+  }, [colaboradores, dataSel, buscaColab])
 
   const totalPresentes  = colaboradoresVisiveis.filter(c => pontos[c.id]?.status === 'presente').length
   const totalFaltas     = colaboradoresVisiveis.filter(c => pontos[c.id]?.status === 'falta' || pontos[c.id]?.status === 'falta_justificada').length
@@ -425,17 +491,18 @@ export default function PortalPonto() {
   return (
     <PortalLayout>
       {/* Sub-abas */}
-      <div style={{ display:'flex', margin:'12px 16px 0', background:'#f3f4f6', borderRadius:10, padding:4 }}>
+      <div style={{ display:'flex', margin:'12px 12px 0', background:'#f1f5f9', borderRadius:12, padding:4, gap:2 }}>
         {([
           { id:'ponto',     label:'📋 Lançar Ponto' },
           { id:'avulso',    label:'👤 Avulso' },
           { id:'relatorio', label:'📊 Relatório' },
         ] as const).map(a => (
           <button type="button" key={a.id} onClick={() => setSubAba(a.id)} style={{
-            flex:1, height:34, border:'none', borderRadius:8, cursor:'pointer', fontWeight:700, fontSize:11,
+            flex:1, height:36, border:'none', borderRadius:9, cursor:'pointer', fontWeight:700, fontSize:11,
             background: subAba===a.id ? '#fff' : 'transparent',
-            color: subAba===a.id ? '#1e3a5f' : '#9ca3af',
-            boxShadow: subAba===a.id ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
+            color: subAba===a.id ? '#0f172a' : '#94a3b8',
+            boxShadow: subAba===a.id ? '0 1px 6px rgba(0,0,0,0.12)' : 'none',
+            transition:'all 0.15s',
           }}>
             {a.label}
           </button>
@@ -444,6 +511,13 @@ export default function PortalPonto() {
 
       {/* ── ABA PONTO ── */}
       {subAba === 'ponto' && (<>
+        {/* Banner de aviso RLS */}
+        {rlsErro && (
+          <div style={{ margin:'10px 12px 0', background:'#fff3cd', border:'1px solid #ffc107', borderRadius:10, padding:'10px 14px', fontSize:12, color:'#92400e', fontWeight:600 }}>
+            ⚠️ Permissão negada. Execute <strong>EXECUTAR_NO_SUPABASE.sql</strong> no Supabase SQL Editor e recarregue a página.
+          </div>
+        )}
+
         {obrasData.length > 1 && (
           <div style={{ padding:'10px 16px 0' }}>
             <select value={obraId} onChange={e => setObraId(e.target.value)} style={SEL}>
@@ -452,7 +526,7 @@ export default function PortalPonto() {
           </div>
         )}
 
-        <div style={{ padding:'10px 16px 8px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <div style={{ padding:'10px 12px 8px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
           <button onClick={() => proxDia(-1)} style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:8, padding:'8px 12px', cursor:'pointer' }}>
             <ChevronLeft size={18}/>
           </button>
@@ -467,7 +541,7 @@ export default function PortalPonto() {
         </div>
 
         {/* Resumo */}
-        <div style={{ padding:'0 16px 12px', display:'flex', gap:6 }}>
+        <div style={{ padding:'0 12px 10px', display:'flex', gap:6 }}>
           {[
             { label:'Presentes', val:totalPresentes,  cor:'#15803d', bg:'#dcfce7' },
             { label:'Produção',  val:totalProducao,   cor:'#7c3aed', bg:'#f3e8ff' },
@@ -481,8 +555,25 @@ export default function PortalPonto() {
           ))}
         </div>
 
+        {/* Busca por nome/chapa */}
+        <div style={{ padding:'0 12px 8px' }}>
+          <div style={{ position:'relative' }}>
+            <input
+              type="text"
+              placeholder="🔍 Buscar colaborador (nome ou chapa)…"
+              value={buscaColab}
+              onChange={e => setBuscaColab(e.target.value)}
+              style={{ width:'100%', padding:'9px 12px 9px 36px', borderRadius:10, border:'1.5px solid #e5e7eb', fontSize:13, background:'#fff', boxSizing:'border-box', outline:'none' }}
+            />
+            <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:15, pointerEvents:'none' }}>🔍</span>
+            {buscaColab && (
+              <button onClick={() => setBuscaColab('')} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#9ca3af', fontSize:14 }}>✕</button>
+            )}
+          </div>
+        </div>
+
         {/* Lista agrupada por função */}
-        <div style={{ padding:'0 16px 16px' }}>
+        <div style={{ padding:'0 12px 24px' }}>
           {loading ? (
             <div style={{ textAlign:'center', padding:32, color:'#9ca3af' }}>
               <Loader2 size={24} className="animate-spin" style={{ margin:'0 auto 8px', display:'block' }}/>Carregando…
@@ -631,27 +722,80 @@ export default function PortalPonto() {
             <input type="date" value={dataSel} onChange={e => setDataSel(e.target.value)} style={INP}/>
           </div>
 
-          {/* Colaborador — agrupado por função */}
+          {/* Colaborador — cards com busca (padrão do sistema) */}
           <div>
             <label style={{ fontSize:12, fontWeight:700, color:'#374151', display:'block', marginBottom:6, textTransform:'uppercase' }}>Colaborador</label>
-            <select value={avulsoColabId} onChange={e => setAvulsoColabId(e.target.value)} style={SEL}>
-              <option value="">Selecione…</option>
+            {/* Busca */}
+            <div style={{ position:'relative', marginBottom:8 }}>
+              <input
+                type="text"
+                placeholder="🔍 Buscar por nome ou chapa…"
+                value={avulsoBusca}
+                onChange={e => setAvulsoBusca(e.target.value)}
+                style={{ width:'100%', padding:'9px 34px 9px 12px', borderRadius:10, border:'1.5px solid #e5e7eb', fontSize:13, background:'#fff', boxSizing:'border-box', outline:'none' }}
+              />
+              {avulsoBusca && (
+                <button onClick={() => setAvulsoBusca('')} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#9ca3af', fontSize:14 }}>✕</button>
+              )}
+            </div>
+            {/* Cards de colaborador agrupados por função */}
+            <div style={{ maxHeight:260, overflowY:'auto', border:'1.5px solid #e5e7eb', borderRadius:10, background:'#f9fafb' }}>
               {(() => {
-                const sorted = [...avulsoColabs].sort((a,b) => {
-                  const fa = (a.funcao ?? 'Sem função').toLowerCase()
-                  const fb = (b.funcao ?? 'Sem função').toLowerCase()
-                  return fa !== fb ? fa.localeCompare(fb) : a.nome.localeCompare(b.nome)
-                })
+                const q = avulsoBusca.toLowerCase()
+                const sorted = [...avulsoColabs]
+                  .filter(c => !q || c.nome.toLowerCase().includes(q) || (c.chapa??'').toLowerCase().includes(q))
+                  .sort((a,b) => {
+                    const fa = (a.funcao ?? 'Sem função').toLowerCase()
+                    const fb = (b.funcao ?? 'Sem função').toLowerCase()
+                    return fa !== fb ? fa.localeCompare(fb) : a.nome.localeCompare(b.nome)
+                  })
+                if (sorted.length === 0) return (
+                  <div style={{ padding:'20px', textAlign:'center', color:'#9ca3af', fontSize:13 }}>
+                    {avulsoBusca ? 'Nenhum colaborador encontrado' : 'Carregando…'}
+                  </div>
+                )
                 let lastF = ''
                 return sorted.map(c => {
-                  const f = c.funcao ?? 'Sem função'
-                  const elems: React.ReactNode[] = []
-                  if (f !== lastF) { lastF = f; elems.push(<option key={`hdr-${f}`} disabled value="">── {f.toUpperCase()} ──</option>) }
-                  elems.push(<option key={c.id} value={c.id}>{c.nome}{c.chapa ? ` (${c.chapa})` : ''}</option>)
-                  return elems
+                  const fn = c.funcao ?? 'Sem função'
+                  const isSelected = avulsoColabId === c.id
+                  const header = fn !== lastF ? (lastF = fn, (
+                    <div key={`h-${fn}`} style={{ padding:'6px 12px 4px', fontSize:10, fontWeight:800, color:'#6b7280', textTransform:'uppercase', letterSpacing:'0.07em', background:'#f1f5f9', borderBottom:'1px solid #e5e7eb' }}>
+                      {fn}
+                    </div>
+                  )) : null
+                  return (
+                    <React.Fragment key={c.id}>
+                      {header}
+                      <div
+                        onClick={() => setAvulsoColabId(isSelected ? '' : c.id)}
+                        style={{
+                          padding:'10px 14px', display:'flex', alignItems:'center', justifyContent:'space-between',
+                          cursor:'pointer', borderBottom:'1px solid #f1f5f9',
+                          background: isSelected ? '#eff6ff' : '#fff',
+                          borderLeft: isSelected ? '3px solid #3b82f6' : '3px solid transparent',
+                          transition:'all 0.15s',
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight:700, fontSize:13, color: isSelected ? '#1d4ed8' : '#111' }}>{c.nome}</div>
+                          <div style={{ fontSize:11, color:'#9ca3af' }}>{c.chapa && <span style={{ marginRight:8 }}>{c.chapa}</span>}{c.funcao}</div>
+                        </div>
+                        {isSelected && <span style={{ fontSize:18, color:'#3b82f6' }}>✓</span>}
+                      </div>
+                    </React.Fragment>
+                  )
                 })
               })()}
-            </select>
+            </div>
+            {avulsoColabId && (() => {
+              const sel = avulsoColabs.find(c => c.id === avulsoColabId)
+              return sel ? (
+                <div style={{ marginTop:6, padding:'8px 12px', background:'#eff6ff', border:'1.5px solid #bfdbfe', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                  <span style={{ fontSize:13, fontWeight:700, color:'#1d4ed8' }}>✓ {sel.nome}</span>
+                  <button onClick={() => setAvulsoColabId('')} style={{ background:'none', border:'none', cursor:'pointer', color:'#6b7280', fontSize:12 }}>Alterar</button>
+                </div>
+              ) : null
+            })()}
           </div>
 
           {/* Obra */}
@@ -695,27 +839,82 @@ export default function PortalPonto() {
       {/* ── ABA RELATÓRIO ── */}
       {subAba === 'relatorio' && (
         <div style={{ padding:'16px 16px 32px', display:'flex', flexDirection:'column', gap:14 }}>
-          {/* Colaborador — TODOS os colaboradores de todas as obras */}
+
+          {/* ── Colaborador com busca + cards ── */}
           <div>
             <label style={{ fontSize:12, fontWeight:700, color:'#374151', display:'block', marginBottom:6, textTransform:'uppercase' }}>Colaborador</label>
-            <select value={relColabId} onChange={e => setRelColabId(e.target.value)} style={SEL}>
-              <option value="">Todos os colaboradores</option>
+            <div style={{ position:'relative', marginBottom:8 }}>
+              <input
+                type="text"
+                placeholder="🔍 Buscar por nome, chapa ou CPF…"
+                value={relBusca}
+                onChange={e => setRelBusca(e.target.value)}
+                style={{ width:'100%', padding:'9px 34px 9px 12px', borderRadius:10, border:'1.5px solid #e5e7eb', fontSize:13, background:'#fff', boxSizing:'border-box', outline:'none' }}
+              />
+              {relBusca && (
+                <button onClick={() => { setRelBusca(''); setRelColabId('') }} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#9ca3af', fontSize:14 }}>✕</button>
+              )}
+            </div>
+            {/* Cards de seleção */}
+            <div style={{ maxHeight:220, overflowY:'auto', border:'1.5px solid #e5e7eb', borderRadius:10, background:'#f9fafb' }}>
+              {/* "Todos" no topo */}
+              <div
+                onClick={() => { setRelColabId(''); setRelBusca('') }}
+                style={{ padding:'10px 14px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', borderBottom:'1px solid #f1f5f9', background: relColabId==='' ? '#eff6ff' : '#fff', borderLeft: relColabId==='' ? '3px solid #3b82f6' : '3px solid transparent' }}
+              >
+                <span style={{ fontWeight:700, fontSize:13, color: relColabId==='' ? '#1d4ed8' : '#374151' }}>👥 Todos os colaboradores</span>
+                {relColabId==='' && <span style={{ color:'#3b82f6', fontSize:16 }}>✓</span>}
+              </div>
               {(() => {
-                const sorted = [...avulsoColabs].sort((a,b) => {
-                  const fa = (a.funcao ?? 'Sem função').toLowerCase()
-                  const fb = (b.funcao ?? 'Sem função').toLowerCase()
-                  return fa !== fb ? fa.localeCompare(fb) : a.nome.localeCompare(b.nome)
-                })
-                let lastF = ''
+                const q = relBusca.toLowerCase()
+                const todos = [...avulsoColabs]
+                const sorted = todos
+                  .filter(c => !q || c.nome.toLowerCase().includes(q) || (c.chapa??'').toLowerCase().includes(q))
+                  .sort((a,b) => {
+                    const fa = (a.funcao ?? 'Sem função').toLowerCase()
+                    const fb = (b.funcao ?? 'Sem função').toLowerCase()
+                    return fa !== fb ? fa.localeCompare(fb) : a.nome.localeCompare(b.nome)
+                  })
+                if (!q && sorted.length === 0) return null
+                if (q && sorted.length === 0) return (
+                  <div style={{ padding:'14px', textAlign:'center', color:'#9ca3af', fontSize:13 }}>Nenhum colaborador encontrado</div>
+                )
+                let lastF2 = ''
                 return sorted.map(c => {
-                  const f = c.funcao ?? 'Sem função'
-                  const elems: React.ReactNode[] = []
-                  if (f !== lastF) { lastF = f; elems.push(<option key={`hdr-${f}`} disabled value="">── {f.toUpperCase()} ──</option>) }
-                  elems.push(<option key={c.id} value={c.id}>{c.nome}{c.chapa ? ` (${c.chapa})` : ''}</option>)
-                  return elems
+                  const fn = c.funcao ?? 'Sem função'
+                  const isSel = relColabId === c.id
+                  const hdr = fn !== lastF2 ? (lastF2 = fn, (
+                    <div key={`h2-${fn}`} style={{ padding:'5px 12px 3px', fontSize:10, fontWeight:800, color:'#6b7280', textTransform:'uppercase', letterSpacing:'0.07em', background:'#f1f5f9', borderBottom:'1px solid #e5e7eb' }}>
+                      {fn}
+                    </div>
+                  )) : null
+                  return (
+                    <React.Fragment key={c.id}>
+                      {hdr}
+                      <div
+                        onClick={() => { setRelColabId(isSel ? '' : c.id); setRelBusca('') }}
+                        style={{ padding:'9px 14px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', borderBottom:'1px solid #f1f5f9', background: isSel ? '#eff6ff' : '#fff', borderLeft: isSel ? '3px solid #3b82f6' : '3px solid transparent', transition:'all 0.12s' }}
+                      >
+                        <div>
+                          <div style={{ fontWeight:700, fontSize:12, color: isSel ? '#1d4ed8' : '#111' }}>{c.nome}</div>
+                          <div style={{ fontSize:10, color:'#9ca3af' }}>{c.chapa && <span style={{ marginRight:8 }}>{c.chapa}</span>}{c.funcao}</div>
+                        </div>
+                        {isSel && <span style={{ fontSize:16, color:'#3b82f6' }}>✓</span>}
+                      </div>
+                    </React.Fragment>
+                  )
                 })
               })()}
-            </select>
+            </div>
+            {relColabId && (() => {
+              const sel = avulsoColabs.find(c => c.id === relColabId)
+              return sel ? (
+                <div style={{ marginTop:6, padding:'7px 12px', background:'#eff6ff', border:'1.5px solid #bfdbfe', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                  <span style={{ fontSize:12, fontWeight:700, color:'#1d4ed8' }}>✓ {sel.nome}</span>
+                  <button onClick={() => setRelColabId('')} style={{ background:'none', border:'none', cursor:'pointer', color:'#6b7280', fontSize:11 }}>Todos</button>
+                </div>
+              ) : null
+            })()}
           </div>
 
           {/* Período */}
@@ -837,6 +1036,36 @@ export default function PortalPonto() {
                                 </div>
                                 <div style={{ fontSize:9, color:'#9ca3af' }}>📍 {ob}{r.observacoes ? ` · ${r.observacoes}` : ''}</div>
                               </div>
+                              {/* ── Ações editar/excluir na linha ── */}
+                              {(r as any).id && (
+                                <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+                                  <button
+                                    title="Editar lançamento"
+                                    onClick={() => {
+                                      // Nome do colaborador
+                                      const todosC = [...colaboradores, ...avulsoColabs]
+                                      const cInfo  = todosC.find(x => x.id === ((r as any).colaborador_id ?? relColabId))
+                                      setEditRel({
+                                        id: (r as any).id,
+                                        colaborador_nome: cInfo?.nome ?? 'Colaborador',
+                                        data: r.data,
+                                        status: r.status as StatusPonto,
+                                        horas_extra: r.horas_extra ?? 0,
+                                        horas_falta: r.horas_falta ?? 0,
+                                        observacoes: r.observacoes ?? '',
+                                      })
+                                    }}
+                                    style={{ background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:6, padding:'4px 7px', cursor:'pointer', display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, color:'#1d4ed8' }}>
+                                    ✏️
+                                  </button>
+                                  <button
+                                    title="Excluir lançamento"
+                                    onClick={() => setConfirmExcluir({ colabId:(r as any).colaborador_id ?? relColabId, nome: [...colaboradores,...avulsoColabs].find(x=>x.id===((r as any).colaborador_id??relColabId))?.nome ?? 'Colaborador', id:(r as any).id })}
+                                    style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:6, padding:'4px 7px', cursor:'pointer', display:'flex', alignItems:'center', gap:3, fontSize:10, fontWeight:700, color:'#dc2626' }}>
+                                    🗑️
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )
                         })}
@@ -864,9 +1093,93 @@ export default function PortalPonto() {
         </div>
       )}
 
+      {/* ══ MODAL: Edição inline do Relatório ══ */}
+      {editRel && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ background:'#fff', borderRadius:18, width:'100%', maxWidth:420, boxShadow:'0 12px 50px rgba(0,0,0,0.25)', overflow:'hidden' }}>
+            {/* Header */}
+            <div style={{ background:'#1e3a5f', padding:'16px 20px', display:'flex', alignItems:'center', gap:10 }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:800, fontSize:15, color:'#fff' }}>✏️ Editar Lançamento</div>
+                <div style={{ fontSize:11, color:'#93c5fd', marginTop:2 }}>
+                  {editRel.colaborador_nome} · {new Date(editRel.data+'T12:00:00').toLocaleDateString('pt-BR',{ weekday:'short', day:'2-digit', month:'2-digit' })}
+                </div>
+              </div>
+              <button onClick={() => setEditRel(null)} style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:8, padding:'6px 10px', cursor:'pointer', color:'#fff', fontWeight:700, fontSize:13 }}>✕</button>
+            </div>
+
+            <div style={{ padding:'18px 20px', display:'flex', flexDirection:'column', gap:14 }}>
+              {/* Status */}
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:'#374151', marginBottom:8, textTransform:'uppercase' }}>Status</div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:5 }}>
+                  {(Object.entries(STATUS_CONFIG) as [StatusPonto, typeof STATUS_CONFIG[StatusPonto]][]).map(([status, sc]) => (
+                    <button key={status} type="button" onClick={() => setEditRel(e => e ? { ...e, status } : e)} style={{
+                      background: editRel.status===status ? sc.bg : '#f9fafb',
+                      border:`2px solid ${editRel.status===status ? sc.cor : '#e5e7eb'}`,
+                      borderRadius:10, padding:'8px 4px', cursor:'pointer',
+                      display:'flex', flexDirection:'column', alignItems:'center', gap:4,
+                    }}>
+                      <span style={{ color:sc.cor }}>{sc.icon}</span>
+                      <span style={{ fontSize:8, fontWeight:700, color:sc.cor, textAlign:'center', lineHeight:1.2 }}>{sc.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* H. Extra / H. Falta */}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                {[
+                  { label:'+ Horas Extra', field:'horas_extra' as const, cor:'#1d4ed8', bg:'#dbeafe' },
+                  { label:'- Horas Falta', field:'horas_falta' as const, cor:'#dc2626', bg:'#fee2e2' },
+                ].map(({ label, field, cor, bg }) => (
+                  <div key={field} style={{ background:bg, borderRadius:10, padding:'10px 12px' }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:cor, marginBottom:6 }}>{label}</div>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <button type="button"
+                        onClick={() => setEditRel(e => e ? { ...e, [field]: Math.max(0, parseFloat(((e[field] ?? 0) - 0.5).toFixed(1))) } : e)}
+                        style={{ width:30, height:30, border:`1px solid ${cor}`, background:'#fff', borderRadius:6, cursor:'pointer', fontWeight:800, color:cor, fontSize:16 }}>−</button>
+                      <span style={{ fontWeight:800, fontSize:16, color:cor, minWidth:32, textAlign:'center' }}>
+                        {editRel[field] ?? 0}h
+                      </span>
+                      <button type="button"
+                        onClick={() => setEditRel(e => e ? { ...e, [field]: parseFloat(((e[field] ?? 0) + 0.5).toFixed(1)) } : e)}
+                        style={{ width:30, height:30, border:`1px solid ${cor}`, background:'#fff', borderRadius:6, cursor:'pointer', fontWeight:800, color:cor, fontSize:16 }}>+</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Observação */}
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:'#374151', marginBottom:6 }}>Observação (opcional)</div>
+                <input
+                  value={editRel.observacoes}
+                  onChange={e => setEditRel(er => er ? { ...er, observacoes: e.target.value } : er)}
+                  placeholder="Ex.: saiu mais cedo, chuva forte…"
+                  style={{ width:'100%', height:40, border:'2px solid #e5e7eb', borderRadius:8, padding:'0 12px', fontSize:13, boxSizing:'border-box' }}
+                />
+              </div>
+
+              {/* Botões */}
+              <div style={{ display:'flex', gap:10 }}>
+                <button type="button" onClick={() => setEditRel(null)} disabled={savingRel}
+                  style={{ flex:1, height:46, border:'2px solid #e5e7eb', background:'#fff', borderRadius:12, fontWeight:700, fontSize:14, cursor:'pointer', color:'#374151' }}>
+                  Cancelar
+                </button>
+                <button type="button" onClick={salvarEditRel} disabled={savingRel}
+                  style={{ flex:2, height:46, border:'none', background: savingRel ? '#94a3b8' : '#15803d', borderRadius:12, fontWeight:700, fontSize:14, cursor:'pointer', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                  {savingRel ? <><Loader2 size={16} className="animate-spin"/>Salvando…</> : <><Save size={15}/>Salvar</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ══ MODAL: Confirmação de Exclusão ══ */}
       {confirmExcluir && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
           <div style={{ background:'#fff', borderRadius:16, padding:28, width:'100%', maxWidth:340, boxShadow:'0 8px 40px rgba(0,0,0,0.2)' }}>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
               <div style={{ width:40, height:40, borderRadius:10, background:'#fee2e2', display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -897,7 +1210,7 @@ export default function PortalPonto() {
 
       {/* ══ MODAL: Tela de Conferência ══ */}
       {pendConf && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:9999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
           <div style={{ background:'#fff', borderRadius:'20px 20px 0 0', padding:'24px 20px 32px', width:'100%', maxWidth:480, boxShadow:'0 -8px 40px rgba(0,0,0,0.2)' }}>
             {/* Handle */}
             <div style={{ width:40, height:4, background:'#e5e7eb', borderRadius:2, margin:'0 auto 20px' }}/>

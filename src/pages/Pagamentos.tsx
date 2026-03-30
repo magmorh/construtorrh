@@ -3,6 +3,7 @@ import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
 import { supabase } from '@/lib/supabase'
 import type { Pagamento, Colaborador, Obra } from '@/lib/supabase'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { fetchEmpresaData, CABECALHO_CSS, gerarCabecalhoHTML } from '@/lib/relatorioHeader'
 import { PageHeader, BadgeStatus, EmptyState, LoadingSkeleton, SummaryCard } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,7 +25,7 @@ import {
 import { toast } from 'sonner'
 import { traduzirErro } from '@/lib/erros'
 import {
-  DollarSign, Plus, Search, Pencil, Trash2, CheckCircle, RotateCcw, Calendar, Building2, Clock, Gift,
+  DollarSign, Plus, Search, Pencil, Trash2, CheckCircle, RotateCcw, Calendar, Building2, Clock, Gift, FileText,
 } from 'lucide-react'
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
@@ -139,7 +140,7 @@ export default function Pagamentos() {
     const [pagRes, colRes, obrRes, funcRes] = await Promise.all([
       supabase
         .from('pagamentos')
-        .select('*, colaboradores(nome,chapa)')
+        .select('*, colaboradores(nome,chapa),obras(nome)')
         .order('competencia', { ascending: false }),
       supabase
         .from('colaboradores')
@@ -403,6 +404,7 @@ export default function Pagamentos() {
   // — realizados: filtrado pelo mês selecionado
   const [aba, setAba] = useState<'agendados'|'realizados'>('agendados')
   const [abaReal, setAbaReal] = useState<'folha'|'vt'|'outros'>('folha')
+  const [showRelatorioVT, setShowRelatorioVT] = useState(false)
 
   // ─── filtros das tabelas de lançamentos ──────────────────────────────────
   const [filtroNomeLanc, setFiltroNomeLanc]   = useState('')
@@ -415,13 +417,14 @@ export default function Pagamentos() {
   // Filtros lançamentos da folha
   // BUG FIX: agendados mostra TODOS os liberados (sem filtro por mês)
   const lancsAgendados  = lancsPendentes.filter((l: any) => {
-    const matchNome   = filtroNomeLanc ? l.colaboradores?.nome?.toLowerCase().includes(filtroNomeLanc.toLowerCase()) : true
+    const q = filtroNomeLanc.toLowerCase()
+    const matchNome   = !q || l.colaboradores?.nome?.toLowerCase().includes(q) || (l.colaboradores?.chapa??'').toLowerCase().includes(q)
     const matchObra   = filtroObraLanc !== 'todos' ? l.obra_id === filtroObraLanc : true
     const matchFuncao = filtroFuncaoLanc !== 'todos' ? l.colaboradores?.funcao_id === filtroFuncaoLanc : true
     return l.status === 'liberado' && matchNome && matchObra && matchFuncao
   })
   const lancsRealizados = lancsPendentes.filter((l: any) => {
-    const matchNome   = filtroNomeLanc ? l.colaboradores?.nome?.toLowerCase().includes(filtroNomeLanc.toLowerCase()) : true
+    const matchNome   = !filtroNomeLanc || l.colaboradores?.nome?.toLowerCase().includes(filtroNomeLanc.toLowerCase()) || (l.colaboradores?.chapa??'').toLowerCase().includes(filtroNomeLanc.toLowerCase())
     const matchMes    = filtroMesLanc  ? l.mes_referencia === filtroMesLanc : true
     const matchDtIni  = filtroDataIni  ? (l.data_pagamento ?? '') >= filtroDataIni : true
     const matchDtFim  = filtroDataFim  ? (l.data_pagamento ?? '') <= filtroDataFim : true
@@ -432,6 +435,105 @@ export default function Pagamentos() {
 
   const totalAgendado  = lancsAgendados.reduce((s: number, l: any) => s + (l.snap_liquido ?? l.valor_liquido ?? 0), 0)
   const totalRealizado = lancsRealizados.reduce((s: number, l: any) => s + (l.snap_liquido ?? l.valor_liquido ?? 0), 0)
+
+  // ── Relatório por Obra/Função ─────────────────────────────────────────────
+  async function gerarRelatorioAgendados() {
+    // Pega TODOS os agendados (status liberado), sem filtros de tela
+    const todos = lancsPendentes.filter((l: any) => l.status === 'liberado')
+    const totalGeral = todos.reduce((s: number, l: any) => s + (l.snap_liquido ?? 0), 0)
+    const dataGer    = new Date().toLocaleDateString('pt-BR')
+    const mesRef     = todos[0]?.mes_referencia ?? ''
+    const mesLabel   = mesRef
+      ? `${mesRef.slice(5)}/${mesRef.slice(0,4)}`
+      : 'Agendados'
+
+    // Agrupa por FUNÇÃO (modelo idêntico ao Relatório VT)
+    const porFuncao: Record<string, { cols: any[]; total: number }> = {}
+    todos.forEach((l: any) => {
+      const fn = l.colaboradores?.funcoes?.nome ?? '—'
+      if (!porFuncao[fn]) porFuncao[fn] = { cols: [], total: 0 }
+      porFuncao[fn].cols.push(l)
+      porFuncao[fn].total += (l.snap_liquido ?? 0)
+    })
+
+    const blocosFuncao = Object.entries(porFuncao)
+      .sort(([a],[b]) => a.localeCompare(b))
+      .map(([fn, { cols, total: tfn }]) => {
+        const colsOrd = [...cols].sort((a,b) => (a.colaboradores?.nome ?? '').localeCompare(b.colaboradores?.nome ?? ''))
+        const linhas  = colsOrd.map((l: any) => {
+          const dtIni  = l.data_inicio ? l.data_inicio.slice(8)+'/'+l.data_inicio.slice(5,7) : '—'
+          const dtFim  = l.data_fim    ? l.data_fim.slice(8)+'/'+l.data_fim.slice(5,7)       : '—'
+          const per    = `${dtIni} → ${dtFim}`
+          const pix    = l.colaboradores?.chave_pix ?? l.colaboradores?.cpf ?? '—'
+          const obra   = l.obras?.nome ?? '—'
+          const liq    = (l.snap_liquido ?? 0).toLocaleString('pt-BR', { minimumFractionDigits:2 })
+          return `<tr>
+            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#64748b;white-space:nowrap">${per}</td>
+            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#64748b">${l.colaboradores?.chapa ?? '—'}</td>
+            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:13px;font-weight:600;color:#1e293b">${l.colaboradores?.nome ?? '—'}</td>
+            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#64748b">${obra}</td>
+            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;font-weight:700;color:#15803d;text-align:right">R$ ${liq}</td>
+            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:10px;color:#475569">${pix}</td>
+            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:10px;text-align:center">
+              <span style="background:#fef9c3;color:#b45309;border-radius:4px;padding:2px 7px;font-weight:700;font-size:10px">⏳ Agendado</span>
+            </td>
+          </tr>`
+        }).join('')
+
+        const subtotal = tfn.toLocaleString('pt-BR', { minimumFractionDigits:2 })
+        return `
+          <div style="margin-bottom:28px;break-inside:avoid">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+              <span style="background:#e0f2fe;color:#0369a1;font-size:11px;font-weight:800;padding:3px 12px;border-radius:4px;letter-spacing:0.06em;border-left:3px solid #0369a1">
+                FUNÇÃO: ${fn}
+              </span>
+              <span style="font-size:11px;color:#64748b">— ${cols.length} colaborador(es)</span>
+            </div>
+            <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0">
+              <thead>
+                <tr style="background:#f8fafc">
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:600;white-space:nowrap">Período</th>
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:600">Chapa</th>
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:600">Nome</th>
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:600">Obra</th>
+                  <th style="padding:6px 10px;text-align:right;font-size:10px;color:#64748b;font-weight:600">Valor Empresa</th>
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:600">PIX / Pagamento</th>
+                  <th style="padding:6px 10px;text-align:center;font-size:10px;color:#64748b;font-weight:600">Status</th>
+                </tr>
+              </thead>
+              <tbody>${linhas}</tbody>
+              <tfoot>
+                <tr style="background:#f1f5f9">
+                  <td colspan="4" style="padding:6px 10px;font-size:11px;font-weight:700;color:#475569">
+                    Subtotal — ${fn} (${cols.length} lançamento(s))
+                  </td>
+                  <td style="padding:6px 10px;text-align:right;font-size:12px;font-weight:800;color:#15803d">R$ ${subtotal}</td>
+                  <td colspan="2"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>`
+      }).join('')
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+      <title>Relatório de Pagamentos Agendados</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 28px; color: #1e293b; }
+        ${CABECALHO_CSS}
+        @media print { body { padding: 12px } @page { margin: 1cm } }
+      </style>
+    </head><body>
+      ${gerarCabecalhoHTML(await fetchEmpresaData(), {
+        titulo: 'Relatório de Pagamentos Agendados',
+        subtitulo: `${todos.length} lançamento(s) agendados · Total: R$ ${totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+        periodo: mesLabel,
+      })}
+      ${blocosFuncao}
+    </body></html>`
+
+    const win = window.open('', '_blank')
+    if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 500) }
+  }
 
   return (
     <div className="p-6">
@@ -494,7 +596,8 @@ export default function Pagamentos() {
       </div>
 
       {/* Abas — padrão do sistema */}
-      <div className="flex gap-0 mb-0" style={{ borderBottom:'2px solid var(--border)' }}>
+      <div className="flex gap-0 mb-0" style={{ borderBottom:'2px solid var(--border)', justifyContent:'space-between', alignItems:'flex-end' }}>
+        <div className="flex gap-0">
         {([
           { key:'agendados',  label:'⏳ Agendados',  count: lancsPendentes.filter(l=>l.status==='liberado').length },
           { key:'realizados', label:'✅ Realizados', count: lancsPendentes.filter(l=>l.status==='pago').length + rows.filter(r=>r.status==='pago').length },
@@ -512,6 +615,12 @@ export default function Pagamentos() {
             </span>
           </button>
         ))}
+        </div>
+        {/* Botão de relatório por obra/função */}
+        <button onClick={() => gerarRelatorioAgendados()}
+          style={{ marginBottom:4, padding:'6px 14px', borderRadius:7, border:'1px solid #1d4ed8', background:'#eff6ff', color:'#1d4ed8', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+          📊 Relatório por Obra/Função
+        </button>
       </div>
 
       {/* Filtros — padrão do sistema com componentes Select/Input */}
@@ -525,7 +634,7 @@ export default function Pagamentos() {
           <label className="text-xs font-semibold text-muted-foreground block mb-1">Colaborador</label>
           <div className="relative">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input placeholder="Buscar nome..." value={filtroNomeLanc} onChange={e=>setFiltroNomeLanc(e.target.value)}
+            <input placeholder="Nome ou chapa…" value={filtroNomeLanc} onChange={e=>setFiltroNomeLanc(e.target.value)}
               className="h-9 pl-8 pr-3 text-sm border border-input rounded-md bg-background text-foreground w-48" />
           </div>
         </div>
@@ -637,7 +746,15 @@ export default function Pagamentos() {
             if (pendentes.length === 0) return null
             return (
               <div>
-                <h3 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: 1 }}>🚌 Pendente de Pagamento</h3>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: 1, margin:0 }}>🚌 Pendente de Pagamento</h3>
+                  {pendentes.filter(r=>r.tipo==='vale_transporte').length > 0 && (
+                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+                      onClick={() => setShowRelatorioVT(true)}>
+                      <FileText size={13}/> Relatório VT
+                    </Button>
+                  )}
+                </div>
                 <div style={{ border:'1px solid var(--border)', borderRadius:10, overflow:'hidden' }}>
                 <Table>
                   <TableHeader>
@@ -1169,6 +1286,84 @@ export default function Pagamentos() {
       </AlertDialog>
 
       {/* ══ MODAL RECUSAR PAGAMENTO VT ══ */}
+      {/* ══ Relatório VT Pendentes ════════════════════════════════════════ */}
+      {showRelatorioVT && (() => {
+        const vtsPend = rows.filter(r => r.status === 'pendente' && r.tipo === 'vale_transporte')
+        // agrupar por obra
+        const porObra = new Map<string, typeof vtsPend>()
+        vtsPend.forEach(r => {
+          const obraKey = r.obras?.nome ?? 'Sem obra'
+          if (!porObra.has(obraKey)) porObra.set(obraKey, [])
+          porObra.get(obraKey)!.push(r)
+        })
+        const totalGeral = vtsPend.reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0)
+        return (
+          <div style={{ position:'fixed', inset:0, background:'#fff', zIndex:1000, overflow:'auto', padding:'32px 40px' }}>
+            <style>{'@media print { button { display: none !important; } }'}</style>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24 }}>
+              <div>
+                <h2 style={{ margin:0, fontSize:20, fontWeight:800 }}>Relatório — Vale Transporte Pendente de Pagamento</h2>
+                <p style={{ margin:'4px 0 0', fontSize:13, color:'#6b7280' }}>Gerado em {new Date().toLocaleDateString('pt-BR')}</p>
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                <Button onClick={() => window.print()}>🖨️ Imprimir / PDF</Button>
+                <Button variant="outline" onClick={() => setShowRelatorioVT(false)}>✕ Fechar</Button>
+              </div>
+            </div>
+            {vtsPend.length === 0 ? (
+              <div style={{ textAlign:'center', color:'#6b7280', padding:'60px 0' }}>Nenhum VT pendente de pagamento.</div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:28 }}>
+                {[...porObra.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([obraName, obraRows]) => {
+                  const totalObra = obraRows.reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0)
+                  return (
+                    <div key={obraName}>
+                      <div style={{ background:'#f1f5f9', borderLeft:'4px solid #3b82f6', padding:'8px 14px', marginBottom:0, display:'flex', alignItems:'center', gap:10 }}>
+                        <span style={{ fontWeight:800, fontSize:14, color:'#1e40af' }}>OBRA: {obraName}</span>
+                        <span style={{ fontSize:12, color:'#64748b' }}>— {obraRows.length} colaborador(es)</span>
+                        <span style={{ marginLeft:'auto', fontWeight:700, fontSize:13, color:'#15803d' }}>{formatCurrency(totalObra)}</span>
+                      </div>
+                      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                        <thead>
+                          <tr style={{ background:'#e2e8f0', borderBottom:'2px solid #cbd5e1' }}>
+                            <th style={{ padding:'8px 12px', textAlign:'left', fontWeight:700 }}>Chapa</th>
+                            <th style={{ padding:'8px 12px', textAlign:'left', fontWeight:700 }}>Nome</th>
+                            <th style={{ padding:'8px 12px', textAlign:'left', fontWeight:700 }}>Tipo</th>
+                            <th style={{ padding:'8px 12px', textAlign:'left', fontWeight:700 }}>Competência</th>
+                            <th style={{ padding:'8px 12px', textAlign:'left', fontWeight:700 }}>Observação</th>
+                            <th style={{ padding:'8px 12px', textAlign:'right', fontWeight:700 }}>Valor Empresa</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {obraRows.map((r,i) => (
+                            <tr key={r.id} style={{ borderBottom:'1px solid #e2e8f0', background: i%2===0?'#fff':'#f8fafc' }}>
+                              <td style={{ padding:'7px 12px', color:'#6b7280' }}>{r.colaboradores?.chapa ?? '—'}</td>
+                              <td style={{ padding:'7px 12px', fontWeight:600 }}>{r.colaboradores?.nome ?? '—'}</td>
+                              <td style={{ padding:'7px 12px' }}>
+                                <span style={{ background:'#ede9fe', color:'#7c3aed', borderRadius:99, padding:'2px 10px', fontSize:10, fontWeight:700 }}>
+                                  {r.tipo === 'vale_transporte' ? 'VT' : r.tipo}
+                                </span>
+                              </td>
+                              <td style={{ padding:'7px 12px', color:'#374151' }}>{r.competencia?.slice(5)}/{r.competencia?.slice(0,4)}</td>
+                              <td style={{ padding:'7px 12px', color:'#6b7280', maxWidth:200 }}>{r.observacoes ?? '—'}</td>
+                              <td style={{ padding:'7px 12px', textAlign:'right', fontWeight:700, color:'#15803d' }}>{formatCurrency(r.valor_liquido??r.valor_bruto??0)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })}
+                <div style={{ borderTop:'2px solid #1e40af', paddingTop:12, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <span style={{ fontWeight:700, fontSize:14 }}>TOTAL GERAL — {vtsPend.length} VT(s) pendente(s)</span>
+                  <span style={{ fontWeight:800, fontSize:16, color:'#15803d' }}>{formatCurrency(totalGeral)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
       <AlertDialog open={!!modalRecusarVT} onOpenChange={(o) => !o && setModalRecusarVT(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

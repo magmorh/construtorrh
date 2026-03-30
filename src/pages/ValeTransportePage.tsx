@@ -163,7 +163,7 @@ export default function ValeTransportePage() {
   const [statusFiltro, setStatusFiltro] = useState<'todos'|'sem'|'parcial'|'completo'>('todos')
 
   const [colaboradores, setColaboradores] = useState<ColaboradorVT[]>([])
-  const [obras, setObras]   = useState<{id:string;nome:string;considera_sabado_util?:boolean|null}[]>([])
+  const [obras, setObras]   = useState<{id:string;nome:string;considera_sabado_util?:boolean|null;desconta_vt?:boolean}[]>([])
   const [vtRows, setVtRows] = useState<VTRow[]>([])
   const [loading, setLoading] = useState(true)
   const [colabSel, setColabSel] = useState<ColaboradorVT | null>(null)
@@ -190,8 +190,6 @@ export default function ValeTransportePage() {
   const [savingLote, setSavingLote] = useState(false)
   // Config global do lote (exibidas no modal)
   const [loteContarSabado, setLoteContarSabado] = useState(false)
-  const [loteDesconto6pct, setLoteDesconto6pct] = useState(true)
-
   // ── Lançar em Lote (novo fluxo completo) ─────────────────────────────────
   const [modalLancarLote, setModalLancarLote] = useState(false)
   const [savingLancarLote, setSavingLancarLote] = useState(false)
@@ -200,7 +198,7 @@ export default function ValeTransportePage() {
   const [loteObraSel, setLoteObraSel] = useState<string>('todas')
   const [loteInicio, setLoteInicio] = useState('')
   const [loteFim, setLoteFim] = useState('')
-  const [loteDesconto6, setLoteDesconto6] = useState(true)
+  const [loteContarSabadoLancar, setLoteContarSabadoLancar] = useState(false)
   // Map colaboradorId → incluir (true) ou excluir (false)
   const [loteIncluir, setLoteIncluir] = useState<Map<string,boolean>>(new Map())
 
@@ -220,7 +218,7 @@ export default function ValeTransportePage() {
       num_sabados_extras: '0',
       desconto_colaborador: '',
       valor_empresa: '',
-      descontar_6pct: true,
+      descontar_6pct: false,
       observacoes: '',
     }
   }
@@ -234,7 +232,7 @@ export default function ValeTransportePage() {
         .select('id,nome,chapa,salario,vt_dados,obra_id,tipo_contrato,funcao_id,data_admissao,pix_chave,pix_tipo,funcoes(nome,valor_hora_clt,valor_hora_autonomo),obras(nome)')
         .eq('status', 'ativo')
         .order('nome'),
-      supabase.from('obras').select('id,nome,considera_sabado_util').order('nome').in('status', ['em_andamento','ativo']),
+      supabase.from('obras').select('id,nome,considera_sabado_util,desconta_vt').order('nome'),
       supabase
         .from('vale_transporte')
         .select('*,colaboradores(id,nome,chapa,salario,vt_dados)')
@@ -260,12 +258,17 @@ export default function ValeTransportePage() {
         }
       }))
     }
+    // Obras: usar resultado direto; fallback via colaboradores se RLS bloquear
     if (obraRes.data && obraRes.data.length > 0) {
-      setObras(obraRes.data)
-    } else {
-      // Fallback final: busca todas as obras independente do status
-      const { data: obrasAll } = await supabase.from('obras').select('id,nome,considera_sabado_util').order('nome')
-      if (obrasAll) setObras(obrasAll.map((o: any) => ({ ...o, considera_sabado_util: o.considera_sabado_util ?? null })))
+      setObras(obraRes.data.map((o: any) => ({ ...o, considera_sabado_util: o.considera_sabado_util ?? null, desconta_vt: o.desconta_vt ?? false })))
+    } else if (colRes.data) {
+      // Extrair obras únicas dos colaboradores como fallback
+      const obrasMap = new Map<string,{id:string;nome:string;considera_sabado_util:boolean|null;desconta_vt:boolean}>()
+      colRes.data.forEach((c: any) => {
+        if (c.obra_id && c.obras?.nome && !obrasMap.has(c.obra_id))
+          obrasMap.set(c.obra_id, { id: c.obra_id, nome: c.obras.nome, considera_sabado_util: null, desconta_vt: false })
+      })
+      if (obrasMap.size > 0) setObras([...obrasMap.values()].sort((a,b)=>a.nome.localeCompare(b.nome)))
     }
     if (vtRes.data)   setVtRows(vtRes.data as VTRow[])
     setLoading(false)
@@ -350,14 +353,13 @@ export default function ValeTransportePage() {
   // vtDiarioFixo: se informado (modo edição), usa essa taxa em vez de buscar do cadastro atual
   // numFaltas: dias de falta a descontar do VT
   // numSabadosExtras: sábados trabalhados a adicionar (quando obra NÃO considera sáb no cálculo padrão)
-  // descontar6: se true E colaborador for CLT → aplica desconto de 6% sobre salário bruto (limitado ao valor VT)
+  // desconta_vt é lido diretamente da obra do colaborador — sem parâmetro manual
   function recalcularPeriodo(
     dataIni: string, dataFim: string, contarSab: boolean,
     comp: string, colab: ColaboradorVT | null,
     vtDiarioFixo?: number | null,
     numFaltas = 0,
-    numSabadosExtras = 0,
-    descontar6 = false
+    numSabadosExtras = 0
   ) {
     const diasUtil = contarDiasUteis(dataIni, dataFim, contarSab)
     let vtDiario = 0
@@ -372,10 +374,12 @@ export default function ValeTransportePage() {
     const diasEfetivos = Math.max(0, diasUtil - numFaltas + numSabadosExtras)
     const valorBruto = vtDiario > 0 ? +(vtDiario * diasEfetivos).toFixed(2) : 0
 
-    // Desconto de 6%: somente CLT, nunca para autônomo/PJ
+    // Desconto de 6%: somente CLT E se a obra do colaborador tem desconta_vt=true
     const isCLT = (colab?.tipo_contrato ?? 'clt').toLowerCase() === 'clt'
+    const obraColab = obras.find(o => o.id === colab?.obra_id)
+    const obraDesconta = obraColab?.desconta_vt ?? false
     const salario = colab?.salario ?? 0
-    const desc6 = (descontar6 && isCLT && salario > 0)
+    const desc6 = (obraDesconta && isCLT && salario > 0)
       ? +Math.min(salario * 0.06, valorBruto).toFixed(2)
       : 0
 
@@ -384,6 +388,7 @@ export default function ValeTransportePage() {
       valor: valorBruto > 0 ? valorBruto.toFixed(2) : '',
       desconto_colaborador: desc6 > 0 ? desc6.toFixed(2) : '0',
       valor_empresa: valorBruto > 0 ? Math.max(0, valorBruto - desc6).toFixed(2) : '0',
+      descontar_6pct: obraDesconta && isCLT,
     }
   }
 
@@ -418,20 +423,15 @@ export default function ValeTransportePage() {
 
     const vtDados    = colabSel.vt_dados as any
     const tipoAuto   = modalidadeParaTipo(vtDados?.modalidade)
-    const obraColab  = obras.find(o => o.id === colabSel.obra_id)
 
     // Regra de sábado:
     // - considera_sabado_util = true  → sábado JÁ está no VT mensal (contar para calcular proporção)
     // - considera_sabado_util = false → sábado É dia trabalhado e DEVE ter VT (contar também)
-    // Em ambos os casos, contarSab = true para o cálculo de dias. A diferença é que quando
-    // considera_sabado_util = false, o sábado é "extra" que conta no período.
+    // Em ambos os casos, contarSab = true para o cálculo de dias.
     const contarSab  = true   // sempre contar sábado nos dias úteis do VT
 
-    // Desconto 6%: somente CLT
-    const isCLT = (colabSel.tipo_contrato ?? 'clt').toLowerCase() === 'clt'
-    const descontar  = isCLT
-
-    const calc = recalcularPeriodo(primeiroDia(competencia), ultimoDia(competencia), contarSab, competencia, colabSel, null, 0, 0, descontar)
+    // recalcularPeriodo já lê desconta_vt da obra do colaborador internamente
+    const calc = recalcularPeriodo(primeiroDia(competencia), ultimoDia(competencia), contarSab, competencia, colabSel, null, 0, 0)
 
     setEditando(null)
     setVtDiarioSnap(null)   // novo lançamento sempre usa base atual do colaborador
@@ -444,7 +444,6 @@ export default function ValeTransportePage() {
       num_faltas: '0',
       num_sabados_extras: '0',
       ...calc,
-      descontar_6pct: descontar,
       observacoes: '',
     })
     setModalOpen(true)
@@ -468,9 +467,9 @@ export default function ValeTransportePage() {
       dias_trabalhados: String(diasSalvos),
       num_faltas: '0',
       num_sabados_extras: '0',
-      desconto_colaborador: String(row.desconto_colaborador ?? ''),
-      valor_empresa: String(row.valor_empresa ?? ''),
-      descontar_6pct: row.descontar_6pct ?? true,
+      desconto_colaborador: String(row.desconto_colaborador ?? '0'),
+      valor_empresa: String(row.valor_empresa ?? valorSalvo),
+      descontar_6pct: row.descontar_6pct ?? false,
       observacoes:   row.observacoes ?? '',
     })
     setModalOpen(true)
@@ -481,17 +480,16 @@ export default function ValeTransportePage() {
     setForm(prev => {
       const next = { ...prev, [key]: value }
 
-      // Mudanças que recalculam tudo (período, tick sábado, faltas, sábados extras ou toggle desconto)
-      if (key === 'data_inicio' || key === 'data_fim' || key === 'contar_sabado' || key === 'descontar_6pct' || key === 'num_faltas' || key === 'num_sabados_extras') {
+      // Mudanças que recalculam tudo (período, tick sábado, faltas, sábados extras)
+      if (key === 'data_inicio' || key === 'data_fim' || key === 'contar_sabado' || key === 'num_faltas' || key === 'num_sabados_extras') {
         const ini     = key === 'data_inicio'    ? String(value) : next.data_inicio
         const fim     = key === 'data_fim'       ? String(value) : next.data_fim
         const contSab = key === 'contar_sabado'  ? Boolean(value) : next.contar_sabado
         const faltas  = parseInt(key === 'num_faltas' ? String(value) : next.num_faltas) || 0
         const sabExt  = parseInt(key === 'num_sabados_extras' ? String(value) : next.num_sabados_extras) || 0
-        const desc6   = key === 'descontar_6pct' ? Boolean(value) : next.descontar_6pct
         // Em modo edição: usa taxa diária congelada do lançamento original (vtDiarioSnap)
         // Em novo lançamento: usa base atual do colaborador (vtDiarioSnap = null)
-        const calc    = recalcularPeriodo(ini, fim, contSab, next.competencia, colabSel, vtDiarioSnap, faltas, sabExt, desc6)
+        const calc    = recalcularPeriodo(ini, fim, contSab, next.competencia, colabSel, vtDiarioSnap, faltas, sabExt)
         return { ...next, ...calc }
       }
 
@@ -638,7 +636,8 @@ export default function ValeTransportePage() {
     const fim = ultimoDia(competencia)
     setLoteInicio(ini)
     setLoteFim(fim)
-    setLoteObraSel('todas')
+    // Pré-seleciona a obra conforme filtro lateral (se não for "todas", usa a obra filtrada)
+    setLoteObraSel(obraFiltro !== 'todas' ? obraFiltro : 'todas')
     setLoteStep(1)
     setLoteIncluir(new Map())
     setModalLancarLote(true)
@@ -675,37 +674,73 @@ export default function ValeTransportePage() {
     }
     setSavingLancarLote(true)
 
-    // Calcular inserts por colaborador (cada um pode ter obra com considera_sabado_util diferente)
-    const inserts = colabsAptos.map(c => {
+    // Calcular inserts por colaborador, descontando dias já cobertos por VT existente
+    const inserts: object[] = []
+    for (const c of colabsAptos) {
       const isCLT = (c.tipo_contrato ?? '').toLowerCase() === 'clt'
-      // Sábado sempre contado — a passagem do sábado deve ser paga
-      const contarSab = true
-      const qtdDias = contarDiasUteis(loteInicio, loteFim, contarSab)
+      // Dias já cobertos por VT existente deste colaborador nesta competência
+      const vtExistentes = vtRows.filter(r =>
+        r.colaborador_id === c.id &&
+        r.competencia === competencia &&
+        r.data_inicio && r.data_fim
+      )
+      const diasJaCobertos = new Set<string>()
+      vtExistentes.forEach(r => {
+        expandirIntervalo(r.data_inicio!, r.data_fim!).forEach(d => diasJaCobertos.add(d))
+      })
+
+      // Calcular dias úteis do período solicitado MENOS os já cobertos
+      const todosDiasPeriodo = expandirIntervalo(loteInicio, loteFim)
+      const diasNovos = todosDiasPeriodo.filter(d => {
+        if (diasJaCobertos.has(d)) return false  // já foi lançado
+        const dow = new Date(d + 'T12:00:00').getDay()
+        if (dow === 0) return false               // exclui domingo sempre
+        if (dow === 6 && !loteContarSabadoLancar) return false  // sábado: só conta se opção ativada
+        return true
+      })
+
+      if (diasNovos.length === 0) continue  // collaborador já tem VT completo no período
+
+      // Período efetivo: do primeiro ao último dia novo
+      const dataIniNova = diasNovos[0]
+      const dataFimNova = diasNovos[diasNovos.length - 1]
+      const qtdDias = diasNovos.length
+
       const vtDiario = vtDiarioColab(c.vt_dados as any)
       const valorBruto = +(vtDiario * qtdDias).toFixed(2)
       const salarioBruto = c.salario ?? 0
-      // Desconto 6%: somente CLT
-      const desc6 = (loteDesconto6 && isCLT) ? +Math.min(salarioBruto * 0.06, valorBruto).toFixed(2) : 0
-      return {
+      // Desconto 6%: somente CLT E se a obra do colaborador tem desconta_vt=true
+      const obraDoColab = obras.find(o => o.id === c.obra_id)
+      const obraDesconta = obraDoColab?.desconta_vt ?? false
+      const desc6 = (obraDesconta && isCLT) ? +Math.min(salarioBruto * 0.06, valorBruto).toFixed(2) : 0
+      inserts.push({
         colaborador_id:       c.id,
         competencia,
-        data_inicio:          loteInicio,
-        data_fim:             loteFim,
+        data_inicio:          dataIniNova,
+        data_fim:             dataFimNova,
         dias_trabalhados:     qtdDias,
         tipo:                 c.vt_tipo ?? 'cartao',
         valor:                valorBruto,
         desconto_colaborador: desc6,
         valor_empresa:        +(valorBruto - desc6).toFixed(2),
-        descontar_6pct:       loteDesconto6 && isCLT,
+        descontar_6pct:       obraDesconta && isCLT,
         status:               'pendente',
-      }
-    })
+      })
+    }
 
+    const ignorados = colabsAptos.length - inserts.length
+    if (inserts.length === 0) {
+      setSavingLancarLote(false)
+      setModalLancarLote(false)
+      toast.info(`ℹ️ Todos os ${ignorados} colaborador(es) já têm VT lançado neste período.`)
+      return
+    }
     const { error } = await supabase.from('vale_transporte').insert(inserts)
     setSavingLancarLote(false)
     setModalLancarLote(false)
     if (error) { toast.error(`Erro ao lançar em lote: ${error.message}`); return }
-    toast.success(`✅ ${inserts.length} VT(s) lançados com sucesso!`)
+    const msgIgn = ignorados > 0 ? ` (${ignorados} já tinham VT no período — ignorados)` : ''
+    toast.success(`✅ ${inserts.length} VT(s) lançados com sucesso!${msgIgn}`)
     fetchData()
   }
 
@@ -763,14 +798,9 @@ export default function ValeTransportePage() {
   // ─── totais gerais do mês ─────────────────────────────────────────────────
   const vtDoMes = vtRows.filter(r => r.competencia === competencia)
   const totalEmpresaMes = vtDoMes.reduce((s, r) => s + (r.valor_empresa ?? 0), 0)
-  const colabsCompletos = new Set(
-    vtDoMes.filter(r => r.data_inicio === primeiroDia(competencia) && r.data_fim === ultimoDia(competencia))
-           .map(r => r.colaborador_id)
-  ).size
-  const colabsParciais = new Set(
-    vtDoMes.filter(r => !(r.data_inicio === primeiroDia(competencia) && r.data_fim === ultimoDia(competencia)))
-           .map(r => r.colaborador_id)
-  ).size
+  // Usa statusVTColab para determinar completo/parcial corretamente
+  const colabsCompletos = colaboradores.filter(c => statusVTColab(c.id) === 'completo').length
+  const colabsParciais  = colaboradores.filter(c => statusVTColab(c.id) === 'parcial').length
   // Colaboradores que têm VT configurado mas ainda não receberam nenhum VT no mês
   const colabsComVTCadastrado = colaboradores.filter(c => c.vt_dados !== null)
   const colabsQueReceberamVT  = new Set(vtDoMes.map(r => r.colaborador_id))
@@ -804,7 +834,7 @@ export default function ValeTransportePage() {
             title="Cria VT do mês inteiro para todos colaboradores sem VT na lista atual">
             <Plus size={14} /> Lançar em Lote
           </Button>
-          <Button variant="outline" className="gap-2" onClick={() => { setObraLote('todas'); setSelecionados(new Set()); setModalLote(true) }}>
+          <Button variant="outline" className="gap-2" onClick={() => { setObraLote(obraFiltro); setSelecionados(new Set()); setModalLote(true) }}>
             <Building2 size={15} /> Fechar em Lote
           </Button>
           <Button variant="outline" className="gap-2" onClick={() => setShowRelatorio(true)}>
@@ -939,7 +969,14 @@ export default function ValeTransportePage() {
                         {vtDiario_ > 0 && <span>Valor/dia: <strong>{formatCurrency(vtDiario_)}</strong></span>}
                         {vtMensalColab_ > 0 && <span>Mês estimado: <strong>{formatCurrency(vtMensalColab_)}</strong></span>}
                       </> : <span style={{ color: '#b45309' }}>⚠ VT não configurado no cadastro</span>}
-                      {vtMensalColab_ > 0 && <span>6% do VT ≈ <strong>{formatCurrency(vtMensalColab_ * 0.06)}</strong>/mês</span>}
+                      {vtMensalColab_ > 0 && (() => {
+                        const obraCab = obras.find(o => o.id === colabSel.obra_id)
+                        const descCab = obraCab?.desconta_vt ?? false
+                        const isCLTCab = (colabSel.tipo_contrato ?? 'clt').toLowerCase() === 'clt'
+                        return descCab && isCLTCab
+                          ? <span style={{ color:'#b45309' }}>⚠ Desc. 6% ≈ <strong>{formatCurrency(Math.min((colabSel.salario??0)*0.06, vtMensalColab_))}</strong>/mês</span>
+                          : <span style={{ color:'#15803d' }}>✓ Sem desconto de 6%</span>
+                      })()}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -1141,7 +1178,7 @@ export default function ValeTransportePage() {
                 <Label className="text-xs">Tipo</Label>
                 <Select value={form.tipo} onValueChange={v => setField('tipo', v)}>
                   <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent position="popper" style={{ zIndex: 9999 }}>
                     {TIPO_OPTIONS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
@@ -1204,33 +1241,37 @@ export default function ValeTransportePage() {
                 </div>
               </div>
 
-              {/* Toggle desconto 6% — somente CLT */}
+              {/* Desconto 6% — automático por obra, somente CLT */}
               <div className="col-span-2">
                 {(() => {
                   const ehCLT = (colabSel?.tipo_contrato ?? 'clt').toLowerCase() === 'clt'
-                  return ehCLT ? (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: form.descontar_6pct ? '#fef3c7' : 'var(--muted)', borderRadius: 8, padding: '10px 14px', border: `1px solid ${form.descontar_6pct ? '#fde68a' : 'var(--border)'}` }}>
+                  const obraCol = obras.find(o => o.id === colabSel?.obra_id)
+                  const obraDesc = obraCol?.desconta_vt ?? false
+                  if (!ehCLT) return (
+                    <div style={{ display:'flex', alignItems:'center', gap:8, background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:8, padding:'10px 14px' }}>
+                      <span style={{ fontSize:18 }}>✅</span>
                       <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: form.descontar_6pct ? '#92400e' : 'var(--foreground)' }}>
-                          Descontar 6% do salário bruto (CLT)
-                        </div>
-                        <div style={{ fontSize: 11, color: form.descontar_6pct ? '#b45309' : 'var(--muted-foreground)', marginTop: 2 }}>
-                          {form.descontar_6pct
-                            ? `⚠ Desconto: ${formatCurrency(parseFloat(form.desconto_colaborador)||0)} | Empresa paga: ${formatCurrency(parseFloat(form.valor_empresa)||0)}`
-                            : 'Empresa arca com 100% do VT — nenhum desconto no holerite'}
+                        <div style={{ fontSize:13, fontWeight:600, color:'#15803d' }}>Autônomo / PJ — sem desconto de 6%</div>
+                        <div style={{ fontSize:11, color:'#16a34a', marginTop:2 }}>Desconto de 6% se aplica apenas a colaboradores CLT.</div>
+                      </div>
+                    </div>
+                  )
+                  return obraDesc ? (
+                    <div style={{ display:'flex', alignItems:'center', gap:8, background:'#fef3c7', border:'1px solid #fde68a', borderRadius:8, padding:'10px 14px' }}>
+                      <span style={{ fontSize:18 }}>⚠️</span>
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:600, color:'#92400e' }}>Desconto de 6% — CLT (definido pela obra)</div>
+                        <div style={{ fontSize:11, color:'#b45309', marginTop:2 }}>
+                          Desconto: {formatCurrency(parseFloat(form.desconto_colaborador)||0)} | Empresa paga: {formatCurrency(parseFloat(form.valor_empresa)||0)}
                         </div>
                       </div>
-                      <button onClick={() => setField('descontar_6pct', !form.descontar_6pct)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: form.descontar_6pct ? '#b45309' : 'var(--muted-foreground)', flexShrink: 0 }}>
-                        {form.descontar_6pct ? <ToggleRight size={32} /> : <ToggleLeft size={32} />}
-                      </button>
                     </div>
                   ) : (
                     <div style={{ display:'flex', alignItems:'center', gap:8, background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:8, padding:'10px 14px' }}>
                       <span style={{ fontSize:18 }}>✅</span>
                       <div>
-                        <div style={{ fontSize:13, fontWeight:600, color:'#15803d' }}>Autônomo / PJ — sem desconto de 6%</div>
-                        <div style={{ fontSize:11, color:'#16a34a', marginTop:2 }}>Desconto de 6% se aplica apenas a colaboradores CLT. Empresa arca com 100% do VT.</div>
+                        <div style={{ fontSize:13, fontWeight:600, color:'#15803d' }}>Sem desconto de 6% — esta obra não aplica desconto</div>
+                        <div style={{ fontSize:11, color:'#16a34a', marginTop:2 }}>Empresa arca com 100% do VT. Para ativar, habilite na obra.</div>
                       </div>
                     </div>
                   )
@@ -1351,7 +1392,7 @@ export default function ValeTransportePage() {
                     <Label style={{ fontSize: 12, whiteSpace: 'nowrap', fontWeight: 600 }}>Obra:</Label>
                     <Select value={obraLote} onValueChange={v => { setObraLote(v); setSelecionados(new Set()) }}>
                       <SelectTrigger style={{ width: 200, height: 32, fontSize: 12 }}><SelectValue /></SelectTrigger>
-                      <SelectContent>
+                      <SelectContent position="popper" style={{ zIndex: 9999 }}>
                         <SelectItem value="todas">Todas as obras</SelectItem>
                         {obras.map(o => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
                       </SelectContent>
@@ -1373,12 +1414,18 @@ export default function ValeTransportePage() {
                     Contar sábado
                   </label>
 
-                  {/* Desconto 6% */}
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, userSelect: 'none' }}>
-                    <input type="checkbox" checked={loteDesconto6pct} onChange={e => setLoteDesconto6pct(e.target.checked)}
-                      style={{ width: 14, height: 14, accentColor: '#7c3aed' }} />
-                    Desconto 6% no Fechamento
-                  </label>
+                  {/* Info desconto 6% — automático por obra */}
+                  {(() => {
+                    if (obraLote === 'todas') return (
+                      <span style={{ fontSize: 11, color: '#92400e', fontWeight: 600, background: '#fefce8', border: '1px solid #fde68a', borderRadius: 5, padding: '3px 8px' }}>
+                        💰 Desc. 6%: por obra (auto)
+                      </span>
+                    )
+                    const obraFech = obras.find(o => o.id === obraLote)
+                    return obraFech?.desconta_vt
+                      ? <span style={{ fontSize: 11, color: '#92400e', fontWeight: 600, background: '#fefce8', border: '1px solid #fde68a', borderRadius: 5, padding: '3px 8px' }}>💰 Esta obra aplica desc. 6% (CLT)</span>
+                      : <span style={{ fontSize: 11, color: '#15803d', fontWeight: 600, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 5, padding: '3px 8px' }}>✓ Sem desconto de 6%</span>
+                  })()}
 
                   <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted-foreground)' }}>
                     {vtsPendentesLote.length} lançamento(s) · <strong>{selecionados.size}</strong> selecionado(s)
@@ -1473,9 +1520,14 @@ export default function ValeTransportePage() {
                                     {formatCurrency(r.valor_empresa)}
                                   </td>
                                   <td style={{ padding: '9px 8px', textAlign: 'center' }}>
-                                    {loteDesconto6pct
-                                      ? <span style={{ fontSize: 10, background: '#dcfce7', color: '#15803d', borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>✓ 6%</span>
-                                      : <span style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>—</span>}
+                                    {(() => {
+                                      const colR = colaboradores.find(x => x.id === r.colaborador_id)
+                                      const obraR = obras.find(o => o.id === colR?.obra_id)
+                                      const isCLTR = (colR?.tipo_contrato ?? 'clt').toLowerCase() === 'clt'
+                                      return (obraR?.desconta_vt && isCLTR)
+                                        ? <span style={{ fontSize: 10, background: '#fef3c7', color: '#b45309', borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>⚠ 6%</span>
+                                        : <span style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>—</span>
+                                    })()}
                                   </td>
                                 </tr>
                               )
@@ -1502,7 +1554,7 @@ export default function ValeTransportePage() {
                       <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--muted)' }}>
                         <td colSpan={5} style={{ padding: '11px 8px 11px 16px', fontWeight: 800, fontSize: 13 }}>
                           Total selecionado ({selecionados.size} lançamento{selecionados.size !== 1 ? 's' : ''})
-                          {loteDesconto6pct && <span style={{ fontSize: 11, color: '#b45309', marginLeft: 8, fontWeight: 600 }}>· Desconto 6% aplicado no Fechamento</span>}
+                          <span style={{ fontSize: 11, color: '#92400e', marginLeft: 8, fontWeight: 600 }}>· Desconto 6%: definido por obra de cada colaborador</span>
                         </td>
                         <td style={{ padding: '11px 8px', textAlign: 'right', fontWeight: 800, color: '#15803d', fontSize: 16 }}>
                           {formatCurrency(vtsPendentesLote.filter(r => selecionados.has(r.id)).reduce((s, r) => s + (r.valor_empresa ?? 0), 0))}
@@ -1518,7 +1570,7 @@ export default function ValeTransportePage() {
               <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                 <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
                   {loteContarSabado && <span style={{ marginRight: 12 }}>📅 Contando sábado</span>}
-                  {loteDesconto6pct && <span style={{ color: '#b45309' }}>💰 Desconto de 6% será aplicado no Fechamento de Ponto</span>}
+                  <span style={{ color: '#92400e' }}>💰 Desconto de 6% definido por obra de cada colaborador (CLT)</span>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <Button variant="outline" onClick={() => setModalLote(false)} disabled={savingLote}>Cancelar</Button>
@@ -1740,7 +1792,7 @@ export default function ValeTransportePage() {
                   <div style={{ fontSize:12, color:'var(--muted-foreground)', marginBottom:8 }}>Escolha uma obra ou todas. "Sem obra" inclui colaboradores sem alocação.</div>
                   <Select value={loteObraSel} onValueChange={setLoteObraSel}>
                     <SelectTrigger style={{ height:38 }}><SelectValue /></SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="popper" style={{ zIndex: 9999 }}>
                       <SelectItem value="todas">🌐 Todas as obras</SelectItem>
                       <SelectItem value="__sem_obra">📋 Sem obra alocada</SelectItem>
                       {obras.map(o => <SelectItem key={o.id} value={o.id}>🏗️ {o.nome}</SelectItem>)}
@@ -1764,22 +1816,50 @@ export default function ValeTransportePage() {
                   </div>
                 </div>
 
-                {/* Desconto 6% */}
-                <div style={{ background: loteDesconto6 ? '#fefce8' : 'var(--muted)', border:`1px solid ${loteDesconto6?'#fde68a':'var(--border)'}`, borderRadius:10, padding:'14px 16px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                  <div>
-                    <div style={{ fontWeight:700, fontSize:13, color: loteDesconto6 ? '#92400e' : 'var(--foreground)' }}>
-                      Descontar 6% do salário bruto — somente CLT
+                {/* Considerar sábado */}
+                <div style={{ display:'flex', alignItems:'center', gap:12, background:'var(--muted)', borderRadius:10, padding:'12px 16px' }}>
+                  <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', userSelect:'none', flex:1 }}>
+                    <input type="checkbox" checked={loteContarSabadoLancar} onChange={e => setLoteContarSabadoLancar(e.target.checked)}
+                      style={{ width:16, height:16, accentColor:'#7c3aed' }} />
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:13 }}>📅 Considerar sábado como dia útil</div>
+                      <div style={{ fontSize:11, color:'var(--muted-foreground)', marginTop:2 }}>
+                        Quando marcado, sábados entram na contagem de dias e no valor do VT. Use para obras que trabalham aos sábados.
+                      </div>
                     </div>
-                    <div style={{ fontSize:11, color: loteDesconto6 ? '#b45309' : 'var(--muted-foreground)', marginTop:3 }}>
-                      {loteDesconto6
-                        ? '⚠ O desconto de 6% sobre o salário bruto será aplicado apenas para colaboradores CLT'
-                        : 'Empresa arca com 100% do VT para todos — sem desconto no holerite'}
-                    </div>
-                  </div>
-                  <button onClick={() => setLoteDesconto6(v => !v)} style={{ background:'none', border:'none', cursor:'pointer', color: loteDesconto6 ? '#b45309' : 'var(--muted-foreground)', flexShrink:0 }}>
-                    {loteDesconto6 ? <ToggleRight size={34} /> : <ToggleLeft size={34} />}
-                  </button>
+                  </label>
+                  <span style={{ fontSize:11, fontWeight:700, color: loteContarSabadoLancar ? '#7c3aed' : '#94a3b8', background: loteContarSabadoLancar ? '#ede9fe' : 'var(--border)', borderRadius:6, padding:'2px 8px', whiteSpace:'nowrap' }}>
+                    {loteContarSabadoLancar ? 'SIM' : 'NÃO'}
+                  </span>
                 </div>
+
+                {/* Desconto 6% — exibir info com base na obra selecionada */}
+                {(() => {
+                  const obrasSel = loteObraSel === 'todas'
+                    ? obras
+                    : loteObraSel === '__sem_obra'
+                      ? []
+                      : obras.filter(o => o.id === loteObraSel)
+                  const algumDesconta = obrasSel.some(o => o.desconta_vt)
+                  const todoDesconta  = obrasSel.length > 0 && obrasSel.every(o => o.desconta_vt)
+                  const msg = loteObraSel === '__sem_obra'
+                    ? 'Colaboradores sem obra: sem desconto de 6%.'
+                    : todoDesconta
+                      ? '⚠ Esta obra desconta 6% do salário bruto — aplicado apenas para CLT.'
+                      : algumDesconta
+                        ? '⚠ Algumas obras desta seleção descontam 6% (CLT). O desconto é aplicado por obra de cada colaborador.'
+                        : '✓ Esta obra não aplica desconto de 6% — empresa arca com 100% do VT.'
+                  const cor = algumDesconta ? '#92400e' : '#15803d'
+                  const bg  = algumDesconta ? '#fefce8' : '#f0fdf4'
+                  const bdr = algumDesconta ? '#fde68a' : '#bbf7d0'
+                  return (
+                    <div style={{ background:bg, border:`1px solid ${bdr}`, borderRadius:10, padding:'12px 16px' }}>
+                      <div style={{ fontWeight:700, fontSize:13, color:cor }}>💰 Desconto de 6% — somente CLT</div>
+                      <div style={{ fontSize:11, color:cor, marginTop:3 }}>{msg}</div>
+                      <div style={{ fontSize:10, color:'var(--muted-foreground)', marginTop:4 }}>O desconto é definido por obra (cadastro da obra) e aplicado automaticamente.</div>
+                    </div>
+                  )
+                })()}
 
                 {/* Preview contagem */}
                 <div style={{ background:'var(--muted)', borderRadius:8, padding:'12px 14px', fontSize:12 }}>
@@ -1792,7 +1872,7 @@ export default function ValeTransportePage() {
                       const nomeObra = loteObraSel === 'todas' ? 'todas as obras'
                         : loteObraSel === '__sem_obra' ? 'sem obra alocada'
                         : obras.find(o => o.id === loteObraSel)?.nome ?? ''
-                      return `${cnt} colaborador(es) de "${nomeObra}" | Período: ${loteInicio || '—'} → ${loteFim || '—'}`
+                      return `${cnt} colaborador(es) de "${nomeObra}" | Período: ${loteInicio || '—'} → ${loteFim || '—'} | Sábado: ${loteContarSabadoLancar ? '✓ contado' : '✗ não contado'}`
                     })()}
                   </div>
                 </div>
@@ -1803,7 +1883,7 @@ export default function ValeTransportePage() {
             {loteStep === 2 && (() => {
               const selecionadosIds = [...loteIncluir.entries()].filter(([,v]) => v).map(([k]) => k)
               const semConfig = loteColabs.filter(c => selecionadosIds.includes(c.id) && !(vtDiarioColab(c.vt_dados as any) > 0))
-              // calcular dias do período
+              // calcular dias do período (respeitando loteContarSabadoLancar)
               let qtdDias = diasUteisMes.length
               if (loteInicio && loteFim) {
                 const [iy,im,id2] = loteInicio.split('-').map(Number)
@@ -1811,7 +1891,11 @@ export default function ValeTransportePage() {
                 const cur = new Date(iy,im-1,id2)
                 const fimD = new Date(fy,fm-1,fd)
                 let cnt2=0
-                while(cur<=fimD){if(cur.getDay()!==0)cnt2++;cur.setDate(cur.getDate()+1)}
+                while(cur<=fimD){
+                  const dow = cur.getDay()
+                  if(dow !== 0 && (dow !== 6 || loteContarSabadoLancar)) cnt2++
+                  cur.setDate(cur.getDate()+1)
+                }
                 if(cnt2>0) qtdDias=cnt2
               }
               const totalEstimado = loteColabs
@@ -1820,7 +1904,8 @@ export default function ValeTransportePage() {
                   const isCLT = (c.tipo_contrato??'').toLowerCase()==='clt'
                   const vtDiario = vtDiarioColab(c.vt_dados as any)
                   const bruto = +(vtDiario * qtdDias).toFixed(2)
-                  const desc  = (loteDesconto6 && isCLT) ? +Math.min((c.salario??0)*0.06, bruto).toFixed(2) : 0
+                  const obraC = obras.find(o => o.id === c.obra_id)
+                  const desc  = (obraC?.desconta_vt && isCLT) ? +Math.min((c.salario??0)*0.06, bruto).toFixed(2) : 0
                   return s + (bruto - desc)
                 }, 0)
 
@@ -1872,7 +1957,9 @@ export default function ValeTransportePage() {
                         const vtDiario = vtDiarioColab(c.vt_dados as any)
                         const temVT  = vtDiario > 0
                         const bruto  = temVT ? +(vtDiario * qtdDias).toFixed(2) : 0
-                        const desc6  = (loteDesconto6 && isCLT && temVT) ? +Math.min((c.salario??0)*0.06, bruto).toFixed(2) : 0
+                        // desconto 6% por obra do colaborador — não por toggle global
+                        const obraC2 = obras.find(o => o.id === c.obra_id)
+                        const desc6  = (obraC2?.desconta_vt && isCLT && temVT) ? +Math.min((c.salario??0)*0.06, bruto).toFixed(2) : 0
                         const empresa= bruto - desc6
                         return (
                           <div key={c.id} onClick={() => { const m=new Map(loteIncluir); m.set(c.id,!marcado); setLoteIncluir(m) }}
@@ -1918,7 +2005,12 @@ export default function ValeTransportePage() {
             {/* Footer */}
             <div style={{ padding:'14px 24px', borderTop:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
               <div style={{ fontSize:12, color:'var(--muted-foreground)' }}>
-                {loteStep === 2 && `Período: ${loteInicio} → ${loteFim}`}
+                {loteStep === 2 && (
+                  <>
+                    <span>Período: {loteInicio} → {loteFim}</span>
+                    {loteContarSabadoLancar && <span style={{ marginLeft:12, color:'#7c3aed', fontWeight:600 }}>📅 Contando sábado</span>}
+                  </>
+                )}
               </div>
               <div style={{ display:'flex', gap:10 }}>
                 {loteStep === 2 && (

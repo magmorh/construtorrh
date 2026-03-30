@@ -1,17 +1,19 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchEmpresaData, CABECALHO_CSS, gerarCabecalhoHTML } from '@/lib/relatorioHeader'
 import { useProfile } from '@/hooks/useProfile'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Users, AlertTriangle, ShieldCheck, FileImage, RefreshCw, Download, X, Check, Eye, FileBarChart2, FileText } from 'lucide-react'
+import { Users, AlertTriangle, ShieldCheck, FileImage, RefreshCw, Download, X, Check, Eye, FileBarChart2, FileText, Pencil, Trash2, Save } from 'lucide-react'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
 interface Obra      { id: string; nome: string }
 interface Funcao    { id: string; nome: string }
-interface Colab     { id: string; nome: string }
+interface Colab     { id: string; nome: string; chapa?: string; cpf?: string }
 
 // ─── helper: geração de PDF de cadastro ──────────────────────────────────────
-function gerarPDFCadastro(r: any, funcoes: Funcao[], obras: Obra[]) {
+async function gerarPDFCadastro(r: any, funcoes: Funcao[], obras: Obra[]) {
+  const emp = await fetchEmpresaData()
   const d    = r.dados ?? {}
   const fn   = funcoes.find(f => f.id === d.funcao_id)?.nome ?? '—'
   const ob   = obras.find(o => o.id === r.obra_id)?.nome ?? '—'
@@ -36,8 +38,7 @@ function gerarPDFCadastro(r: any, funcoes: Funcao[], obras: Obra[]) {
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:20px 28px}
-  h1{font-size:16px;font-weight:800;color:#1e3a5f;margin-bottom:2px}
-  .sub{font-size:11px;color:#555;margin-bottom:14px}
+  ${CABECALHO_CSS}
   .sec{margin-bottom:12px}
   .sec-title{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
     color:#fff;background:#1e3a5f;padding:4px 8px;border-radius:3px 3px 0 0}
@@ -49,9 +50,11 @@ function gerarPDFCadastro(r: any, funcoes: Funcao[], obras: Obra[]) {
   .rodape{margin-top:18px;font-size:9px;color:#9ca3af;text-align:right}
   @media print{body{padding:10px 14px}}
 </style></head><body>
-<h1>👷 Ficha de Cadastro de Colaborador</h1>
-<div class="sub">Obra: <strong>${ob}</strong> &nbsp;|&nbsp; Solicitado em: ${new Date(r.criado_em).toLocaleString('pt-BR')}
-  &nbsp;|&nbsp; Aprovado por: <strong>${r.aprovado_nome ?? '—'}</strong></div>
+${gerarCabecalhoHTML(emp, {
+  titulo: 'Ficha de Cadastro de Colaborador',
+  subtitulo: `Obra: ${ob} · Aprovado por: ${r.aprovado_nome ?? '—'}`,
+  periodo: `Solicitado em ${new Date(r.criado_em).toLocaleString('pt-BR')}`,
+})}
 <div class="sec">
   <div class="sec-title">Identificação</div>
   <table>
@@ -446,7 +449,7 @@ function TabOcorrencias({ obras, colabs, perfil }: { obras: Obra[]; colabs: Cola
     doFetch()
   }
 
-  function gerarPDF(r: any) {
+  async function gerarPDF(r: any) {
     const ob = obras.find(o => o.id === r.obra_id)?.nome ?? '—'
     const co = colabs.find(c => c.id === r.colaborador_id)?.nome ?? '—'
     const tipoLabel: Record<string,string> = { acidente:'🚨 Acidente', atestado:'🏥 Atestado', advertencia:'⚠️ Advertência', geral:'📋 Geral' }
@@ -479,15 +482,15 @@ function TabOcorrencias({ obras, colabs, perfil }: { obras: Obra[]; colabs: Cola
        <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px">${v}</td></tr>`
     ).join('')
 
+    const _empOco = await fetchEmpresaData()
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${titulo}</title>
     <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:28px;color:#111}
-    h1{font-size:18px;color:#1e3a5f;margin-bottom:4px}.sub{font-size:11px;color:#6b7280;margin-bottom:20px}
+    ${CABECALHO_CSS}
     table{width:100%;border-collapse:collapse}
     .ass{display:flex;gap:60px;margin-top:32px}.ass>div{flex:1;text-align:center;font-size:11px;color:#6b7280}
     .linha{border-top:1px solid #9ca3af;margin-top:28px;margin-bottom:6px}
     @media print{body{padding:16px}}</style></head><body>
-    <h1>📋 Ocorrência — ${titulo}</h1>
-    <div class="sub">Gerado em ${new Date().toLocaleString('pt-BR')} — ConstrutorRH</div>
+    ${gerarCabecalhoHTML(_empOco, { titulo: 'Ocorrência — ' + titulo, subtitulo: 'Colaborador: ' + co + ' · Obra: ' + ob })}
     <table><tbody>${linhas}</tbody></table>
     <div class="ass">
       <div><div class="linha"></div>Colaborador / Assinatura</div>
@@ -702,9 +705,10 @@ function TabEpis({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab[]; pe
     doFetch()
   }
 
-  function gerarPDF(r: any) {
+  async function gerarPDF(r: any) {
     const ob  = obras.find(o => o.id === r.obra_id)?.nome ?? '—'
     const co  = colabs.find(c => c.id === r.colaborador_id)?.nome ?? 'Toda a equipe'
+    const _empEpi = await fetchEmpresaData()
     const ugL = (u: string) => u==='critico'?'🔴 Crítico':u==='urgente'?'🟠 Urgente':'🟢 Normal'
 
     const itensHtml = (r.itens ?? []).map((it: any) =>
@@ -714,7 +718,7 @@ function TabEpis({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab[]; pe
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Solicitação de EPI</title>
     <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:28px;color:#111}
-    h1{font-size:18px;color:#1e3a5f;margin-bottom:4px}.sub{font-size:11px;color:#6b7280;margin-bottom:20px}
+    ${CABECALHO_CSS}
     .info{display:grid;grid-template-columns:140px 1fr;gap:0;margin-bottom:18px}
     .info .label{font-weight:700;color:#4b5563;padding:5px 0;font-size:12px;border-bottom:1px solid #e5e7eb}
     .info .val{padding:5px 10px;font-size:12px;border-bottom:1px solid #e5e7eb}
@@ -722,8 +726,7 @@ function TabEpis({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab[]; pe
     .ass{display:flex;gap:60px;margin-top:32px}.ass>div{flex:1;text-align:center;font-size:11px;color:#6b7280}
     .linha{border-top:1px solid #9ca3af;margin-top:28px;margin-bottom:6px}
     @media print{body{padding:16px}}</style></head><body>
-    <h1>🦺 Solicitação de EPI</h1>
-    <div class="sub">Gerado em ${new Date().toLocaleString('pt-BR')} — ConstrutorRH</div>
+    ${gerarCabecalhoHTML(_empEpi, { titulo: 'Solicitação de EPI', subtitulo: 'Obra: ' + ob + ' · Colaborador: ' + co })}
     <div class="info">
       <span class="label">Obra</span><span class="val">${ob}</span>
       <span class="label">Colaborador</span><span class="val">${co}</span>
@@ -921,7 +924,7 @@ function TabDocumentos({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab
     doFetch()
   }
 
-  function gerarPDF(r: any) {
+  async function gerarPDF(r: any) {
     const ob = obras.find(o => o.id === r.obra_id)?.nome ?? '—'
     const co = colabs.find(c => c.id === r.colaborador_id)?.nome ?? 'Geral'
     const tipoLabel: Record<string,string> = {
@@ -937,17 +940,17 @@ function TabDocumentos({ obras, colabs, perfil }: { obras: Obra[]; colabs: Colab
       ? `<div style="margin:12px 0"><a href="${r.arquivo_url}" style="color:#1e3a5f;font-weight:700">📎 Ver arquivo anexado</a></div>`
       : ''
 
+    const _empDoc = await fetchEmpresaData()
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Documento — ${tipoLabel[r.tipo]??r.tipo}</title>
     <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:28px;color:#111}
-    h1{font-size:18px;color:#1e3a5f;margin-bottom:4px}.sub{font-size:11px;color:#6b7280;margin-bottom:20px}
+    ${CABECALHO_CSS}
     .row{display:flex;border-bottom:1px solid #e5e7eb;padding:6px 0}
     .row .label{width:160px;font-weight:700;color:#4b5563;font-size:12px;flex-shrink:0}
     .row .val{font-size:12px}
     .ass{display:flex;gap:60px;margin-top:32px}.ass>div{flex:1;text-align:center;font-size:11px;color:#6b7280}
     .linha{border-top:1px solid #9ca3af;margin-top:28px;margin-bottom:6px}
     @media print{body{padding:16px}}</style></head><body>
-    <h1>📎 Documento — ${tipoLabel[r.tipo]??r.tipo}</h1>
-    <div class="sub">Gerado em ${new Date().toLocaleString('pt-BR')} — ConstrutorRH</div>
+    ${gerarCabecalhoHTML(_empDoc, { titulo: 'Documento — ' + (tipoLabel[r.tipo]??r.tipo), subtitulo: 'Obra: ' + ob + ' · Colaborador: ' + co })}
     ${imgHtml}
     <div class="row"><span class="label">Tipo</span><span class="val">${tipoLabel[r.tipo]??r.tipo}</span></div>
     <div class="row"><span class="label">Obra</span><span class="val">${ob}</span></div>
@@ -1283,102 +1286,169 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
   const hoje = new Date()
   const [modo,      setModo]      = useState<'colaborador'|'obra'>('colaborador')
   const [colabId,   setColabId]   = useState('')
+  const [colabBusca,setColabBusca]= useState('')
   const [obraId,    setObraId]    = useState('')
   const [mesAno,    setMesAno]    = useState(`${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}`)
   const [loading,   setLoading]   = useState(false)
   const [resultado, setResultado] = useState<ResultadoRel | null>(null)
 
-  interface DiaRel   { data:string; status:string; he:number; hf:number; obs:string; sincronizado:boolean; lancamento_portal:boolean }
+  // Edição inline de um dia do portal
+  const [editDia,   setEditDia]   = useState<{id:string; status:string; he:number; hf:number; obs:string} | null>(null)
+  const [savingEdit,setSavingEdit]= useState(false)
+  const [deletingId,setDeletingId]= useState<string|null>(null)
+
+  interface DiaRel {
+    id?: string; data:string; status:string; he:number; hf:number; obs:string
+    sincronizado:boolean; lancamento_portal:boolean; editavel:boolean
+  }
   interface ColabRel  { nome:string; chapa:string; funcao:string; obra:string; dias:DiaRel[]; presentes:number; faltas:number; he:number; hf:number }
   interface ResultadoRel { periodo:string; registros:ColabRel[] }
 
+  const STATUS_OPTIONS = [
+    { value:'presente',          label:'Presente' },
+    { value:'falta',             label:'Falta' },
+    { value:'meio_periodo',      label:'Meio Período' },
+    { value:'falta_justificada', label:'Falta Justif.' },
+    { value:'producao',          label:'Produção' },
+  ]
+
   async function gerar() {
-    setLoading(true); setResultado(null)
+    setLoading(true); setResultado(null); setEditDia(null)
     const [ano, mes] = mesAno.split('-').map(Number)
     const inicio = `${ano}-${String(mes).padStart(2,'0')}-01`
     const fim    = `${ano}-${String(mes).padStart(2,'0')}-31`
 
-    // Busca registros do portal (portal_ponto_diario)
-    let q = supabase
+    // ── 1. Busca portal_ponto_diario ───────────────────────────────────────
+    let qPortal = supabase
       .from('portal_ponto_diario')
       .select('id,colaborador_id,obra_id,data,status,horas_extra,horas_falta,observacoes,sincronizado_em,colaboradores(nome,chapa,funcoes(nome)),obras(nome)')
       .gte('data', inicio).lte('data', fim)
       .order('colaborador_id').order('data')
+    if (modo === 'colaborador' && colabId) qPortal = qPortal.eq('colaborador_id', colabId)
+    if (modo === 'obra'        && obraId)  qPortal = qPortal.eq('obra_id', obraId)
+    const { data: rowsPortal } = await qPortal
 
-    if (modo === 'colaborador' && colabId) q = q.eq('colaborador_id', colabId)
-    if (modo === 'obra'        && obraId)  q = q.eq('obra_id', obraId)
+    // ── 2. Busca registro_ponto (sistema) — avulsos e por obra ─────────────
+    let qSist = supabase
+      .from('registro_ponto')
+      .select('id,colaborador_id,obra_id,data,presente,falta,horas_trabalhadas,horas_extras,observacoes,lancamento_id,colaboradores(nome,chapa,funcoes(nome)),obras(nome)')
+      .gte('data', inicio).lte('data', fim)
+      .order('colaborador_id').order('data')
+    if (modo === 'colaborador' && colabId) qSist = qSist.eq('colaborador_id', colabId)
+    if (modo === 'obra'        && obraId)  qSist = qSist.eq('obra_id', obraId)
+    const { data: rowsSist } = await qSist
 
-    const { data: rows, error } = await q
-    if (error) { toast.error('Erro ao buscar dados: ' + error.message); setLoading(false); return }
-    if (!rows?.length) { toast.info('Nenhum registro do portal encontrado para o período.'); setLoading(false); return }
+    const totalRows = (rowsPortal?.length ?? 0) + (rowsSist?.length ?? 0)
+    if (totalRows === 0) { toast.info('Nenhum registro encontrado para o período.'); setLoading(false); return }
 
-    // Agrupa por colaborador
+    // ── 3. Consolida num mapa: chave = colabId|obraId ──────────────────────
     const mapaColab: Record<string, ColabRel> = {}
-    for (const r of rows as any[]) {
-      const cNome  = (r.colaboradores as any)?.nome  ?? colabs.find(c => c.id === r.colaborador_id)?.nome ?? 'Desconhecido'
-      const cChapa = (r.colaboradores as any)?.chapa ?? '—'
-      const cFuncao= (r.colaboradores as any)?.funcoes?.nome ?? '—'
-      const oNome  = (r.obras as any)?.nome ?? obras.find(o => o.id === r.obra_id)?.nome ?? ''
-      const key    = r.colaborador_id + '|' + r.obra_id  // separa por obra também
-      if (!mapaColab[key]) mapaColab[key] = { nome:cNome, chapa:cChapa, funcao:cFuncao, obra:oNome, dias:[], presentes:0, faltas:0, he:0, hf:0 }
 
-      const presente = r.status === 'presente' || r.status === 'meio_periodo'
-      const falta    = r.status === 'falta'
+    function getOrCreate(colabId2: string, obraId2: string|null, cNome: string, cChapa: string, cFuncao: string, oNome: string) {
+      const key = colabId2 + '|' + (obraId2 ?? '__avulso__')
+      if (!mapaColab[key]) mapaColab[key] = { nome:cNome, chapa:cChapa, funcao:cFuncao, obra:oNome || '(avulso)', dias:[], presentes:0, faltas:0, he:0, hf:0 }
+      return mapaColab[key]
+    }
+
+    // Registros do portal
+    for (const r of (rowsPortal ?? []) as any[]) {
+      const cNome  = r.colaboradores?.nome  ?? colabs.find(c=>c.id===r.colaborador_id)?.nome ?? 'Desconhecido'
+      const cChapa = r.colaboradores?.chapa ?? '—'
+      const cFuncao= r.colaboradores?.funcoes?.nome ?? '—'
+      const oNome  = r.obras?.nome ?? obras.find(o=>o.id===r.obra_id)?.nome ?? ''
+      const reg    = getOrCreate(r.colaborador_id, r.obra_id, cNome, cChapa, cFuncao, oNome)
+      const presente = r.status==='presente'||r.status==='meio_periodo'
+      const falta    = r.status==='falta'||r.status==='falta_justificada'
       const heMin    = Math.round((r.horas_extra ?? 0) * 60)
       const hfMin    = Math.round((r.horas_falta ?? 0) * 60)
-
       const statusLabel =
-        r.status === 'falta'        ? 'FALTA'       :
-        r.status === 'meio_periodo' ? 'Meio período' :
-        r.status === 'presente'     ? 'Presente'    :
-        r.status === 'atestado'     ? 'Atestado'    :
-        r.status === 'feriado'      ? 'Feriado'     :
-        r.status ?? '—'
-
-      mapaColab[key].dias.push({
-        data:             r.data,
-        status:           statusLabel,
-        he:               heMin,
-        hf:               hfMin,
-        obs:              r.observacoes ?? '',
-        sincronizado:     !!r.sincronizado_em,
-        lancamento_portal: true,
-      })
-      if (presente) mapaColab[key].presentes++
-      if (falta)    mapaColab[key].faltas++
-      mapaColab[key].he += heMin
-      mapaColab[key].hf += hfMin
+        r.status==='falta'?'FALTA':r.status==='meio_periodo'?'Meio período':
+        r.status==='presente'?'Presente':r.status==='atestado'?'Atestado':
+        r.status==='feriado'?'Feriado':r.status==='falta_justificada'?'Falta Justif.':
+        r.status==='producao'?'Produção': r.status??'—'
+      reg.dias.push({ id:r.id, data:r.data, status:statusLabel, he:heMin, hf:hfMin, obs:r.observacoes??'', sincronizado:!!r.sincronizado_em, lancamento_portal:true, editavel:false })
+      if (presente) reg.presentes++
+      if (falta)    reg.faltas++
+      reg.he += heMin; reg.hf += hfMin
     }
-    // Ordena dias de cada colaborador
-    for (const v of Object.values(mapaColab)) v.dias.sort((a,b) => a.data.localeCompare(b.data))
 
-    const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
-    setResultado({ periodo:`${MESES[mes-1]}/${ano}`, registros:Object.values(mapaColab) })
+    // Registros do sistema (registro_ponto)
+    for (const r of (rowsSist ?? []) as any[]) {
+      const cNome  = r.colaboradores?.nome  ?? colabs.find(c=>c.id===r.colaborador_id)?.nome ?? 'Desconhecido'
+      const cChapa = r.colaboradores?.chapa ?? '—'
+      const cFuncao= r.colaboradores?.funcoes?.nome ?? '—'
+      const oNome  = r.obras?.nome ?? obras.find(o=>o.id===r.obra_id)?.nome ?? ''
+      // Evita duplicar se já vier do portal
+      const key = r.colaborador_id + '|' + (r.obra_id ?? '__avulso__')
+      const diaJaNoPortal = mapaColab[key]?.dias.find(d=>d.data===r.data&&d.lancamento_portal)
+      if (diaJaNoPortal) continue  // portal tem precedência
+      const reg    = getOrCreate(r.colaborador_id, r.obra_id, cNome, cChapa, cFuncao, oNome)
+      const presente = r.presente && !r.falta
+      const falta    = r.falta
+      const heMin    = Math.round((r.horas_extras ?? 0) * 60)
+      const hfMin    = 0
+      const statusLabel = falta?'FALTA':presente?'Presente':'—'
+      reg.dias.push({ id:undefined, data:r.data, status:statusLabel, he:heMin, hf:hfMin, obs:r.observacoes??'', sincronizado:true, lancamento_portal:false, editavel:false })
+      if (presente) reg.presentes++
+      if (falta)    reg.faltas++
+      reg.he += heMin; reg.hf += hfMin
+    }
+
+    for (const v of Object.values(mapaColab)) v.dias.sort((a,b)=>a.data.localeCompare(b.data))
+
+    const MESES_N = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+    setResultado({ periodo:`${MESES_N[mes-1]}/${ano}`, registros:Object.values(mapaColab) })
     setLoading(false)
   }
 
-  function minToHM(min:number) {
+  async function salvarEdicao() {
+    if (!editDia) return
+    setSavingEdit(true)
+    const { error } = await supabase.from('portal_ponto_diario').update({
+      status:     editDia.status,
+      horas_extra: editDia.he / 60,
+      horas_falta: editDia.hf / 60,
+      observacoes: editDia.obs || null,
+    }).eq('id', editDia.id)
+    setSavingEdit(false)
+    if (error) { toast.error('Erro: ' + error.message); return }
+    toast.success('Registro atualizado!')
+    setEditDia(null)
+    gerar()
+  }
+
+  async function excluirDia(id: string) {
+    if (!confirm('Excluir este registro de ponto?')) return
+    setDeletingId(id)
+    const { error } = await supabase.from('portal_ponto_diario').delete().eq('id', id)
+    setDeletingId(null)
+    if (error) { toast.error('Erro: ' + error.message); return }
+    toast.success('Registro excluído!')
+    gerar()
+  }
+
+  function minToHM(min: number) {
     if (!min) return '—'
     return `${Math.floor(min/60)}h${String(min%60).padStart(2,'0')}m`
   }
 
-  function gerarPDF() {
+  async function gerarPDF() {
     if (!resultado) return
     const linhas = resultado.registros.map(c => {
       const tabDias = c.dias.map(d => {
         const dtFmt = new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})
         const cor   = d.status==='FALTA'?'#fee2e2':d.status==='Presente'?'#f0fdf4':'#fefce8'
         const corSt = d.status==='FALTA'?'#dc2626':d.status==='Presente'?'#15803d':'#92400e'
-        const sinc  = d.sincronizado ? '<span style="color:#15803d;font-weight:700">✓ Sim</span>' : '<span style="color:#b45309">⏳ Pend.</span>'
-        const portal= d.lancamento_portal ? '<span style="color:#1d4ed8;font-weight:700">● Portal</span>' : '—'
+        const sinc  = d.sincronizado ? '✓ Sim' : '⏳ Pend.'
+        const portal= d.lancamento_portal ? '● Portal' : '● Sistema'
         return `<tr style="background:${cor}">
           <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px">${dtFmt}</td>
           <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;font-weight:700;color:${corSt}">${d.status}</td>
           <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#15803d">${d.he?`+${minToHM(d.he)}`:''}</td>
           <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#dc2626">${d.hf?`-${minToHM(d.hf)}`:''}</td>
           <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;color:#6b7280">${d.obs||'—'}</td>
-          <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:center">${portal}</td>
-          <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:center">${sinc}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:center;color:${d.lancamento_portal?'#1d4ed8':'#059669'}">${portal}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;text-align:center;color:${d.sincronizado?'#15803d':'#b45309'}">${sinc}</td>
         </tr>`
       }).join('')
       return `<div class="colaborador">
@@ -1395,12 +1465,11 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
             <span class="tot-item tot-pres">✓ ${c.presentes} pres.</span>
             <span class="tot-item tot-falt">✗ ${c.faltas} faltas</span>
             ${c.he ? `<span class="tot-item tot-he">HE: ${minToHM(c.he)}</span>` : ''}
-            ${c.hf ? `<span class="tot-item tot-hf">HF: ${minToHM(c.hf)}</span>` : ''}
           </div>
         </div>
         <table>
           <thead><tr>
-            <th>Data</th><th>Status</th><th>H.Extra</th><th>H.Falta</th><th>Observação</th><th>Lanç. Portal</th><th>Sincronizado</th>
+            <th>Data</th><th>Status</th><th>H.Extra</th><th>H.Falta</th><th>Observação</th><th>Origem</th><th>Sincronizado</th>
           </tr></thead>
           <tbody>${tabDias}</tbody>
           <tfoot><tr style="background:#f1f5f9;font-weight:700">
@@ -1417,32 +1486,26 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
       </div>`
     }).join('<div class="quebra"></div>')
 
+    const _empPonto = await fetchEmpresaData()
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-    <title>Espelho de Ponto Portal – ${resultado.periodo}</title>
+    <title>Espelho de Ponto – ${resultado.periodo}</title>
     <style>
       *{margin:0;padding:0;box-sizing:border-box}
       body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:20px}
-      h1{font-size:18px;margin-bottom:2px;color:#1e3a5f}
-      .cabecalho-doc{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #1e3a5f}
-      .doc-empresa{font-size:11px;color:#6b7280}
-      .doc-periodo{text-align:right}
-      .doc-periodo .periodo-label{font-size:11px;color:#6b7280}
-      .doc-periodo .periodo-val{font-size:15px;font-weight:800;color:#1e3a5f}
-      .sub{color:#6b7280;font-size:11px;margin-bottom:20px}
+      ${CABECALHO_CSS}
       .colaborador{margin-bottom:32px;break-inside:avoid}
       .cab-colab{background:#1e3a5f;color:#fff;padding:10px 14px;border-radius:6px 6px 0 0;display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
       .cab-info{flex:1}
       .cab-nome{font-size:15px;font-weight:800;margin-bottom:5px}
       .cab-meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-      .badge-chapa{background:rgba(255,255,255,0.15);border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700;letter-spacing:0.03em}
+      .badge-chapa{background:rgba(255,255,255,0.15);border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700}
       .badge-funcao{background:rgba(255,255,255,0.15);border-radius:4px;padding:2px 8px;font-size:10px}
       .badge-obra{background:rgba(255,255,255,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700}
-      .cab-totais{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+      .cab-totais{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
       .tot-item{border-radius:4px;padding:3px 8px;font-size:10px;font-weight:700}
       .tot-pres{background:rgba(134,239,172,0.3);color:#86efac}
       .tot-falt{background:rgba(252,165,165,0.3);color:#fca5a5}
       .tot-he{background:rgba(253,230,138,0.3);color:#fde68a}
-      .tot-hf{background:rgba(252,165,165,0.2);color:#fca5a5}
       table{width:100%;border-collapse:collapse}
       th{background:#f1f5f9;padding:6px 8px;text-align:left;font-size:10px;font-weight:700;border-bottom:2px solid #cbd5e1;color:#374151;text-transform:uppercase;letter-spacing:0.04em}
       .assinatura{display:flex;gap:60px;margin-top:16px;padding:0 20px}
@@ -1451,16 +1514,7 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
       .quebra{page-break-after:always;height:0;margin:0}
       @media print{.quebra{page-break-after:always}.colaborador{break-inside:avoid}}
     </style></head><body>
-    <div class="cabecalho-doc">
-      <div>
-        <h1>📋 Espelho de Ponto — Portal da Obra</h1>
-        <div class="doc-empresa">ConstrutorRH · Registros lançados via portal · Gerado em ${new Date().toLocaleString('pt-BR')}</div>
-      </div>
-      <div class="doc-periodo">
-        <div class="periodo-label">Competência</div>
-        <div class="periodo-val">${resultado.periodo}</div>
-      </div>
-    </div>
+    ${gerarCabecalhoHTML(_empPonto, { titulo: 'Espelho de Ponto — Portal + Sistema', periodo: resultado.periodo })}
     ${linhas}
     <script>window.onload=()=>{window.print()}<\/script>
     </body></html>`
@@ -1471,11 +1525,11 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
 
   return (
     <div>
-      {/* Filtros */}
+      {/* ── Filtros ── */}
       <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:10, padding:20, marginBottom:20 }}>
-        <div style={{ fontWeight:700, fontSize:14, marginBottom:6, color:'var(--foreground)' }}>📊 Espelho de Ponto — registros do portal</div>
+        <div style={{ fontWeight:700, fontSize:14, marginBottom:4, color:'var(--foreground)' }}>📊 Espelho de Ponto — Portal + Sistema</div>
         <div style={{ fontSize:12, color:'var(--muted-foreground)', marginBottom:14 }}>
-          Exibe todos os pontos lançados pelo encarregado via portal da obra, com presença, faltas e horas.
+          Exibe registros do <strong>portal da obra</strong> e do <strong>sistema</strong> (lançamentos internos + avulsos). Dias do portal podem ser editados ou excluídos aqui.
         </div>
         <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'flex-end' }}>
           {/* Modo */}
@@ -1493,15 +1547,95 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
               ))}
             </div>
           </div>
-
-          {/* Seletor colaborador ou obra */}
+          {/* Seletor */}
           {modo === 'colaborador' ? (
-            <div>
+            <div style={{ position:'relative' }}>
               <div style={{ fontSize:11, fontWeight:600, color:'var(--muted-foreground)', marginBottom:4 }}>COLABORADOR</div>
-              <select value={colabId} onChange={e=>setColabId(e.target.value)} style={{ height:36, borderRadius:7, border:'1px solid var(--border)', padding:'0 10px', fontSize:13, minWidth:220, background:'var(--card)', color:'var(--foreground)' }}>
-                <option value="">— Todos —</option>
-                {colabs.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
-              </select>
+              {/* Input de busca */}
+              <div style={{ position:'relative' }}>
+                <input
+                  type="text"
+                  placeholder="🔍 Nome, chapa ou CPF…"
+                  value={colabBusca}
+                  onChange={e => {
+                    setColabBusca(e.target.value)
+                    // Ao digitar, limpa seleção anterior
+                    setColabId('')
+                  }}
+                  style={{
+                    height:36, borderRadius: colabBusca && !colabId ? '7px 7px 0 0' : 7,
+                    border:'1px solid var(--border)', borderBottom: colabBusca && !colabId ? 'none' : '1px solid var(--border)',
+                    padding:'0 30px 0 10px', fontSize:13, minWidth:240,
+                    background:'var(--card)', color:'var(--foreground)', outline:'none', width:'100%', boxSizing:'border-box'
+                  }}
+                />
+                {colabBusca && (
+                  <button
+                    onClick={() => { setColabBusca(''); setColabId('') }}
+                    style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#9ca3af', fontSize:16, lineHeight:1 }}
+                  >✕</button>
+                )}
+              </div>
+              {/* Dropdown filtrado — só abre quando está digitando e ainda não selecionou */}
+              {colabBusca && !colabId && (() => {
+                const q = colabBusca.trim().toLowerCase()
+                const sugs = colabs.filter(c => {
+                  const nome  = c.nome.toLowerCase()
+                  const chapa = (c.chapa ?? '').toLowerCase()
+                  const cpf   = (c.cpf ?? '').replace(/\D/g,'')
+                  const qCpf  = q.replace(/\D/g,'')
+                  // match EXATO no início do nome OU qualquer parte da chapa OU CPF
+                  return nome.includes(q) || chapa.includes(q) || (qCpf.length >= 3 && cpf.includes(qCpf))
+                })
+                // Ordena: começa com q primeiro
+                .sort((a,b) => {
+                  const aN = a.nome.toLowerCase().startsWith(q) ? 0 : 1
+                  const bN = b.nome.toLowerCase().startsWith(q) ? 0 : 1
+                  return aN !== bN ? aN - bN : a.nome.localeCompare(b.nome)
+                })
+                .slice(0, 15)
+
+                return (
+                  <div style={{
+                    position:'absolute', zIndex:200, top:'100%', left:0, right:0,
+                    background:'var(--card)', border:'1px solid var(--border)', borderTop:'none',
+                    borderRadius:'0 0 7px 7px', boxShadow:'0 8px 24px rgba(0,0,0,0.15)',
+                    maxHeight:260, overflowY:'auto', minWidth:240
+                  }}>
+                    {/* "Todos" sempre disponível no topo */}
+                    <div
+                      onClick={() => { setColabId(''); setColabBusca('') }}
+                      style={{ padding:'8px 12px', cursor:'pointer', borderBottom:'1px solid var(--border)', fontSize:12, color:'var(--muted-foreground)', fontWeight:600 }}
+                      onMouseEnter={e => (e.currentTarget.style.background='var(--accent)')}
+                      onMouseLeave={e => (e.currentTarget.style.background='')}
+                    >
+                      👥 Todos os colaboradores
+                    </div>
+                    {sugs.length === 0 ? (
+                      <div style={{ padding:'12px', textAlign:'center', fontSize:13, color:'var(--muted-foreground)' }}>
+                        Nenhum resultado para "<strong>{colabBusca}</strong>"
+                      </div>
+                    ) : sugs.map(c => (
+                      <div
+                        key={c.id}
+                        onClick={() => { setColabId(c.id); setColabBusca(c.nome + (c.chapa ? ` · ${c.chapa}` : '')) }}
+                        style={{ padding:'9px 12px', cursor:'pointer', borderBottom:'1px solid var(--border)', fontSize:13 }}
+                        onMouseEnter={e => (e.currentTarget.style.background='var(--accent)')}
+                        onMouseLeave={e => (e.currentTarget.style.background='')}
+                      >
+                        <div style={{ fontWeight:700, color:'var(--foreground)' }}>{c.nome}</div>
+                        {c.chapa && <div style={{ fontSize:11, color:'var(--muted-foreground)' }}>Chapa: {c.chapa}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+              {/* Badge de selecionado */}
+              {colabId && (
+                <div style={{ marginTop:4, fontSize:11, color:'#15803d', fontWeight:700 }}>
+                  ✓ {colabs.find(c=>c.id===colabId)?.nome}
+                </div>
+              )}
             </div>
           ) : (
             <div>
@@ -1512,13 +1646,11 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
               </select>
             </div>
           )}
-
           {/* Mês */}
           <div>
             <div style={{ fontSize:11, fontWeight:600, color:'var(--muted-foreground)', marginBottom:4 }}>MÊS / ANO</div>
             <input type="month" value={mesAno} onChange={e=>{setMesAno(e.target.value);setResultado(null)}} style={{ height:36, borderRadius:7, border:'1px solid var(--border)', padding:'0 10px', fontSize:13, background:'var(--card)', color:'var(--foreground)' }} />
           </div>
-
           <Button onClick={gerar} disabled={loading} style={{ height:36, gap:6, background:'#1e3a5f', color:'#fff', fontWeight:700 }}>
             {loading ? <><RefreshCw size={14} className="animate-spin"/> Gerando…</> : <><FileBarChart2 size={14}/> Gerar</>}
           </Button>
@@ -1530,10 +1662,51 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
         </div>
       </div>
 
-      {/* Resultado */}
+      {/* ── Modal editar dia ── */}
+      {editDia && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:80, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ background:'var(--background)', borderRadius:12, width:'100%', maxWidth:420, padding:24, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontWeight:800, fontSize:15, marginBottom:16 }}>✏️ Editar Registro de Ponto</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:'var(--muted-foreground)', marginBottom:4 }}>STATUS</div>
+                <select value={editDia.status} onChange={e => setEditDia(d => d ? {...d, status:e.target.value} : null)}
+                  style={{ width:'100%', height:38, border:'1px solid var(--border)', borderRadius:7, padding:'0 10px', fontSize:13, background:'var(--background)' }}>
+                  {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                <div>
+                  <div style={{ fontSize:11, fontWeight:700, color:'var(--muted-foreground)', marginBottom:4 }}>H. EXTRA (min)</div>
+                  <input type="number" min={0} max={480} value={editDia.he} onChange={e => setEditDia(d => d ? {...d, he:Number(e.target.value)} : null)}
+                    style={{ width:'100%', height:38, border:'1px solid var(--border)', borderRadius:7, padding:'0 10px', fontSize:13, background:'var(--background)' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize:11, fontWeight:700, color:'var(--muted-foreground)', marginBottom:4 }}>H. FALTA (min)</div>
+                  <input type="number" min={0} max={480} value={editDia.hf} onChange={e => setEditDia(d => d ? {...d, hf:Number(e.target.value)} : null)}
+                    style={{ width:'100%', height:38, border:'1px solid var(--border)', borderRadius:7, padding:'0 10px', fontSize:13, background:'var(--background)' }} />
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:'var(--muted-foreground)', marginBottom:4 }}>OBSERVAÇÃO</div>
+                <textarea value={editDia.obs} onChange={e => setEditDia(d => d ? {...d, obs:e.target.value} : null)} rows={2}
+                  style={{ width:'100%', border:'1px solid var(--border)', borderRadius:7, padding:'8px 10px', fontSize:13, background:'var(--background)', resize:'vertical' }} />
+              </div>
+            </div>
+            <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:18 }}>
+              <Button variant="outline" onClick={() => setEditDia(null)}>Cancelar</Button>
+              <Button onClick={salvarEdicao} disabled={savingEdit} style={{ background:'#1e3a5f', color:'#fff', gap:6 }}>
+                {savingEdit ? <RefreshCw size={14} className="animate-spin"/> : <Save size={14}/>} Salvar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Resultado ── */}
       {resultado && resultado.registros.length === 0 && (
         <div style={{ textAlign:'center', padding:'40px 20px', color:'var(--muted-foreground)', fontSize:14 }}>
-          Nenhum registro do portal encontrado para o período selecionado.
+          Nenhum registro encontrado para o período selecionado.
         </div>
       )}
 
@@ -1554,12 +1727,8 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
                 <div style={{ flex:1 }}>
                   <div style={{ fontWeight:800, fontSize:14, marginBottom:4 }}>{c.nome}</div>
                   <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-                    {c.chapa && c.chapa!=='—' && (
-                      <span style={{ background:'rgba(255,255,255,0.15)', borderRadius:4, padding:'2px 8px', fontSize:10, fontWeight:700 }}>Chapa: {c.chapa}</span>
-                    )}
-                    {c.funcao && c.funcao!=='—' && (
-                      <span style={{ background:'rgba(255,255,255,0.15)', borderRadius:4, padding:'2px 8px', fontSize:10 }}>⚙️ {c.funcao}</span>
-                    )}
+                    {c.chapa && c.chapa!=='—' && <span style={{ background:'rgba(255,255,255,0.15)', borderRadius:4, padding:'2px 8px', fontSize:10, fontWeight:700 }}>Chapa: {c.chapa}</span>}
+                    {c.funcao && c.funcao!=='—' && <span style={{ background:'rgba(255,255,255,0.15)', borderRadius:4, padding:'2px 8px', fontSize:10 }}>⚙️ {c.funcao}</span>}
                     {c.obra && <span style={{ background:'rgba(255,255,255,0.22)', borderRadius:4, padding:'2px 8px', fontSize:10, fontWeight:700 }}>🏗️ {c.obra}</span>}
                   </div>
                 </div>
@@ -1576,15 +1745,15 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
                 <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
                   <thead>
                     <tr style={{ background:'var(--muted)' }}>
-                      {['Data','Status','H.Extra','H.Falta','Observação','Lanç. Portal','Sincronizado'].map(h=>(
+                      {['Data','Status','H.Extra','H.Falta','Observação','Origem','Sincronizado','Ações'].map(h=>(
                         <th key={h} style={{ padding:'7px 10px', textAlign:'left', fontWeight:700, fontSize:11, color:'var(--muted-foreground)', borderBottom:'2px solid var(--border)', whiteSpace:'nowrap' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {c.dias.map((d,di) => {
+                    {c.dias.map((d, di) => {
                       const dtFmt = new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})
-                      const corBg = d.status==='FALTA'?'#fef2f2':d.status==='Presente'?'#f0fdf4':d.status==='Atestado'||d.status==='Suspensão'?'#fefce8':'var(--card)'
+                      const corBg = d.status==='FALTA'?'#fef2f2':d.status==='Presente'?'#f0fdf4':'var(--card)'
                       const corSt = d.status==='FALTA'?'#dc2626':d.status==='Presente'?'#15803d':'#b45309'
                       return (
                         <tr key={di} style={{ background:corBg, borderBottom:'1px solid var(--border)' }}>
@@ -1592,16 +1761,35 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
                           <td style={{ padding:'6px 10px', fontWeight:700, color:corSt, whiteSpace:'nowrap' }}>{d.status}</td>
                           <td style={{ padding:'6px 10px', color:'#15803d', fontWeight:600 }}>{d.he?`+${minToHM(d.he)}`:'—'}</td>
                           <td style={{ padding:'6px 10px', color:'#dc2626', fontWeight:600 }}>{d.hf?`-${minToHM(d.hf)}`:'—'}</td>
-                          <td style={{ padding:'6px 10px', fontSize:11, color:'var(--muted-foreground)', maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{d.obs||'—'}</td>
+                          <td style={{ padding:'6px 10px', fontSize:11, color:'var(--muted-foreground)', maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{d.obs||'—'}</td>
                           <td style={{ padding:'6px 10px', fontSize:11, textAlign:'center' }}>
                             {d.lancamento_portal
                               ? <span style={{ color:'#1d4ed8', fontWeight:700 }}>● Portal</span>
-                              : <span style={{ color:'#9ca3af' }}>—</span>}
+                              : <span style={{ color:'#059669', fontWeight:700 }}>● Sistema</span>}
                           </td>
                           <td style={{ padding:'6px 10px', fontSize:11 }}>
                             {d.sincronizado
                               ? <span style={{ color:'#15803d', fontWeight:700 }}>✓ sim</span>
                               : <span style={{ color:'#b45309' }}>⏳ pendente</span>}
+                          </td>
+                          <td style={{ padding:'6px 8px', whiteSpace:'nowrap' }}>
+                            {d.editavel && d.id ? (
+                              <div style={{ display:'flex', gap:4 }}>
+                                <button
+                                  onClick={() => setEditDia({ id:d.id!, status: STATUS_OPTIONS.find(s=>s.label===d.status)?.value ?? 'presente', he:d.he, hf:d.hf, obs:d.obs })}
+                                  title="Editar" style={{ background:'none', border:'1px solid #93c5fd', borderRadius:5, padding:'3px 6px', cursor:'pointer', color:'#1d4ed8', display:'flex', alignItems:'center', gap:3, fontSize:11 }}>
+                                  <Pencil size={11}/>
+                                </button>
+                                <button
+                                  onClick={() => excluirDia(d.id!)}
+                                  disabled={deletingId===d.id}
+                                  title="Excluir" style={{ background:'none', border:'1px solid #fca5a5', borderRadius:5, padding:'3px 6px', cursor:'pointer', color:'#dc2626', display:'flex', alignItems:'center', gap:3, fontSize:11 }}>
+                                  {deletingId===d.id ? <RefreshCw size={11} className="animate-spin"/> : <Trash2 size={11}/>}
+                                </button>
+                              </div>
+                            ) : (
+                              <span style={{ color:'#d1d5db', fontSize:10 }}>—</span>
+                            )}
                           </td>
                         </tr>
                       )
@@ -1612,7 +1800,7 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
                       <td colSpan={2} style={{ padding:'7px 10px', fontSize:12 }}>TOTAIS</td>
                       <td style={{ padding:'7px 10px', color:'#15803d' }}>{minToHM(c.he)}</td>
                       <td style={{ padding:'7px 10px', color:'#dc2626' }}>{minToHM(c.hf)}</td>
-                      <td colSpan={3} style={{ padding:'7px 10px', fontSize:11, color:'var(--muted-foreground)' }}>{c.presentes} dias · {c.faltas} falta{c.faltas!==1?'s':''}</td>
+                      <td colSpan={4} style={{ padding:'7px 10px', fontSize:11, color:'var(--muted-foreground)' }}>{c.presentes} dias · {c.faltas} falta{c.faltas!==1?'s':''}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -1647,7 +1835,7 @@ export default function Solicitacoes() {
     const [o, f, c] = await Promise.all([
       supabase.from('obras').select('id,nome').eq('ativo',true).order('nome'),
       supabase.from('funcoes').select('id,nome').eq('ativo',true).order('nome'),
-      supabase.from('colaboradores').select('id,nome').eq('status','ativo').order('nome'),
+      supabase.from('colaboradores').select('id,nome,chapa,cpf').eq('status','ativo').order('nome'),
     ])
     if (o.data) setObras(o.data)
     if (f.data) setFuncoes(f.data)

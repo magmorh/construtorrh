@@ -3,8 +3,8 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   ClipboardList, AlertTriangle, Home, LogOut,
   HardHat, ShieldCheck, FileImage,
-  BookOpen, MessageSquare, FolderOpen, CalendarDays,
-  WifiOff, UserPlus, Building2, ChevronRight,
+  BookOpen, MessageSquare, FolderOpen,
+  WifiOff, UserPlus, Building2, ChevronRight, Clock, Menu, X,
 } from 'lucide-react'
 import { clearPortalSession, getPortalSession } from '@/hooks/usePortalAuth'
 
@@ -15,301 +15,250 @@ const ROUTE_LABELS: Record<string, string> = {
   '/portal/ponto':       'Ponto',
   '/portal/ocorrencias': 'Ocorrências',
   '/portal/solicitacoes':'Cadastro',
-  '/portal/producao':    'Produção',
+  '/portal/producao':    'Fichas de Produção',
   '/portal/epis':        'EPIs',
   '/portal/documentos':  'Documentos',
   '/portal/playbook':    'Playbook',
   '/portal/mensagens':   'Mensagens',
   '/portal/projetos':    'Projetos',
-  '/portal/lancamentos': 'Lançamentos',
 }
 
-// Todos os itens de navegação em uma única linha com scroll
+// ── Menu de navegação — SEM Lançamentos ──────────────────────────────────────
 const navItems = [
-  { to: '/portal/home',         icon: Home,          label: 'Início',    color: '#6366f1', bg: '#ede9fe' },
-  { to: '/portal/ponto',        icon: ClipboardList, label: 'Ponto',     color: '#0ea5e9', bg: '#e0f2fe' },
-  { to: '/portal/ocorrencias',  icon: AlertTriangle, label: 'Ocorrências', color: '#f97316', bg: '#fff7ed' },
-  { to: '/portal/producao',     icon: HardHat,       label: 'Produção',  color: '#f59e0b', bg: '#fffbeb' },
-  { to: '/portal/lancamentos',  icon: CalendarDays,  label: 'Lançamentos',color: '#14b8a6', bg: '#f0fdfa' },
-  { to: '/portal/solicitacoes', icon: UserPlus,      label: 'Cadastro',  color: '#8b5cf6', bg: '#f5f3ff' },
-  { to: '/portal/epis',         icon: ShieldCheck,   label: 'EPIs',      color: '#ef4444', bg: '#fef2f2' },
-  { to: '/portal/documentos',   icon: FileImage,     label: 'Docs',      color: '#0369a1', bg: '#eff6ff' },
-  { to: '/portal/mensagens',    icon: MessageSquare, label: 'Mensagens', color: '#7c3aed', bg: '#f5f3ff' },
-  { to: '/portal/playbook',     icon: BookOpen,      label: 'Playbook',  color: '#10b981', bg: '#f0fdf4' },
-  { to: '/portal/projetos',     icon: FolderOpen,    label: 'Projetos',  color: '#64748b', bg: '#f8fafc' },
+  { to: '/portal/home',         icon: Home,          label: 'Início',          color: '#818cf8', bg: '#eef2ff' },
+  { to: '/portal/ponto',        icon: ClipboardList, label: 'Ponto',           color: '#38bdf8', bg: '#e0f7ff' },
+  { to: '/portal/ocorrencias',  icon: AlertTriangle, label: 'Ocorrências',     color: '#fb923c', bg: '#fff4ed' },
+  { to: '/portal/producao',     icon: HardHat,       label: 'Fichas',          color: '#fbbf24', bg: '#fffbeb' },
+  { to: '/portal/solicitacoes', icon: UserPlus,      label: 'Cadastro',        color: '#a78bfa', bg: '#f5f3ff' },
+  { to: '/portal/epis',         icon: ShieldCheck,   label: 'EPIs',            color: '#f87171', bg: '#fef2f2' },
+  { to: '/portal/documentos',   icon: FileImage,     label: 'Docs',            color: '#60a5fa', bg: '#eff6ff' },
+  { to: '/portal/mensagens',    icon: MessageSquare, label: 'Mensagens',       color: '#a78bfa', bg: '#f5f3ff' },
+  { to: '/portal/playbook',     icon: BookOpen,      label: 'Playbook',        color: '#34d399', bg: '#f0fdf4' },
+  { to: '/portal/projetos',     icon: FolderOpen,    label: 'Projetos',        color: '#94a3b8', bg: '#f8fafc' },
 ]
 
 export default function PortalLayout({ children }: PortalLayoutProps) {
   const nav      = useNavigate()
   const location = useLocation()
   const user     = getPortalSession()
-  const [online, setOnline] = useState(navigator.onLine)
+  const [online,      setOnline]      = useState(navigator.onLine)
+  const [now,         setNow]         = useState(new Date())
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
     const on  = () => setOnline(true)
     const off = () => setOnline(false)
     window.addEventListener('online',  on)
     window.addEventListener('offline', off)
-    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
+    const ti = setInterval(() => setNow(new Date()), 30_000)
+    return () => {
+      window.removeEventListener('online', on)
+      window.removeEventListener('offline', off)
+      clearInterval(ti)
+    }
   }, [])
 
-  function sair() {
-    clearPortalSession()
-    nav('/portal')
-  }
+  // Fecha sidebar ao navegar (mobile)
+  useEffect(() => { setSidebarOpen(false) }, [location.pathname])
+
+  function sair() { clearPortalSession(); nav('/portal') }
 
   const paginaAtual = ROUTE_LABELS[location.pathname] ?? 'Portal'
-  // Achar o item ativo para pegar a cor
-  const itemAtivo = navItems.find(i => location.pathname.startsWith(i.to) && (i.to !== '/portal/home' || location.pathname === '/portal/home'))
-  const corAtiva  = itemAtivo?.color ?? '#6366f1'
+  const itemAtivo   = navItems.find(i => location.pathname.startsWith(i.to) && (i.to !== '/portal/home' || location.pathname === '/portal/home'))
+  const corAtiva    = itemAtivo?.color ?? '#818cf8'
+  const hora = now.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })
+  const data = now.toLocaleDateString('pt-BR', { weekday:'short', day:'2-digit', month:'short' })
 
   return (
-    <div style={{
-      minHeight: '100dvh',
-      background: '#f0f4f8',
-      display: 'flex',
-      flexDirection: 'column',
-      fontFamily: "'Inter', 'Segoe UI', sans-serif",
-      maxWidth: 480,
-      margin: '0 auto',
-      position: 'relative',
-    }}>
+    <div style={{ minHeight:'100dvh', background:'#f0f2f5', fontFamily:"'Inter','Segoe UI',sans-serif", display:'flex', flexDirection:'column' }}>
+      <style>{`
+        /* ─── TOP BAR ─── */
+        .portal-topbar {
+          background:linear-gradient(135deg,#1565C0 0%,#0D47A1 60%,#0a3880 100%);
+          padding:0 14px; height:56px;
+          display:flex; align-items:center; justify-content:space-between;
+          position:sticky; top:0; z-index:200;
+          box-shadow:0 2px 16px rgba(13,71,161,0.30);
+          gap:10;
+        }
+        /* ─── LAYOUT BODY ─── */
+        .portal-body { display:flex; flex:1; overflow:hidden; height:calc(100dvh - 56px); }
 
-      {/* ══ TOP BAR ══════════════════════════════════════════════ */}
-      <div style={{
-        background: 'linear-gradient(135deg, #0c1628 0%, #1a2f50 60%, #0f3d6e 100%)',
-        padding: '0 14px',
-        height: 58,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        position: 'sticky',
-        top: 0,
-        zIndex: 50,
-        boxShadow: '0 2px 20px rgba(0,0,0,0.35)',
-        gap: 10,
-      }}>
+        /* ─── SIDEBAR desktop (sempre visível) ─── */
+        .portal-sidebar {
+          display:none;
+          width:210px; flex-shrink:0;
+          background:#fff;
+          border-right:1.5px solid #e8edf3;
+          overflow-y:auto;
+          height:100%;
+        }
+        /* ─── SIDEBAR MOBILE (drawer) ─── */
+        .portal-sidebar-drawer {
+          position:fixed;
+          top:56px; left:0;
+          width:230px;
+          height:calc(100dvh - 56px);
+          background:#fff;
+          border-right:1.5px solid #e8edf3;
+          z-index:190;
+          overflow-y:auto;
+          box-shadow:4px 0 30px rgba(0,0,0,0.18);
+          transform:translateX(-100%);
+          transition:transform 0.22s cubic-bezier(.4,0,.2,1);
+        }
+        .portal-sidebar-drawer.open { transform:translateX(0); }
+        .portal-sidebar-overlay {
+          display:none;
+          position:fixed; inset:56px 0 0 0;
+          background:rgba(0,0,0,0.40);
+          z-index:189;
+        }
+        .portal-sidebar-overlay.open { display:block; }
 
-        {/* Esquerda: logo + info */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          {/* Logo */}
-          <div style={{
-            width: 36, height: 36, borderRadius: 11,
-            background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 3px 10px rgba(59,130,246,0.45)',
-            flexShrink: 0,
-          }}>
-            <HardHat size={17} color="#fff" strokeWidth={2.2} />
+        /* ─── MAIN ─── */
+        /* Sem padding-bottom extra — não há mais bottom nav */
+        .portal-main { flex:1; overflow-y:auto; min-width:0; padding-bottom:24px; }
+
+        /* ─── HAMBURGER — só no mobile ─── */
+        .portal-hamburger { display:flex; }
+
+        /* ─── BREAKPOINTS ─── */
+        @media (min-width:640px) {
+          .portal-sidebar { display:flex; flex-direction:column; }
+          .portal-hamburger { display:none; }
+          .portal-sidebar-drawer { display:none !important; }
+          .portal-sidebar-overlay { display:none !important; }
+        }
+        @media (min-width:1024px) {
+          .portal-sidebar { width:220px; }
+        }
+
+        @keyframes pulse-green {
+          0%,100% { box-shadow:0 0 0 2px rgba(74,222,128,0.35); }
+          50%      { box-shadow:0 0 0 5px rgba(74,222,128,0.10); }
+        }
+      `}</style>
+
+      {/* ══ TOP BAR ═══════════════════════════════════════════════════ */}
+      <div className="portal-topbar">
+        {/* Hamburger (mobile) */}
+        <button className="portal-hamburger" onClick={() => setSidebarOpen(v => !v)}
+          style={{ background:'rgba(255,255,255,0.12)', border:'1px solid rgba(255,255,255,0.18)', borderRadius:8, padding:'6px 9px', cursor:'pointer', color:'#fff', alignItems:'center', gap:4 }}>
+          {sidebarOpen ? <X size={16}/> : <Menu size={16}/>}
+        </button>
+
+        {/* Logo + obra */}
+        <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:1 }}>
+          <div style={{ width:34, height:34, borderRadius:10, flexShrink:0, background:'rgba(255,255,255,0.18)', display:'flex', alignItems:'center', justifyContent:'center', border:'1.5px solid rgba(255,255,255,0.28)' }}>
+            <HardHat size={16} color="#fff" strokeWidth={2.2}/>
           </div>
-
-          {/* Textos */}
-          <div style={{ minWidth: 0 }}>
-            <div style={{
-              color: '#fff', fontWeight: 800, fontSize: 13,
-              lineHeight: 1.15, letterSpacing: '-0.01em',
-              whiteSpace: 'nowrap',
-            }}>
-              Portal da Obra
-            </div>
-
-            {/* Obra + status online */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
-              <div style={{
-                width: 6, height: 6, borderRadius: '50%',
-                background: online ? '#4ade80' : '#f87171',
-                boxShadow: online
-                  ? '0 0 0 2px rgba(74,222,128,0.3)'
-                  : '0 0 0 2px rgba(248,113,113,0.3)',
-                flexShrink: 0,
-                animation: online ? 'pulse-green 2s infinite' : 'none',
-              }} />
-              {user?.obra_nome ? (
-                <div style={{
-                  color: 'rgba(255,255,255,0.65)', fontSize: 10.5,
-                  fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap', maxWidth: 140,
-                }}>
-                  {user.obra_nome}
-                </div>
-              ) : (
-                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10 }}>
-                  {user?.nome ?? user?.login ?? 'Encarregado'}
-                </div>
-              )}
+          <div style={{ minWidth:0 }}>
+            <div style={{ color:'#fff', fontWeight:800, fontSize:13, lineHeight:1.2, letterSpacing:'-0.01em', whiteSpace:'nowrap' }}>Portal da Obra</div>
+            <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:2 }}>
+              <div style={{ width:6, height:6, borderRadius:'50%', background: online ? '#4ade80' : '#f87171', boxShadow: online ? '0 0 0 2px rgba(74,222,128,0.35)' : '0 0 0 2px rgba(248,113,113,0.35)', flexShrink:0, animation: online ? 'pulse-green 2s infinite' : 'none' }}/>
+              <div style={{ color:'rgba(255,255,255,0.60)', fontSize:10, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:180 }}>
+                {user?.obra_nome ?? user?.login ?? 'Encarregado'}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Direita: badges + sair */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-
-          {/* Offline badge */}
+        {/* Direita */}
+        <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
           {!online && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              background: 'rgba(239,68,68,0.2)', border: '1px solid rgba(239,68,68,0.4)',
-              borderRadius: 7, padding: '3px 7px',
-              fontSize: 9.5, fontWeight: 700, color: '#fca5a5',
-            }}>
-              <WifiOff size={10} /> Offline
+            <div style={{ display:'flex', alignItems:'center', gap:4, background:'rgba(239,68,68,0.22)', border:'1px solid rgba(239,68,68,0.40)', borderRadius:7, padding:'3px 7px', fontSize:9.5, fontWeight:700, color:'#fca5a5' }}>
+              <WifiOff size={10}/> Offline
             </div>
           )}
-
-          {/* Página atual */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 4,
-            background: `${corAtiva}22`,
-            border: `1px solid ${corAtiva}44`,
-            borderRadius: 8, padding: '4px 9px',
-            fontSize: 10.5, fontWeight: 700,
-            color: '#fff',
-            whiteSpace: 'nowrap',
-          }}>
-            <div style={{
-              width: 5, height: 5, borderRadius: '50%',
-              background: corAtiva,
-              flexShrink: 0,
-            }} />
+          <div style={{ display:'flex', alignItems:'center', gap:4, background:'rgba(255,255,255,0.12)', border:'1px solid rgba(255,255,255,0.18)', borderRadius:8, padding:'4px 9px' }}>
+            <Clock size={10} color="rgba(255,255,255,0.70)"/>
+            <span style={{ fontSize:11, fontWeight:700, color:'#fff', whiteSpace:'nowrap' }}>{hora}</span>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:4, background:`${corAtiva}25`, border:`1px solid ${corAtiva}45`, borderRadius:8, padding:'4px 9px', fontSize:10.5, fontWeight:700, color:'#fff', whiteSpace:'nowrap' }}>
+            <div style={{ width:5, height:5, borderRadius:'50%', background:corAtiva, flexShrink:0 }}/>
             {paginaAtual}
           </div>
-
-          {/* Botão Sair */}
-          <button onClick={sair} style={{
-            background: 'rgba(239,68,68,0.12)',
-            border: '1px solid rgba(239,68,68,0.25)',
-            borderRadius: 8, padding: '6px 9px',
-            cursor: 'pointer', color: '#fca5a5',
-            display: 'flex', alignItems: 'center', gap: 3,
-            fontSize: 10.5, fontWeight: 700, transition: 'all 0.15s',
-          }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.28)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.12)')}
+          <button onClick={sair}
+            style={{ background:'rgba(239,68,68,0.14)', border:'1px solid rgba(239,68,68,0.28)', borderRadius:8, padding:'6px 9px', cursor:'pointer', color:'#fca5a5', display:'flex', alignItems:'center', gap:3, fontSize:10.5, fontWeight:700 }}
           >
-            <LogOut size={12} /> Sair
+            <LogOut size={12}/> Sair
           </button>
         </div>
       </div>
 
-      {/* ── Colaborador info bar (quando logado) ────────────── */}
-      {user?.nome && user?.obra_nome && (
-        <div style={{
-          background: 'linear-gradient(90deg, #1e3a5f 0%, #0f4c75 100%)',
-          padding: '5px 14px',
-          display: 'flex', alignItems: 'center', gap: 6,
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
-        }}>
-          <div style={{
-            width: 22, height: 22, borderRadius: 7,
-            background: `linear-gradient(135deg, ${corAtiva} 0%, ${corAtiva}99 100%)`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 9, fontWeight: 800, color: '#fff',
-            flexShrink: 0,
-          }}>
+      {/* ── Colaborador strip ────────────────────────────────────────── */}
+      {user?.nome && (
+        <div style={{ background:'#fff', padding:'6px 14px', display:'flex', alignItems:'center', gap:8, borderBottom:'1px solid #e8edf3', boxShadow:'0 1px 4px rgba(0,0,0,0.04)', zIndex:195, position:'sticky', top:56 }}>
+          <div style={{ width:26, height:26, borderRadius:8, flexShrink:0, background:'linear-gradient(135deg,#1565C0 0%,#0D47A1 100%)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:800, color:'#fff' }}>
             {user.nome.charAt(0).toUpperCase()}
           </div>
-          <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 10.5, fontWeight: 600 }}>
-            {user.nome}
-          </div>
-          <ChevronRight size={10} color="rgba(255,255,255,0.3)" />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <Building2 size={10} color="rgba(255,255,255,0.45)" />
-            <div style={{
-              color: 'rgba(255,255,255,0.55)', fontSize: 10.5,
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              maxWidth: 200,
-            }}>
-              {user.obra_nome}
+          <div style={{ fontSize:12, fontWeight:700, color:'#1e293b', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user.nome}</div>
+          {user.obra_nome && (<>
+            <ChevronRight size={10} color="#cbd5e1"/>
+            <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+              <Building2 size={11} color="#94a3b8"/>
+              <div style={{ fontSize:11, color:'#64748b', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:200 }}>{user.obra_nome}</div>
             </div>
-          </div>
+          </>)}
+          <span style={{ marginLeft:'auto', fontSize:10, color:'#94a3b8', fontWeight:500, whiteSpace:'nowrap' }}>{data}</span>
         </div>
       )}
 
-      {/* ══ CONTENT ═══════════════════════════════════════════════ */}
-      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 76 }}>
-        {children}
+      {/* ══ BODY ═══════════════════════════════════════════════════════ */}
+      <div className="portal-body">
+
+        {/* SIDEBAR — desktop (sempre visível) */}
+        <aside className="portal-sidebar">
+          <SidebarContent navItems={navItems} location={location} onClick={() => {}} />
+        </aside>
+
+        {/* SIDEBAR DRAWER — mobile */}
+        <div className={`portal-sidebar-overlay${sidebarOpen ? ' open' : ''}`} onClick={() => setSidebarOpen(false)} />
+        <aside className={`portal-sidebar-drawer${sidebarOpen ? ' open' : ''}`}>
+          <SidebarContent navItems={navItems} location={location} onClick={() => setSidebarOpen(false)} />
+        </aside>
+
+        {/* MAIN CONTENT */}
+        <main className="portal-main">
+          {children}
+        </main>
       </div>
+      {/* ── Sem bottom nav — menu está na lateral ── */}
+    </div>
+  )
+}
 
-      {/* ══ BOTTOM NAV — única linha com scroll ════════════════════ */}
-      <nav style={{
-        position: 'fixed',
-        bottom: 0,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        width: '100%',
-        maxWidth: 480,
-        background: '#ffffff',
-        borderTop: '1.5px solid #e8edf3',
-        boxShadow: '0 -4px 24px rgba(0,0,0,0.10)',
-        zIndex: 50,
-        paddingBottom: 'env(safe-area-inset-bottom)',
-        overflowX: 'auto',
-      }}>
-        <div style={{
-          display: 'flex',
-          minWidth: 'max-content',
-          padding: '0 2px',
-        }}>
-          {navItems.map(item => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === '/portal/home'}
-              style={({ isActive }) => ({
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '8px 0 6px',
-                minWidth: 60,
-                textDecoration: 'none',
-                color: isActive ? item.color : '#94a3b8',
-                borderTop: isActive ? `2.5px solid ${item.color}` : '2.5px solid transparent',
-                background: isActive ? `${item.color}0d` : 'transparent',
-                transition: 'all 0.15s',
-                position: 'relative',
-                flexShrink: 0,
-              })}
-            >
-              {({ isActive }) => (
-                <>
-                  <div style={{
-                    width: 34, height: 34, borderRadius: 10,
-                    background: isActive ? item.bg : 'transparent',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    transition: 'all 0.15s',
-                    marginBottom: 2,
-                  }}>
-                    <item.icon
-                      size={isActive ? 19 : 17}
-                      strokeWidth={isActive ? 2.5 : 1.8}
-                      color={isActive ? item.color : '#94a3b8'}
-                    />
-                  </div>
-                  <span style={{
-                    fontSize: 8.5,
-                    fontWeight: isActive ? 800 : 500,
-                    lineHeight: 1,
-                    whiteSpace: 'nowrap',
-                    color: isActive ? item.color : '#94a3b8',
-                    letterSpacing: isActive ? '0.01em' : '0',
-                  }}>
-                    {item.label}
-                  </span>
-                </>
-              )}
-            </NavLink>
-          ))}
-        </div>
-      </nav>
-
-      <style>{`
-        nav::-webkit-scrollbar { display: none; }
-        @keyframes pulse-green {
-          0%, 100% { box-shadow: 0 0 0 2px rgba(74,222,128,0.3); }
-          50%       { box-shadow: 0 0 0 4px rgba(74,222,128,0.15); }
-        }
-      `}</style>
+// ── Componente do conteúdo da sidebar ────────────────────────────────────────
+function SidebarContent({ navItems, location, onClick }: { navItems: any[], location: any, onClick: () => void }) {
+  return (
+    <div style={{ paddingTop:8, paddingBottom:24 }}>
+      {navItems.map((item: any) => {
+        const isActive = location.pathname.startsWith(item.to) && (item.to !== '/portal/home' || location.pathname === '/portal/home')
+        return (
+          <NavLink key={item.to} to={item.to} end={item.to === '/portal/home'}
+            onClick={onClick}
+            style={({ isActive: a }) => ({
+              display:'flex', alignItems:'center', gap:10,
+              padding:'10px 16px',
+              textDecoration:'none',
+              color: a ? item.color : '#64748b',
+              fontWeight: a ? 700 : 600,
+              fontSize:13,
+              background: a ? `${item.bg}` : 'transparent',
+              borderLeft: a ? `3px solid ${item.color}` : '3px solid transparent',
+              transition:'all 0.15s',
+            })}
+          >
+            {({ isActive: a }) => (<>
+              <div style={{ width:32, height:32, borderRadius:9, background: a ? item.bg : '#f1f5f9', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.15s' }}>
+                <item.icon size={16} strokeWidth={a ? 2.5 : 1.8} color={a ? item.color : '#94a3b8'} />
+              </div>
+              <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.label}</span>
+            </>)}
+          </NavLink>
+        )
+      })}
     </div>
   )
 }

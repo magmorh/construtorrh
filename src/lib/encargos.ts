@@ -13,14 +13,15 @@ export const DEFAULT_INSS: FaixaINSS[] = [
 ]
 
 // Nova tabela IR 2026: isenção progressiva até R$5.000
+// MP 1.294/2025 — quem ganha até R$5.000 bruto está isento de IR
 export const DEFAULT_IR: FaixaIR[] = [
   { id: '1', faixa_ate: '2428.80',  aliquota: '0',    deducao: '0',      descricao: 'Isento' },
-  { id: '2', faixa_ate: '2826.65',  aliquota: '7.5',  deducao: '182.16', descricao: 'Isento até completar R$5.000' },
-  { id: '3', faixa_ate: '3751.05',  aliquota: '15.0', deducao: '394.16', descricao: 'Isento até completar R$5.000' },
-  { id: '4', faixa_ate: '4664.68',  aliquota: '22.5', deducao: '675.49', descricao: 'Isento até completar R$5.000' },
-  { id: '5', faixa_ate: '5000.00',  aliquota: '27.5', deducao: '908.73', descricao: 'Isento total (regra nova)' },
-  { id: '6', faixa_ate: '7350.00',  aliquota: '27.5', deducao: '908.73', descricao: 'Aplicar redução progressiva' },
-  { id: '7', faixa_ate: '999999',   aliquota: '27.5', deducao: '908.73', descricao: 'Tabela normal (sem desconto)' },
+  { id: '2', faixa_ate: '2826.65',  aliquota: '7.5',  deducao: '182.16', descricao: '7,5%' },
+  { id: '3', faixa_ate: '3751.05',  aliquota: '15.0', deducao: '394.16', descricao: '15%' },
+  { id: '4', faixa_ate: '4664.68',  aliquota: '22.5', deducao: '675.49', descricao: '22,5%' },
+  { id: '5', faixa_ate: '5000.00',  aliquota: '0',    deducao: '0',      descricao: 'Isento total — Nova lei 2026 (≤ R$5.000)' },
+  { id: '6', faixa_ate: '7350.00',  aliquota: '27.5', deducao: '908.73', descricao: '27,5% com dedução' },
+  { id: '7', faixa_ate: '999999',   aliquota: '27.5', deducao: '908.73', descricao: 'Tabela normal' },
 ]
 
 /** Calcula INSS usando tabela progressiva com dedução */
@@ -40,20 +41,25 @@ export function calcINSS(salario: number, tabela: FaixaINSS[] = DEFAULT_INSS): n
 }
 
 /**
- * Calcula IR com a nova regra 2026:
- * - Até R$2.428,80   → isento
- * - R$2.428,81–R$5.000 → aplica tabela com desconto progressivo (resultado isento se ≤ 0)
- * - Acima R$5.000    → tabela normal (sem desconto extra)
- * Base de cálculo = salário − INSS
+ * Calcula IR com a nova regra 2026 (MP 1.294/2025):
+ * - Salário BRUTO ≤ R$5.000 → ISENTO (independente da base de cálculo)
+ * - Acima de R$5.000 bruto  → aplica tabela progressiva sobre (bruto − INSS)
+ *
+ * IMPORTANTE: a isenção é sobre o SALÁRIO BRUTO, não sobre a base (bruto−INSS).
+ * Para bruto=R$5.000 a base seria ≈R$4.498 (faixa 22,5%) → sem a regra, geraria IR.
+ * A verificação de bruto ≤ R$5.000 garante isenção total conforme a lei.
  */
 export function calcIR(salario: number, inss: number, tabela: FaixaIR[] = DEFAULT_IR): number {
+  // Nova regra 2026: quem ganha até R$5.000 BRUTO está isento
+  if (salario <= 5000) return 0
+
   const base = salario - inss
   if (base <= 0) return 0
 
   for (const f of tabela) {
     const ate = parseFloat(f.faixa_ate)
     if (base <= ate) {
-      const aliq   = parseFloat(f.aliquota) / 100
+      const aliq    = parseFloat(f.aliquota) / 100
       const deducao = parseFloat(f.deducao)
       const ir = base * aliq - deducao
       return Math.max(0, ir)

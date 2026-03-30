@@ -1,8 +1,7 @@
-import React, { useState, useCallback } from 'react'
-import { useRefreshOnFocus } from '@/hooks/useRefreshOnFocus'
+import React, { useState, useCallback, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
-import { calcINSS, calcIR } from '@/lib/encargos'
+import { calcINSS, calcIR, fetchTabelasEncargos } from '@/lib/encargos'
 import { PageHeader, LoadingSkeleton, EmptyState, SummaryCard } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,7 +11,7 @@ import {
   Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { traduzirErro } from '@/lib/erros'
-import { Briefcase, Download, Search } from 'lucide-react'
+import { Briefcase, Download } from 'lucide-react'
 import { toast } from 'sonner'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -91,11 +90,32 @@ export default function EncargosPage() {
   const [loading,  setLoading]  = useState(false)
   const [calculado, setCalculado] = useState(false)
   const [busca,    setBusca]    = useState('')
+  // alíquotas da empresa lidas do banco
+  const [fgtsAliq,        setFgtsAliq]        = useState(0.08)
+  const [inssPatronalAliq, setInssPatronalAliq] = useState(0.20)
+  const [ratAliq,         setRatAliq]         = useState(0.035)
+  // coeficientes de HE lidos do banco
+  const [heCoef50,  setHeCoef50]  = useState(1.6)   // HE dia útil (padrão CLT = 60%)
+  const [heCoef100, setHeCoef100] = useState(2.0)   // Dom/Feriado (padrão = 100%)
 
-  // ── Calcular ────────────────────────────────────────────────────────────────
+  // Carrega alíquotas e coeficientes configurados no banco
+  useEffect(() => {
+    supabase.from('configuracoes').select('chave, valor')
+      .in('chave', ['fgts_aliquota', 'inss_patronal_aliquota', 'rat_aliquota', 'he_percentual_60', 'he_percentual_100'])
+      .then(({ data }) => {
+        const m: Record<string,string> = {}
+        ;(data ?? []).forEach((r: any) => { m[r.chave] = r.valor })
+        if (m['fgts_aliquota'])          setFgtsAliq(parseFloat(m['fgts_aliquota']) / 100 || 0.08)
+        if (m['inss_patronal_aliquota']) setInssPatronalAliq(parseFloat(m['inss_patronal_aliquota']) / 100 || 0.20)
+        if (m['rat_aliquota'])           setRatAliq(parseFloat(m['rat_aliquota']) / 100 || 0.035)
+        if (m['he_percentual_60'])  setHeCoef50 (1 + (parseFloat(m['he_percentual_60'])  || 60)  / 100)
+        if (m['he_percentual_100']) setHeCoef100(1 + (parseFloat(m['he_percentual_100']) || 100) / 100)
+      })
+  }, [])
+
+  // ── Calcular — agora automático ao mudar mês/ano ─────────────────────────
   const calcular = useCallback(async () => {
     setLoading(true)
-    setCalculado(false)
     try {
       const mesRef    = `${ano}-${String(mes).padStart(2, '0')}`
       const mesRefIni = `${mesRef}-01`
@@ -117,7 +137,7 @@ export default function EncargosPage() {
 
       if (errL) throw new Error(traduzirErro(errL?.message ?? String(errL)))
       if (!lancsRaw || lancsRaw.length === 0) {
-        setLinhas([]); setCalculado(true); return
+        setLinhas([]); return
       }
 
       // 2. Somente CLT — autônomos/PJ sem tipo_contrato definido são excluídos
@@ -125,7 +145,7 @@ export default function EncargosPage() {
         l => l.colaboradores?.tipo_contrato === 'clt'
       )
       if (lancsCLT.length === 0) {
-        setLinhas([]); setCalculado(true); return
+        setLinhas([]); return
       }
 
       // ── Dados complementares para lançamentos SEM snap (em aberto) ──────────
@@ -167,13 +187,17 @@ export default function EncargosPage() {
         })
       }
 
-      // 3. Processar cada lançamento individualmente (1 linha por lançamento)
+      // 3. Busca tabelas INSS/IR salvas no banco
+      const { tabelaInss, tabelaIR } = await fetchTabelasEncargos(supabase)
+
+      // 4. Processar cada lançamento individualmente (1 linha por lançamento)
       const resultado: LinhaEncargo[] = []
 
       for (const l of lancsCLT) {
         const colab = l.colaboradores as any
 
         // ── Caso A: snap disponível (lançamento fechado/liberado/pago) ─────────
+        // REGRA DE OURO: lançamentos fechados usam SEMPRE o snapshot gravado
         let valorHoras   = 0
         let valorDSR     = 0
         let valorProducao = 0
@@ -186,6 +210,7 @@ export default function EncargosPage() {
         let liquido      = 0
 
         if (l.snap_valor_total != null) {
+          // Snapshot: valores fixos do momento do fechamento — não recalcula
           valorHoras    = l.snap_valor_horas    ?? 0
           valorDSR      = l.snap_valor_dsr      ?? 0
           valorProducao = l.snap_valor_producao  ?? 0
@@ -197,25 +222,26 @@ export default function EncargosPage() {
           ir            = l.snap_ir              ?? 0
           liquido       = l.snap_liquido         ?? (salarioBruto - descontoVT - descontoAD - inss - ir)
         } else {
-          // ── Caso B: recalcular (lançamento ainda em aberto) ─────────────────
+          // ── Caso B: lançamento ainda em aberto — recalcula com tabelas atuais
           const funcaoId  = colab?.funcao_id ?? null
           const vh        = funcaoId ? (valorHoraMap[funcaoId] ?? 0) : (l.snap_valor_hora ?? 0)
           const pt        = pontosMap[l.id] ?? { normais: 0, extras: 0 }
           const duDias    = diasUteisPeriodo(l.data_inicio, l.data_fim, feriadosSet)
           const domFer    = domingosFeriadosPeriodo(l.data_inicio, l.data_fim, feriadosSet)
 
-          valorHoras    = pt.normais * vh + pt.extras * vh * 1.5
+          valorHoras    = pt.normais * vh + pt.extras * vh * heCoef50
           valorDSR      = duDias > 0 ? (valorHoras / duDias) * domFer : 0
           salarioBruto  = valorHoras + valorDSR
-          inss          = calcINSS(salarioBruto)
-          ir            = calcIR(salarioBruto, inss)
+          // Usa tabelas salvas no banco (não defaults hardcoded)
+          inss          = calcINSS(salarioBruto, tabelaInss)
+          ir            = calcIR(salarioBruto, inss, tabelaIR)
           liquido       = salarioBruto - inss - ir
         }
 
-        // encargos empresa sempre calculados sobre bruto
-        const fgts         = salarioBruto * 0.08
-        const inssPatronal = salarioBruto * 0.20
-        const rat          = salarioBruto * 0.035
+        // Encargos da empresa — usa alíquotas do banco (via estado)
+        const fgts         = salarioBruto * fgtsAliq
+        const inssPatronal = salarioBruto * inssPatronalAliq
+        const rat          = salarioBruto * ratAliq
         const totalEmpresa = fgts + inssPatronal + rat
 
         resultado.push({
@@ -243,13 +269,16 @@ export default function EncargosPage() {
 
       resultado.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
       setLinhas(resultado)
-      setCalculado(true)
     } catch (err: any) {
-      toast.error(err?.message ?? 'Erro ao calcular encargos')
+      toast.error(err?.message ?? 'Erro ao carregar encargos')
     } finally {
       setLoading(false)
+      setCalculado(true)
     }
-  }, [mes, ano])
+  }, [mes, ano, fgtsAliq, inssPatronalAliq, ratAliq, heCoef50, heCoef100])
+
+  // Carrega automaticamente quando muda o período
+  useEffect(() => { calcular() }, [calcular])
 
   // ── Exportar CSV ────────────────────────────────────────────────────────────
   const exportarCSV = useCallback(() => {
@@ -354,13 +383,8 @@ export default function EncargosPage() {
           </Select>
         </div>
 
-        <Button onClick={calcular} disabled={loading} className="mb-0.5">
-          <Search className="w-4 h-4 mr-2" />
-          {loading ? 'Calculando…' : 'Calcular'}
-        </Button>
-
-        {/* Busca — só aparece após calcular */}
-        {calculado && linhas.length > 0 && (
+        {/* Busca — visível assim que há linhas */}
+        {linhas.length > 0 && (
           <div className="flex flex-col gap-1 flex-1 min-w-48">
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Buscar</span>
             <input
@@ -637,12 +661,12 @@ export default function EncargosPage() {
         </>
       )}
 
-      {/* Estado inicial */}
-      {!loading && !calculado && (
+      {/* Estado vazio */}
+      {!loading && linhas.length === 0 && (
         <EmptyState
-          icon={<Search size={32} />}
-          title="Selecione o período"
-          description="Escolha o mês e o ano e clique em Calcular para visualizar os encargos trabalhistas."
+          icon={<Briefcase size={32} />}
+          title="Nenhum encargo encontrado"
+          description="Não há lançamentos CLT aprovados para este período."
         />
       )}
     </div>

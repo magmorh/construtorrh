@@ -52,6 +52,7 @@ export interface Obra {
   status: 'em_andamento' | 'concluida' | 'pausada' | 'cancelada'
   observacoes: string | null
   considera_sabado_util: boolean | null
+  desconta_vt: boolean | null    // obra desconta 6% do salário bruto no VT (somente CLT)
 }
 
 export interface Colaborador {

@@ -423,7 +423,7 @@ export default function Dashboard() {
       }
   }, [])
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => { fetchAll(); const t = setInterval(fetchAll, 120_000); return () => clearInterval(t) }, [fetchAll])
   useRefreshOnFocus(fetchAll)
 
   // ── Saudação ao usuário ────────────────────────────────────────────────────
@@ -477,7 +477,7 @@ export default function Dashboard() {
           )}
           {d.lancamentosAguardando > 0 && (
             <div
-              onClick={() => navigate('/fechamento')}
+              onClick={() => navigate('/fechamento-ponto')}
               style={{
                 background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 9,
                 padding: '9px 16px', display: 'flex', alignItems: 'center', gap: 10,
@@ -630,7 +630,7 @@ export default function Dashboard() {
                 ✅ Atividade Recente
               </CardTitle>
               <button
-                onClick={() => navigate('/fechamento')}
+                onClick={() => navigate('/fechamento-ponto')}
                 style={{ fontSize: 11, color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 2 }}
               >
                 Ver tudo <ChevronRight size={12} />

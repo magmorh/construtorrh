@@ -146,6 +146,7 @@ export default function Juridico() {
   // ── Gerar PDF do dossiê completo ─────────────────────────────────────────
   async function gerarPDF() {
     if (!fichaData.colab) return
+    toast.info('⏳ Gerando dossiê completo…')
     const emp     = await fetchEmpresaData()
     const d       = fichaData.colab as any
     const ocs     = (fichaData.ocorrencias    as any[]) ?? []
@@ -172,127 +173,186 @@ export default function Juridico() {
     const totalFaltas = regs.filter((r:any) => r.falta).length
     const totalHExtra = regs.reduce((s:number, r:any) => s + (r.horas_extras ?? 0), 0)
 
+    // ── Utilitários ──────────────────────────────────────────────────────
+    const fmtDate = (s:string|null) => s ? new Date(s+'T12:00:00').toLocaleDateString('pt-BR') : '—'
+    const fmtCur  = (v:number|null) => v != null ? v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) : '—'
+    const fmtMes  = (s:string|null) => { if (!s) return '—'; const [y,m] = s.split('-'); return `${m}/${y}` }
+    const campo   = (l:string, v:string) => `<div class="campo"><span class="lbl">${l}</span><span class="val">${v}</span></div>`
+    const vazio   = '<div class="vazio">Nenhum registro encontrado</div>'
+    const pill    = (v:string, cor?:string) => `<span class="pill" style="${cor?`background:${cor};color:#fff`:''}">${v}</span>`
+    const table   = (headers:string[], rows:string[][]) =>
+      `<table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+
+    // ── Converter URL para base64 (imagem inline) ────────────────────────
+    async function urlToBase64(url: string): Promise<{ b64: string; mime: string } | null> {
+      try {
+        const resp = await fetch(url, { mode: 'cors' })
+        if (!resp.ok) return null
+        const blob = await resp.blob()
+        return new Promise(resolve => {
+          const reader = new FileReader()
+          reader.onload = () => {
+            const result = reader.result as string
+            const mime = blob.type || 'application/octet-stream'
+            resolve({ b64: result, mime })
+          }
+          reader.onerror = () => resolve(null)
+          reader.readAsDataURL(blob)
+        })
+      } catch { return null }
+    }
+
+    // ── Coletar TODOS os arquivos do colaborador ─────────────────────────
+    interface ArquivoInfo { label: string; url: string; categoria: string; emoji: string; data?: string }
+    const arquivos: ArquivoInfo[] = [
+      ...docs.filter((x:any) => x.arquivo_url || x.documento_url)
+        .map((x:any) => ({ label: x.nome ?? x.tipo ?? 'Documento', url: x.arquivo_url ?? x.documento_url, categoria: 'Documentos Pessoais', emoji: '📄', data: x.data ?? x.created_at })),
+      ...docsAv.filter((x:any) => x.documento_url)
+        .map((x:any) => ({ label: x.documento_nome ?? x.descricao ?? x.tipo, url: x.documento_url, categoria: 'Documentos Avulsos', emoji: '📎', data: x.data })),
+      ...advs.filter((x:any) => x.documento_url || x.arquivo_url)
+        .map((x:any) => ({ label: `Advertência — ${x.tipo} — ${fmtDate(x.data_advertencia)}`, url: x.documento_url ?? x.arquivo_url, categoria: 'Advertências', emoji: '⚠️', data: x.data_advertencia })),
+      ...ats.filter((x:any) => x.documento_url || x.arquivo_url)
+        .map((x:any) => ({ label: `Atestado — ${fmtDate(x.data)} (${x.dias_afastamento ?? 0}d)`, url: x.documento_url ?? x.arquivo_url, categoria: 'Atestados', emoji: '🏥', data: x.data })),
+      ...acids.filter((x:any) => x.documento_url || x.arquivo_url)
+        .map((x:any) => ({ label: `Acidente — ${x.tipo ?? 'sem tipo'} — ${fmtDate(x.data_ocorrencia)}`, url: x.documento_url ?? x.arquivo_url, categoria: 'Acidentes', emoji: '🚨', data: x.data_ocorrencia })),
+      ...ocs.filter((x:any) => x.documento_url || x.arquivo_url)
+        .map((x:any) => ({ label: `Ocorrência — ${x.tipo ?? x.descricao?.slice(0,30)} — ${fmtDate(x.data)}`, url: x.documento_url ?? x.arquivo_url, categoria: 'Ocorrências', emoji: '📋', data: x.data })),
+      ...epis.filter((x:any) => x.documento_url || x.arquivo_url)
+        .map((x:any) => ({ label: `EPI — ${x.epi_catalogo?.nome ?? 'EPI'} — Entrega ${fmtDate(x.data_entrega)}`, url: x.documento_url ?? x.arquivo_url, categoria: 'EPIs', emoji: '🦺', data: x.data_entrega })),
+    ]
+
+    // ── Fazer fetch de todos os arquivos em paralelo ──────────────────────
+    toast.info(`⏳ Carregando ${arquivos.length} arquivo(s)…`)
+    const arquivosComConteudo = await Promise.all(
+      arquivos.map(async a => {
+        const res = await urlToBase64(a.url)
+        return { ...a, conteudo: res }
+      })
+    )
+
+    // ── CSS ──────────────────────────────────────────────────────────────
     const CSS = `
       *{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
       body{font-family:Arial,sans-serif;font-size:11px;color:#111;background:#fff;padding:18px}
       .capa{background:linear-gradient(135deg,#1e3a5f,#2d5a9e);color:#fff;border-radius:10px;padding:28px 32px;margin-bottom:22px;display:flex;justify-content:space-between;align-items:flex-start}
-      .capa h1{font-size:22px;font-weight:900;margin-bottom:6px}
-      .capa .sub{font-size:11px;opacity:.8;margin-top:3px}
-      .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700}
-      .badge-ativo{background:#86efac;color:#14532d}
-      .badge-inativo{background:#fca5a5;color:#7f1d1d}
-      .badge-ferias{background:#bfdbfe;color:#1e3a8a}
-      .badge-afastado{background:#fde68a;color:#78350f}
-      .stats{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:18px}
-      .stat{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;text-align:center}
-      .stat .val{font-size:18px;font-weight:900;color:#1e3a5f}
-      .stat .lbl{font-size:9px;text-transform:uppercase;color:#94a3b8;font-weight:700;margin-top:3px}
+      .capa h1{font-size:22px;font-weight:800;margin:0 0 4px}
+      .capa .sub{font-size:11px;opacity:.8}
+      .capa .badge-status{background:rgba(255,255,255,.2);border-radius:20px;padding:4px 14px;font-size:12px;font-weight:700}
+      .stats{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:16px}
+      .stat{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;text-align:center}
+      .stat .val{font-size:18px;font-weight:800;color:#1e3a5f}
+      .stat .lbl{font-size:9px;color:#64748b;margin-top:2px}
       .secao{margin-bottom:18px;break-inside:avoid}
-      .sec-titulo{background:#1e3a5f;color:#fff;padding:7px 14px;font-size:11px;font-weight:800;border-radius:6px 6px 0 0;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:6px}
-      .sec-body{background:#fafafa;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 6px 6px;padding:14px}
-      .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px}
-      .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 16px}
-      .campo{display:flex;flex-direction:column;gap:2px}
-      .lbl{font-size:9px;text-transform:uppercase;color:#94a3b8;font-weight:700;letter-spacing:.04em}
-      .val{font-size:12px;color:#111;font-weight:600}
+      .sec-titulo{background:#1e3a5f;color:#fff;padding:7px 14px;font-size:12px;font-weight:700;border-radius:6px 6px 0 0}
+      .sec-body{border:1px solid #e2e8f0;border-top:none;padding:14px;border-radius:0 0 6px 6px;background:#fff}
+      .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+      .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+      .campo{padding:5px 0;border-bottom:1px solid #f1f5f9}
+      .lbl{font-size:9px;color:#94a3b8;display:block;margin-bottom:1px}
+      .val{font-size:11px;font-weight:600;color:#1e293b}
       table{width:100%;border-collapse:collapse;font-size:10.5px;margin-top:6px}
-      th{background:#e8eef6;padding:5px 8px;text-align:left;font-weight:800;border-bottom:2px solid #cbd5e1;font-size:9.5px;text-transform:uppercase;color:#374151}
-      td{padding:5px 8px;border-bottom:1px solid #e5e7eb;color:#374151}
-      tr:nth-child(even)>td{background:#f9fafb}
-      .vazio{padding:14px;text-align:center;color:#94a3b8;font-style:italic;font-size:11px}
-      .anexo-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
-      .anexo-card{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:8px;text-align:center;font-size:10px}
-      .status-pill{display:inline-block;border-radius:3px;padding:1px 6px;font-size:9px;font-weight:700}
-      .pend{background:#fef3c7;color:#b45309} .aprov{background:#dcfce7;color:#15803d}
-      .pago{background:#eff6ff;color:#1d4ed8} .canc{background:#fee2e2;color:#dc2626}
-      .falt{background:#fecaca;color:#dc2626} .pres{background:#dcfce7;color:#15803d}
-      .ass{display:flex;gap:60px;margin-top:44px;padding:0 16px}
-      .ass>div{flex:1;text-align:center;font-size:10px;color:#9ca3af}
-      .ass-linha{border-top:1px solid #9ca3af;margin-bottom:4px;margin-top:32px}
-      .destaque{background:#fef9c3;border-left:3px solid #f59e0b;padding:6px 12px;border-radius:0 6px 6px 0;font-size:11px;margin-bottom:10px;font-weight:700;color:#78350f}
-      @media print{body{padding:10px}.secao{break-inside:avoid}}
-    `
+      th{background:#1e3a5f;color:#fff;padding:5px 7px;text-align:left;font-size:9.5px}
+      td{padding:5px 7px;border-bottom:1px solid #f1f5f9}
+      tr:nth-child(even) td{background:#f8fafc}
+      .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:9px;font-weight:700;background:#e2e8f0;color:#475569}
+      .vazio{padding:10px;text-align:center;color:#94a3b8;font-style:italic;font-size:10px}
+      .ass{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:24px;padding-top:18px;border-top:1px solid #e2e8f0}
+      .ass-linha{border-top:1px solid #111;margin-bottom:6px;margin-top:30px}
+      /* GALERIA DE DOCUMENTOS */
+      .galeria-cat{margin-bottom:20px;page-break-inside:avoid}
+      .galeria-cat-titulo{background:#f1f5f9;border-left:4px solid #1e3a5f;padding:6px 12px;font-size:11px;font-weight:700;color:#1e293b;margin-bottom:10px;border-radius:0 4px 4px 0}
+      .galeria-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+      .arquivo-card{border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;page-break-inside:avoid}
+      .arquivo-header{background:#f8fafc;padding:6px 10px;display:flex;align-items:center;gap:6px;border-bottom:1px solid #e2e8f0}
+      .arquivo-nome{font-size:10px;font-weight:700;color:#1e293b;flex:1;word-break:break-word}
+      .arquivo-data{font-size:9px;color:#94a3b8;white-space:nowrap}
+      .arquivo-body{padding:8px;text-align:center;min-height:60px;display:flex;align-items:center;justify-content:center}
+      .arquivo-body img{max-width:100%;max-height:320px;border-radius:4px;object-fit:contain}
+      .arquivo-body .pdf-icon{font-size:48px;display:block;margin-bottom:8px}
+      .arquivo-body .pdf-link{color:#1d4ed8;font-size:10px;font-weight:600;text-decoration:none;border:1px solid #1d4ed8;border-radius:4px;padding:4px 12px;display:inline-block;margin-top:6px}
+      .arquivo-erro{color:#94a3b8;font-size:10px;font-style:italic}
+      @media print{body{padding:10px}.secao{break-inside:avoid}.galeria-cat{page-break-inside:avoid}.arquivo-card{page-break-inside:avoid}}`
 
-    const statusBadge = (s:string) => {
-      const map:Record<string,string> = { ativo:'badge-ativo', inativo:'badge-inativo', ferias:'badge-ferias', afastado:'badge-afastado' }
-      const lbl:Record<string,string> = { ativo:'● Ativo', inativo:'● Inativo', ferias:'● Férias', afastado:'● Afastado' }
-      return `<span class="badge ${map[s]??'badge-inativo'}">${lbl[s]??s}</span>`
-    }
-    const pill = (s:string) => {
-      const m:Record<string,string> = { pendente:'pend', aprovado:'aprov', pago:'pago', cancelado:'canc', presente:'pres', falta:'falt' }
-      return `<span class="status-pill ${m[s]??'pend'}">${s}</span>`
-    }
-    const campo = (l:string,v:string) => `<div class="campo"><span class="lbl">${l}</span><span class="val">${v}</span></div>`
-    const vazio = '<div class="vazio">Nenhum registro encontrado</div>'
+    const CABECALHO_CSS = `
+      .cabecalho-empresa{display:flex;align-items:center;gap:12px;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:16px}
+      .cab-logo{width:44px;height:44px;border-radius:6px;object-fit:contain}
+      .cab-nome{font-size:13px;font-weight:800;color:#1e293b}
+      .cab-sub{font-size:10px;color:#64748b}`
 
-    const tbl = (headers:string[], rows:string[][]) => rows.length === 0 ? vazio :
-      `<table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
-      <tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`
-
-    // Resumo de pontos por lançamento
-    const pontosHTML = pontos.length === 0 ? vazio : pontos.map((p:any) => {
+    // ── Ponto detalhado ───────────────────────────────────────────────────
+    const pontosHTML = pontos.map((p:any) => {
       const linhas = regs.filter((r:any) => r.lancamento_id === p.id || (r.colaborador_id === d.id && r.data >= `${p.mes_referencia}-01` && r.data <= `${p.mes_referencia}-31`))
       const faltas = linhas.filter((r:any) => r.falta).length
-      const hExtra = linhas.reduce((s:number,r:any) => s+(Number(r.horas_extras)??0), 0)
-      const hTrab  = linhas.reduce((s:number,r:any) => s+(Number(r.horas_trabalhadas)??0), 0)
-      return `<div style="margin-bottom:12px;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;page-break-inside:avoid">
-        <div style="background:#1e3a5f;padding:8px 14px;display:flex;justify-content:space-between;align-items:center">
-          <strong style="font-size:12px;color:#fff">${fmtMes(p.mes_referencia)} — ${p.obras?.nome ?? 'Sem obra'}</strong>
-          <span style="display:flex;gap:14px;font-size:11px;color:#93c5fd">
-            <span>📅 ${linhas.length} dias</span>
-            <span>⏱ ${hTrab.toFixed(1)}h trabalhadas</span>
-            ${hExtra > 0 ? `<span style="color:#86efac;font-weight:700">+${hExtra.toFixed(1)}h extras</span>` : ''}
-            ${faltas > 0 ? `<span style="color:#fca5a5;font-weight:700">✗ ${faltas} faltas</span>` : ''}
-          </span>
+      const hext   = linhas.reduce((s:number, r:any) => s + (r.horas_extras ?? 0), 0)
+      return `
+      <div style="margin-bottom:10px">
+        <div style="background:#f1f5f9;padding:6px 10px;font-size:10px;font-weight:700;border-radius:4px 4px 0 0;display:flex;justify-content:space-between">
+          <span>📅 ${fmtMes(p.mes_referencia)} · ${(p.obras as any)?.nome ?? '—'} · ${p.status?.toUpperCase()}</span>
+          <span style="color:#dc2626">${faltas} falta(s) · ${hext.toFixed(1)}h extra</span>
         </div>
         ${linhas.length > 0 ? `<table style="width:100%;border-collapse:collapse;font-size:10px">
-          <thead><tr style="background:#f1f5f9">
-            <th style="padding:4px 8px;text-align:left;border-bottom:1px solid #e2e8f0">Data</th>
-            <th style="padding:4px 8px;text-align:left;border-bottom:1px solid #e2e8f0">Status</th>
-            <th style="padding:4px 8px;text-align:center;border-bottom:1px solid #e2e8f0">Entrada</th>
-            <th style="padding:4px 8px;text-align:center;border-bottom:1px solid #e2e8f0">Saída Almoço</th>
-            <th style="padding:4px 8px;text-align:center;border-bottom:1px solid #e2e8f0">Retorno</th>
-            <th style="padding:4px 8px;text-align:center;border-bottom:1px solid #e2e8f0">Saída</th>
-            <th style="padding:4px 8px;text-align:center;border-bottom:1px solid #e2e8f0">H.Trab</th>
-            <th style="padding:4px 8px;text-align:center;border-bottom:1px solid #e2e8f0">H.Extra</th>
-            <th style="padding:4px 8px;text-align:left;border-bottom:1px solid #e2e8f0">Obs</th>
+          <thead><tr style="background:#1e3a5f;color:#fff">
+            <th style="padding:3px 5px">Data</th><th style="padding:3px 5px">Entrada</th>
+            <th style="padding:3px 5px">Saída</th><th style="padding:3px 5px">HT</th>
+            <th style="padding:3px 5px">HE</th><th style="padding:3px 5px">Status</th><th style="padding:3px 5px">Obs</th>
           </tr></thead>
-          <tbody>${linhas.map((r:any,idx:number) => `<tr style="background:${r.falta?'#fff5f5':idx%2===0?'#fff':'#f8fafc'};border-bottom:1px solid #f1f5f9">
-            <td style="padding:4px 8px;font-weight:600">${fmtDate(r.data)}</td>
-            <td style="padding:4px 8px"><span style="font-weight:700;color:${r.falta?'#dc2626':'#15803d'};font-size:10px">${r.falta?'✗ FALTA':r.presente?'✓ Presente':r.status??'—'}</span></td>
-            <td style="padding:4px 8px;text-align:center;font-family:monospace">${r.hora_entrada||'—'}</td>
-            <td style="padding:4px 8px;text-align:center;font-family:monospace">${r.saida_almoco||'—'}</td>
-            <td style="padding:4px 8px;text-align:center;font-family:monospace">${r.retorno_almoco||'—'}</td>
-            <td style="padding:4px 8px;text-align:center;font-family:monospace">${r.hora_saida||'—'}</td>
-            <td style="padding:4px 8px;text-align:center;font-weight:600">${r.horas_trabalhadas?r.horas_trabalhadas+'h':'—'}</td>
-            <td style="padding:4px 8px;text-align:center;font-weight:700;color:${Number(r.horas_extras)>0?'#15803d':'#94a3b8'}">${Number(r.horas_extras)>0?'+'+r.horas_extras+'h':'—'}</td>
-            <td style="padding:4px 8px;font-size:10px;color:#64748b">${(r.observacoes??r.justificativa??'').substring(0,35)}</td>
-          </tr>`).join('')}</tbody>
-          <tfoot><tr style="background:#f1f5f9;font-weight:700">
-            <td colspan="6" style="padding:5px 8px;font-size:10px">TOTAIS</td>
-            <td style="padding:5px 8px;text-align:center;font-size:10px">${hTrab.toFixed(1)}h</td>
-            <td style="padding:5px 8px;text-align:center;font-size:10px;color:#15803d">${hExtra>0?'+'+hExtra.toFixed(1)+'h':'—'}</td>
-            <td></td>
-          </tr></tfoot>
-        </table>` : '<div style="padding:10px;text-align:center;font-size:11px;color:#64748b;font-style:italic">Nenhum dia registrado</div>'}
+          <tbody>${linhas.map((r:any,i:number) => `
+            <tr style="${r.falta?'background:#fef2f2':i%2===0?'background:#fff':'background:#f8fafc'}">
+              <td style="padding:3px 5px">${fmtDate(r.data)}</td>
+              <td style="padding:3px 5px">${r.hora_entrada??'—'}</td>
+              <td style="padding:3px 5px">${r.hora_saida??'—'}</td>
+              <td style="padding:3px 5px">${r.horas_trabalhadas!=null?(r.horas_trabalhadas.toFixed?.(1)+'h'):'—'}</td>
+              <td style="padding:3px 5px;color:${(r.horas_extras??0)>0?'#15803d':'#111'};font-weight:${(r.horas_extras??0)>0?700:400}">${r.horas_extras!=null&&r.horas_extras>0?(r.horas_extras.toFixed?.(1)+'h'):'—'}</td>
+              <td style="padding:3px 5px">${r.falta?'<span style="color:#dc2626;font-weight:700">FALTA</span>':r.status??'—'}</td>
+              <td style="padding:3px 5px;font-size:9px;color:#64748b">${r.observacoes??r.justificativa??''}</td>
+            </tr>`).join('')}
+          </tbody></table>` : '<div style="padding:10px;text-align:center;font-size:11px;color:#64748b;font-style:italic">Nenhum dia registrado</div>'}
       </div>`
-    }).join('')
+    }).join('') || vazio
 
-    // Anexos
-    const todosAnexos = [
-      ...docs.filter((d2:any) => d2.arquivo_url).map((d2:any) => ({ nome: d2.nome ?? d2.tipo, url: d2.arquivo_url, tipo: 'Documento' })),
-      ...docsAv.filter((d2:any) => d2.documento_url).map((d2:any) => ({ nome: d2.documento_nome ?? d2.tipo, url: d2.documento_url, tipo: 'Avulso' })),
-      ...advs.filter((a:any) => a.arquivo_url).map((a:any) => ({ nome: 'Advertência ' + fmtDate(a.data_advertencia), url: a.arquivo_url, tipo: 'Advertência' })),
-      ...ats.filter((a:any) => a.arquivo_url).map((a:any) => ({ nome: 'Atestado ' + fmtDate(a.data), url: a.arquivo_url, tipo: 'Atestado' })),
-    ]
-    const anexosHTML = todosAnexos.length === 0 ? vazio :
-      `<div class="anexo-grid">${todosAnexos.map(a => `
-        <div class="anexo-card">
-          <div style="font-size:18px;margin-bottom:4px">📎</div>
-          <div style="font-weight:700;word-break:break-word">${a.nome}</div>
-          <div style="font-size:9px;color:#94a3b8;margin:3px 0">${a.tipo}</div>
-          <a href="${a.url}" target="_blank" style="font-size:9px;color:#1d4ed8">Abrir ↗</a>
-        </div>`).join('')}</div>`
+    // ── Montar galeria de documentos ──────────────────────────────────────
+    const categorias: Record<string, typeof arquivosComConteudo> = {}
+    for (const a of arquivosComConteudo) {
+      if (!categorias[a.categoria]) categorias[a.categoria] = []
+      categorias[a.categoria].push(a)
+    }
+
+    const galeriaHTML = Object.keys(categorias).length === 0 ? vazio :
+      Object.entries(categorias).map(([cat, items]) => `
+        <div class="galeria-cat">
+          <div class="galeria-cat-titulo">${items[0].emoji} ${cat} (${items.length})</div>
+          <div class="galeria-grid">
+            ${items.map(a => {
+              const c = a.conteudo
+              let bodyHtml = ''
+              if (!c) {
+                bodyHtml = `<div class="arquivo-erro">⚠️ Não foi possível carregar o arquivo</div>
+                  <a href="${a.url}" target="_blank" class="pdf-link" style="margin-top:6px">Abrir original ↗</a>`
+              } else if (c.mime.startsWith('image/')) {
+                bodyHtml = `<img src="${c.b64}" alt="${a.label}" />`
+              } else if (c.mime === 'application/pdf') {
+                bodyHtml = `<div><span class="pdf-icon">📄</span>
+                  <div style="font-size:10px;color:#374151;font-weight:600;margin-bottom:8px">Arquivo PDF</div>
+                  <a href="${a.url}" target="_blank" class="pdf-link">Abrir PDF ↗</a>
+                </div>`
+              } else {
+                bodyHtml = `<div><span class="pdf-icon">📎</span>
+                  <div style="font-size:10px;color:#374151;margin-bottom:8px">${c.mime}</div>
+                  <a href="${a.url}" target="_blank" class="pdf-link">Abrir arquivo ↗</a>
+                </div>`
+              }
+              return `<div class="arquivo-card">
+                <div class="arquivo-header">
+                  <span style="font-size:14px">${a.emoji}</span>
+                  <span class="arquivo-nome">${a.label}</span>
+                  ${a.data ? `<span class="arquivo-data">${fmtDate(a.data)}</span>` : ''}
+                </div>
+                <div class="arquivo-body">${bodyHtml}</div>
+              </div>`
+            }).join('')}
+          </div>
+        </div>`).join('')
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Dossiê — ${d.nome}</title>
     <style>${CSS}\n${CABECALHO_CSS}</style></head><body>
@@ -302,23 +362,20 @@ export default function Juridico() {
       <div>
         <h1>⚖️ Dossiê Completo do Colaborador</h1>
         <div class="sub">${emp.nome || 'ConstrutorRH'} · Gerado em ${new Date().toLocaleString('pt-BR')} · CONFIDENCIAL</div>
-        <div style="margin-top:10px;font-size:16px;font-weight:900">${d.nome}</div>
-        <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <span style="background:rgba(255,255,255,.15);border-radius:4px;padding:2px 8px;font-size:11px">Chapa: ${d.chapa ?? '—'}</span>
-          ${d.funcoes?.nome ? `<span style="background:rgba(255,255,255,.15);border-radius:4px;padding:2px 8px;font-size:11px">⚙️ ${d.funcoes.nome}</span>` : ''}
-          ${d.obras?.nome ? `<span style="background:rgba(255,255,255,.15);border-radius:4px;padding:2px 8px;font-size:11px">🏗️ ${d.obras.nome}</span>` : ''}
-          ${statusBadge(d.status ?? 'inativo')}
-        </div>
       </div>
-      <div style="text-align:right;font-size:11px;opacity:.9">
-        <div>CPF: ${fmtCPF(d.cpf)}</div>
-        <div>Admissão: ${fmtDate(d.data_admissao)}</div>
-        ${d.data_status ? `<div>Saída: ${fmtDate(d.data_status)}</div>` : ''}
-        <div>PIS/NIT: ${d.pis_nit ?? '—'}</div>
+      <span class="badge-status">${d.status?.toUpperCase() ?? '—'}</span>
+    </div>
+
+    <!-- Cabeçalho empresa -->
+    <div class="cabecalho-empresa">
+      ${emp.logo_url ? `<img class="cab-logo" src="${emp.logo_url}" />` : ''}
+      <div>
+        <div class="cab-nome">${emp.nome || '—'}</div>
+        <div class="cab-sub">CNPJ: ${emp.cnpj||'—'} · ${emp.cidade||''} ${emp.estado||''}</div>
       </div>
     </div>
 
-    <!-- ESTATÍSTICAS -->
+    <!-- RESUMO STATS -->
     <div class="stats">
       <div class="stat"><div class="val">${ocs.length+ats.length+acids.length}</div><div class="lbl">Ocorrências</div></div>
       <div class="stat"><div class="val">${adiantos.length}</div><div class="lbl">Adiantamentos</div></div>
@@ -333,15 +390,15 @@ export default function Juridico() {
       <div class="sec-titulo">👤 Dados Pessoais</div>
       <div class="sec-body">
         <div class="grid3">
-          ${campo('CPF', fmtCPF(d.cpf))}
+          ${campo('Nome completo', d.nome ?? '—')}
+          ${campo('CPF', d.cpf ?? '—')}
           ${campo('RG', d.rg ?? '—')}
           ${campo('PIS/NIT', d.pis_nit ?? '—')}
-          ${campo('Data de Nascimento', fmtDate(d.data_nascimento))}
+          ${campo('Data nascimento', fmtDate(d.data_nascimento))}
           ${campo('Gênero', d.genero ?? '—')}
           ${campo('Estado Civil', d.estado_civil ?? '—')}
           ${campo('Telefone', d.telefone ?? '—')}
-          ${campo('E-mail', d.email ?? '—')}
-          ${campo('CNH', d.cnh ?? '—')}
+          ${campo('Email', d.email ?? '—')}
         </div>
       </div>
     </div>
@@ -351,10 +408,10 @@ export default function Juridico() {
       <div class="sec-titulo">📍 Endereço</div>
       <div class="sec-body">
         <div class="grid2">
-          ${campo('Endereço Completo', d.endereco ?? '—')}
-          ${campo('CEP', d.cep ?? '—')}
+          ${campo('Logradouro', d.endereco ?? '—')}
           ${campo('Cidade', d.cidade ?? '—')}
           ${campo('Estado', d.estado ?? '—')}
+          ${campo('CEP', d.cep ?? '—')}
         </div>
       </div>
     </div>
@@ -364,15 +421,15 @@ export default function Juridico() {
       <div class="sec-titulo">💼 Dados Profissionais</div>
       <div class="sec-body">
         <div class="grid3">
-          ${campo('Função Atual', d.funcoes?.nome ?? '—')}
-          ${campo('Obra Atual', d.obras?.nome ?? '—')}
-          ${campo('Tipo de Contrato', d.tipo_contrato ?? '—')}
-          ${campo('Salário Base', fmtCur(d.salario_base))}
-          ${campo('Data de Admissão', fmtDate(d.data_admissao))}
-          ${campo('Data de Saída / Alteração', fmtDate(d.data_status))}
-          ${campo('Status Atual', d.status ?? '—')}
-          ${campo('CTPS Nº', d.ctps_numero ?? '—')}
-          ${campo('CTPS Série', d.ctps_serie ?? '—')}
+          ${campo('Chapa', d.chapa ?? '—')}
+          ${campo('Função', (d.funcoes as any)?.nome ?? '—')}
+          ${campo('Obra/Local', (d.obras as any)?.nome ?? '—')}
+          ${campo('Tipo contrato', d.tipo_contrato?.toUpperCase() ?? '—')}
+          ${campo('Salário', fmtCur(d.salario))}
+          ${campo('CTPS', `${d.ctps_numero??'—'} Série: ${d.ctps_serie??'—'}`)}
+          ${campo('Admissão', fmtDate(d.data_admissao))}
+          ${campo('Demissão', fmtDate(d.data_demissao))}
+          ${campo('Status', d.status?.toUpperCase() ?? '—')}
         </div>
       </div>
     </div>
@@ -384,25 +441,36 @@ export default function Juridico() {
         <div class="grid3">
           ${campo('Banco', d.banco ?? '—')}
           ${campo('Agência', d.agencia ?? '—')}
-          ${campo('Conta', d.conta ?? '—')}
-          ${campo('Tipo de Conta', d.tipo_conta ?? '—')}
-          ${campo('Tipo de PIX', d.pix_tipo ?? '—')}
-          ${campo('Chave PIX', d.pix_chave ?? '—')}
+          ${campo('Conta', `${d.conta??'—'} (${d.tipo_conta??'—'})`)}
+          ${campo('PIX', d.pix_chave ? `${d.pix_tipo}: ${d.pix_chave}` : '—')}
         </div>
       </div>
     </div>
 
-    <!-- HISTÓRICO DE CHAPAS E FUNÇÕES -->
-    ${histCh.length > 0 || histCont.length > 0 ? `
+    <!-- HISTÓRICO CHAPAS / FUNÇÕES -->
     <div class="secao">
       <div class="sec-titulo">🔄 Histórico de Chapas / Funções (${histCh.length})</div>
       <div class="sec-body">
-        ${tbl(['Chapa','Função','Tipo Contrato','Data Início','Data Fim','Motivo'],
-          histCh.map((h:any) => [h.chapa??'—', h.funcoes?.nome??'—', h.tipo_contrato??'—', fmtDate(h.data_inicio), fmtDate(h.data_fim), h.motivo_troca??'—']))}
+        ${histCh.length === 0 ? vazio : table(
+          ['Chapa','Função','Tipo','Início','Fim','Motivo'],
+          histCh.map((h:any) => [h.chapa??'—',(h.funcoes as any)?.nome??'—',h.tipo_contrato??'—',fmtDate(h.data_inicio),fmtDate(h.data_fim),h.motivo_troca??'—'])
+        )}
+      </div>
+    </div>
+
+    <!-- HISTÓRICO CONTRATO -->
+    ${histCont.length > 0 ? `
+    <div class="secao">
+      <div class="sec-titulo">📋 Histórico de Contratos (${histCont.length})</div>
+      <div class="sec-body">
+        ${table(
+          ['Função','Obra','Salário','Tipo','Início','Fim'],
+          histCont.map((h:any) => [(h.funcoes as any)?.nome??'—',(h.obras as any)?.nome??'—',fmtCur(h.salario),h.tipo_contrato??'—',fmtDate(h.data_inicio),fmtDate(h.data_fim)])
+        )}
       </div>
     </div>` : ''}
 
-    <!-- PONTOS FECHADOS E PERÍODOS -->
+    <!-- PONTO DETALHADO -->
     <div class="secao">
       <div class="sec-titulo">⏱️ Histórico de Ponto (${pontos.length} períodos · ${regs.length} registros · ${totalFaltas} faltas · ${totalHExtra.toFixed(1)}h extras)</div>
       <div class="sec-body">${pontosHTML}</div>
@@ -412,22 +480,10 @@ export default function Juridico() {
     <div class="secao">
       <div class="sec-titulo">💳 Pagamentos / Folha (${pags.length} · Total líquido: ${fmtCur(totalPago)})</div>
       <div class="sec-body">
-        ${tbl(['Período','Obra','Bruto','Horas','DSR','Produção','Prêmio','-VT','-AD','-INSS','-IR','Líquido','Data Pgto'],
-          pags.map((p:any) => [
-            fmtMes(p.mes_referencia),
-            p.obras?.nome??'—',
-            fmtCur(p.snap_valor_total),
-            p.snap_horas!=null?p.snap_horas.toFixed(1)+'h':'—',
-            fmtCur(p.snap_dsr),
-            fmtCur(p.snap_producao),
-            fmtCur(p.snap_premio),
-            fmtCur(p.snap_vt),
-            fmtCur(p.snap_ad),
-            fmtCur(p.snap_inss),
-            fmtCur(p.snap_ir),
-            fmtCur(p.snap_liquido),
-            fmtDate(p.data_pagamento)
-          ]))}
+        ${pags.length === 0 ? vazio : table(
+          ['Mês Ref.','Obra','Salário Base','Desctos','Líquido','Status'],
+          pags.map((p:any) => [fmtMes(p.mes_referencia),(p.obras as any)?.nome??'—',fmtCur(p.snap_bruto??p.salario_base),fmtCur(p.snap_descontos??null),fmtCur(p.snap_liquido),p.status?.toUpperCase()??'—'])
+        )}
       </div>
     </div>
 
@@ -435,25 +491,21 @@ export default function Juridico() {
     <div class="secao">
       <div class="sec-titulo">💵 Adiantamentos (${adiantos.length} · Total: ${fmtCur(totalAdiant)})</div>
       <div class="sec-body">
-        ${tbl(['Competência','Tipo','Valor','Status','Desconto Tipo','Parcelas','Obs'],
-          adiantos.map((a:any) => [
-            fmtMes(a.competencia),
-            a.tipo??'—',
-            fmtCur(a.valor),
-            pill(a.status),
-            a.desconto_tipo??'—',
-            a.desconto_parcelas!=null?`${a.desconto_parcela_atual??1}/${a.desconto_parcelas}`:'—',
-            (a.observacoes??'').substring(0,40)
-          ]))}
+        ${adiantos.length === 0 ? vazio : table(
+          ['Competência','Tipo','Valor','Descrição','Status'],
+          adiantos.map((a:any) => [fmtMes(a.competencia),a.tipo??'—',fmtCur(a.valor),a.descricao??'—',a.status?.toUpperCase()??'—'])
+        )}
       </div>
     </div>
 
     <!-- PRÊMIOS -->
     <div class="secao">
-      <div class="sec-titulo">🏆 Prêmios e Bonificações (${prs.length} · Total: ${fmtCur(totalPremio)})</div>
+      <div class="sec-titulo">🏆 Prêmios (${prs.length} · Total: ${fmtCur(totalPremio)})</div>
       <div class="sec-body">
-        ${tbl(['Competência','Tipo','Descrição','Valor','Status'],
-          prs.map((p:any) => [fmtMes(p.competencia), p.tipo??'—', (p.descricao??'—').substring(0,40), fmtCur(p.valor), pill(p.status)]))}
+        ${prs.length === 0 ? vazio : table(
+          ['Data','Tipo','Valor','Descrição','Status'],
+          prs.map((p:any) => [fmtDate(p.data??p.created_at),p.tipo??'—',fmtCur(p.valor),p.descricao??'—',p.status?.toUpperCase()??'—'])
+        )}
       </div>
     </div>
 
@@ -461,82 +513,90 @@ export default function Juridico() {
     <div class="secao">
       <div class="sec-titulo">🚌 Vale Transporte (${vts.length} · Total empresa: ${fmtCur(totalVT)})</div>
       <div class="sec-body">
-        ${tbl(['Competência','Tipo','Valor','Desc. Colab.','Valor Empresa','Status'],
-          vts.map((v:any) => [fmtMes(v.competencia), v.tipo??'—', fmtCur(v.valor), fmtCur(v.desconto_colaborador), fmtCur(v.valor_empresa), pill(v.status)]))}
+        ${vts.length === 0 ? vazio : table(
+          ['Mês','Tipo','Valor','Desc. Colaborador','Empresa','Status'],
+          vts.map((v:any) => [fmtMes(v.competencia),v.tipo??'—',fmtCur(v.valor),fmtCur(v.desconto_colaborador),fmtCur(v.valor_empresa),pill(v.status)])
+        )}
       </div>
     </div>
 
-    <!-- PROVISÕES FGTS -->
-    ${provs.length > 0 ? `
+    <!-- PROVISÕES -->
     <div class="secao">
-      <div class="sec-titulo">🏛️ Provisões FGTS (${provs.length})</div>
+      <div class="sec-titulo">📊 Provisões FGTS / 13º / Férias (${provs.length})</div>
       <div class="sec-body">
-        ${tbl(['Competência','Salário Base','FGTS Mensal','Férias','13º','Total Provisão'],
-          provs.map((p:any) => [fmtMes(p.competencia), fmtCur(p.salario_base), fmtCur(p.fgts_mensal), fmtCur(p.ferias_provisionadas), fmtCur(p.decimo_terceiro), fmtCur(p.total_provisao)]))}
+        ${provs.length === 0 ? vazio : table(
+          ['Competência','Salário','FGTS','Férias','13º','Total'],
+          provs.map((p:any) => [fmtMes(p.competencia),fmtCur(p.salario_base),fmtCur(p.fgts),fmtCur(p.ferias),fmtCur(p.decimo_terceiro),fmtCur(p.total)])
+        )}
       </div>
-    </div>` : ''}
+    </div>
 
     <!-- OCORRÊNCIAS -->
     <div class="secao">
       <div class="sec-titulo">⚠️ Ocorrências (${ocs.length})</div>
       <div class="sec-body">
-        ${tbl(['Data','Tipo','Descrição','Status'],
-          ocs.map((o:any) => [fmtDate(o.data), o.tipo??'—', (o.descricao??'—').substring(0,60), pill(o.status??'aberto')]))}
+        ${ocs.length === 0 ? vazio : table(
+          ['Data','Tipo','Descrição','Gravidade','Status'],
+          ocs.map((o:any) => [fmtDate(o.data),o.tipo??'—',(o.descricao??'').slice(0,60),o.gravidade??'—',o.status??'—'])
+        )}
       </div>
     </div>
 
     <!-- ATESTADOS -->
     <div class="secao">
-      <div class="sec-titulo">🏥 Atestados (${ats.length})</div>
+      <div class="sec-titulo">🏥 Atestados / Afastamentos (${ats.length})</div>
       <div class="sec-body">
-        ${tbl(['Data','Tipo','CID','Médico','Dias Afast.','Status'],
-          ats.map((a:any) => [fmtDate(a.data), a.tipo??'—', a.cid??'—', a.medico??a.nome_medico??'—', a.dias_afastamento??'—', pill(a.status??'registrado')]))}
+        ${ats.length === 0 ? vazio : table(
+          ['Data','Tipo','Dias','CID','Médico','Com afastamento'],
+          ats.map((a:any) => [fmtDate(a.data),a.tipo??'—',String(a.dias_afastamento??0),a.cid??'—',a.medico??'—',a.com_afastamento?'Sim':'Não'])
+        )}
       </div>
     </div>
 
     <!-- ACIDENTES -->
-    ${acids.length > 0 ? `
     <div class="secao">
       <div class="sec-titulo">🚨 Acidentes (${acids.length})</div>
       <div class="sec-body">
-        ${tbl(['Data','Tipo','Gravidade','Local','CAT','Status'],
-          acids.map((a:any) => [fmtDate(a.data_ocorrencia), a.tipo??'—', a.gravidade??'—', a.local_acidente??'—', a.cat_emitida?'Sim':'Não', pill(a.status??'aberto')]))}
+        ${acids.length === 0 ? vazio : table(
+          ['Data','Tipo','Gravidade','Obra','CAT','Descrição'],
+          acids.map((a:any) => [fmtDate(a.data_ocorrencia),a.tipo??'—',a.gravidade??'—',(a.obras as any)?.nome??'—',a.cat_emitida?'Sim':'Não',(a.descricao??'').slice(0,60)])
+        )}
       </div>
-    </div>` : ''}
+    </div>
 
     <!-- ADVERTÊNCIAS -->
-    ${advs.length > 0 ? `
     <div class="secao">
       <div class="sec-titulo">📋 Advertências (${advs.length})</div>
       <div class="sec-body">
-        ${tbl(['Data','Tipo','Motivo','Suspensão','Assinada'],
-          advs.map((a:any) => [fmtDate(a.data_advertencia), a.tipo??'—', (a.motivo??'—').substring(0,50), a.dias_suspensao?a.dias_suspensao+' dias':'—', a.assinada?'✓ Sim':'✗ Não']))}
+        ${advs.length === 0 ? vazio : table(
+          ['Data','Tipo','Motivo','Assinada','Dias Suspenso'],
+          advs.map((a:any) => [fmtDate(a.data_advertencia),a.tipo?.toUpperCase()??'—',(a.motivo??'').slice(0,60),a.assinada?'✔ Sim':'✗ Não',String(a.dias_suspensao??0)])
+        )}
       </div>
-    </div>` : ''}
+    </div>
 
     <!-- EPIs -->
-    ${epis.length > 0 ? `
     <div class="secao">
-      <div class="sec-titulo">🦺 EPIs Vinculados (${epis.length})</div>
+      <div class="sec-titulo">🦺 EPIs Entregues (${epis.length})</div>
       <div class="sec-body">
-        ${tbl(['EPI','Categoria','Nº CA'],
-          epis.map((e:any) => [e.epi_catalogo?.nome??'—', e.epi_catalogo?.categoria??'—', e.epi_catalogo?.numero_ca??'—']))}
+        ${epis.length === 0 ? vazio : table(
+          ['EPI','Categoria','CA','Entrega','Validade','Qtd','Status'],
+          epis.map((e:any) => [(e.epi_catalogo as any)?.nome??'—',(e.epi_catalogo as any)?.categoria??'—',(e.epi_catalogo as any)?.numero_ca??'—',fmtDate(e.data_entrega),fmtDate(e.data_validade),String(e.quantidade_entregue??e.quantidade??1),e.status?.toUpperCase()??'—'])
+        )}
       </div>
-    </div>` : ''}
+    </div>
 
-    <!-- DOCUMENTOS E ANEXOS -->
+    <!-- GALERIA COMPLETA DE DOCUMENTOS / ARQUIVOS -->
     <div class="secao">
-      <div class="sec-titulo">📎 Documentos e Anexos (${docs.length + docsAv.length})</div>
+      <div class="sec-titulo">📁 Galeria Completa de Documentos e Arquivos (${arquivosComConteudo.length})</div>
       <div class="sec-body">
-        ${docs.length > 0 ? tbl(['Tipo','Nome','Validade','Status'], docs.map((d2:any) => [d2.tipo??'—', (d2.nome??'—').substring(0,40), fmtDate(d2.data_validade), pill(d2.status??'ativo')])) : ''}
-        ${docsAv.length > 0 ? `<div style="margin-top:10px"><strong style="font-size:10px">Documentos Avulsos</strong>${tbl(['Tipo','Nome','Data'], docsAv.map((d2:any) => [d2.tipo??'—', (d2.documento_nome??'—').substring(0,40), fmtDate(d2.data)]))}</div>` : ''}
-        <div style="margin-top:12px"><strong style="font-size:10px;color:#374151">LINKS DE ANEXOS</strong>${anexosHTML}</div>
+        ${galeriaHTML}
       </div>
     </div>
 
     <!-- ASSINATURAS -->
     <div class="ass">
-      <div><div class="ass-linha"></div>Colaborador / Assinatura</div>
+      <div><div class="ass-linha"></div>Colaborador</div>
       <div><div class="ass-linha"></div>Responsável Jurídico</div>
       <div><div class="ass-linha"></div>Gestor de RH / Carimbo</div>
     </div>

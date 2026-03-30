@@ -262,13 +262,14 @@ export default function Juridico() {
       /* GALERIA DE DOCUMENTOS */
       .galeria-cat{margin-bottom:20px;page-break-inside:avoid}
       .galeria-cat-titulo{background:#f1f5f9;border-left:4px solid #1e3a5f;padding:6px 12px;font-size:11px;font-weight:700;color:#1e293b;margin-bottom:10px;border-radius:0 4px 4px 0}
-      .galeria-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+      .galeria-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
       .arquivo-card{border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;page-break-inside:avoid}
-      .arquivo-header{background:#f8fafc;padding:6px 10px;display:flex;align-items:center;gap:6px;border-bottom:1px solid #e2e8f0}
-      .arquivo-nome{font-size:10px;font-weight:700;color:#1e293b;flex:1;word-break:break-word}
+      .arquivo-card.pdf-card{grid-column:1/-1}
+      .arquivo-header{background:#f8fafc;padding:8px 12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid #e2e8f0}
+      .arquivo-nome{font-size:11px;font-weight:700;color:#1e293b;flex:1;word-break:break-word}
       .arquivo-data{font-size:9px;color:#94a3b8;white-space:nowrap}
-      .arquivo-body{padding:8px;text-align:center;min-height:60px;display:flex;align-items:center;justify-content:center}
-      .arquivo-body img{max-width:100%;max-height:320px;border-radius:4px;object-fit:contain}
+      .arquivo-body{padding:10px;text-align:center;min-height:80px;display:flex;align-items:center;justify-content:center;background:#fafbfc}
+      .arquivo-body img{max-width:100%;max-height:400px;border-radius:4px;object-fit:contain;display:block;margin:0 auto}
       .arquivo-body .pdf-icon{font-size:48px;display:block;margin-bottom:8px}
       .arquivo-body .pdf-link{color:#1d4ed8;font-size:10px;font-weight:600;text-decoration:none;border:1px solid #1d4ed8;border-radius:4px;padding:4px 12px;display:inline-block;margin-top:6px}
       .arquivo-erro{color:#94a3b8;font-size:10px;font-style:italic}
@@ -327,22 +328,34 @@ export default function Juridico() {
               const c = a.conteudo
               let bodyHtml = ''
               if (!c) {
-                bodyHtml = `<div class="arquivo-erro">⚠️ Não foi possível carregar o arquivo</div>
-                  <a href="${a.url}" target="_blank" class="pdf-link" style="margin-top:6px">Abrir original ↗</a>`
+                // sem conteúdo — mostrar link direto
+                bodyHtml = `<div style="text-align:center;padding:12px">
+                  <div style="font-size:32px;margin-bottom:8px">📎</div>
+                  <div style="font-size:10px;color:#64748b;margin-bottom:8px">Arquivo não pôde ser carregado inline</div>
+                  <a href="${a.url}" target="_blank" class="pdf-link">Abrir arquivo ↗</a>
+                </div>`
               } else if (c.mime.startsWith('image/')) {
-                bodyHtml = `<img src="${c.b64}" alt="${a.label}" />`
+                // imagem — mostrar inline em tamanho real
+                bodyHtml = `<img src="${c.b64}" alt="${a.label}" style="max-width:100%;max-height:400px;object-fit:contain;border-radius:4px;display:block;margin:0 auto" />`
               } else if (c.mime === 'application/pdf') {
-                bodyHtml = `<div><span class="pdf-icon">📄</span>
-                  <div style="font-size:10px;color:#374151;font-weight:600;margin-bottom:8px">Arquivo PDF</div>
-                  <a href="${a.url}" target="_blank" class="pdf-link">Abrir PDF ↗</a>
+                // PDF — embed inline visível no dossiê (ocupa 1 coluna inteira)
+                bodyHtml = `<div style="width:100%">
+                  <embed src="${c.b64}" type="application/pdf"
+                    style="width:100%;height:480px;border:none;border-radius:4px;display:block"
+                    title="${a.label}" />
+                  <div style="text-align:center;margin-top:6px">
+                    <a href="${a.url}" target="_blank" class="pdf-link">Abrir em nova aba ↗</a>
+                  </div>
                 </div>`
               } else {
-                bodyHtml = `<div><span class="pdf-icon">📎</span>
+                bodyHtml = `<div style="text-align:center;padding:12px">
+                  <div style="font-size:32px;margin-bottom:8px">📎</div>
                   <div style="font-size:10px;color:#374151;margin-bottom:8px">${c.mime}</div>
                   <a href="${a.url}" target="_blank" class="pdf-link">Abrir arquivo ↗</a>
                 </div>`
               }
-              return `<div class="arquivo-card">
+              const isPdf = c?.mime === 'application/pdf'
+              return `<div class="arquivo-card${isPdf ? ' pdf-card' : ''}">
                 <div class="arquivo-header">
                   <span style="font-size:14px">${a.emoji}</span>
                   <span class="arquivo-nome">${a.label}</span>
@@ -627,7 +640,7 @@ export default function Juridico() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: '24px', maxWidth: 1280, margin: '0 auto' }}>
+    <div style={{ padding: '24px' }}>
       {/* Cabeçalho */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
         <div style={{ width: 48, height: 48, borderRadius: 12, background: '#1e3a5f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

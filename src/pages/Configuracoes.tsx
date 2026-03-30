@@ -514,7 +514,7 @@ export default function Configuracoes() {
 
           {/* ── Tab Empresa ────────────────────────────────────────────── */}
           {cfgTab === 'empresa' && (<div>
-            <div className="bg-card border border-border rounded-xl p-6 max-w-xl">
+            <div className="bg-card border border-border rounded-xl p-6">
               <h2 className="font-semibold text-base mb-1">Dados da Empresa</h2>
               <p className="text-sm text-muted-foreground mb-5">
                 Informações da empresa exibidas nos relatórios e documentos.
@@ -680,7 +680,7 @@ export default function Configuracoes() {
 
           {/* ── Tab Parâmetros ─────────────────────────────────────────── */}
           {cfgTab === 'parametros' && (<div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 860 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
               {/* Banner regra de ouro */}
               <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'12px 16px', borderRadius:10, background:'#fefce8', border:'1px solid #fde047' }}>

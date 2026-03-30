@@ -102,9 +102,9 @@ export default function PortalAdmin() {
   }
 
   return (
-    <div style={{ padding: '24px 0', maxWidth: 900, margin: '0 auto' }}>
+    <div style={{ padding: '24px' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, padding: '0 4px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
           <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
             🏗️ Portal da Obra

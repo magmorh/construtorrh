@@ -338,7 +338,7 @@ export default function ProvisaoRescisao() {
   // ─────────────────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: 24, maxWidth: 1400, margin: '0 auto' }}>
+    <div style={{ padding: 24 }}>
 
       {/* ── Cabeçalho ──────────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>

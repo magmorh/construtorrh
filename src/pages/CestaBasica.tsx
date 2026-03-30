@@ -466,7 +466,7 @@ export default function CestaBasica() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: '24px 28px', maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ padding: '24px 28px' }}>
 
       {/* ── Cabeçalho ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>

@@ -209,7 +209,7 @@ export default function Funcoes() {
 
   // ─── render ────────────────────────────────────────────────────────────────
   return (
-    <div>
+    <div style={{ padding: "20px 24px" }}>
       <PageHeader
         title="Funções / Cargos"
         subtitle={`${rows.length} função${rows.length !== 1 ? 'ões' : ''} cadastrada${rows.length !== 1 ? 's' : ''}`}

@@ -177,7 +177,7 @@ function UploadDoc({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <Label>{label}{obrigatorio && <span style={{ color: '#dc2626' }}> *</span>}</Label>
         {obrigatorio && !url && <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600 }}>⚠ Obrigatório para salvar</span>}

@@ -175,7 +175,7 @@ function TabCadastros({ obras, funcoes, perfil }: { obras: Obra[]; funcoes: Func
   }
 
   return (
-    <div>
+    <div style={{ padding: '20px 24px' }}>
       <div style={{ display:'flex', gap:6, marginBottom:16, flexWrap:'wrap' }}>
         {(['pendente','aprovado','recusado','todos'] as const).map(f => (
           <button key={f} onClick={() => setFiltro(f)} style={{

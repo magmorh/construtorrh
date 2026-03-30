@@ -725,7 +725,7 @@ export function Layout({ children }: LayoutProps) {
         </header>
 
         {/* ── CONTENT ─────────────────────────────────────────────────── */}
-        <main style={{ flex:1, overflowY:'auto', padding:'20px 24px', background:'#f0f2f5' }}>
+        <main style={{ flex:1, overflowY:'auto', padding:0, background:'#f0f2f5' }}>
           <ErrorBoundary>
             {children}
           </ErrorBoundary>

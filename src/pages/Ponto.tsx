@@ -1547,7 +1547,7 @@ export default function Ponto() {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <>
-    <div style={{display:'flex',height:'calc(100vh - 80px)',overflow:'hidden'}}>
+    <div style={{display:'flex',height:'100%',overflow:'hidden'}}>
 
       {/* ── Painel esquerdo ── */}
       <div style={{width:272,flexShrink:0,borderRight:'1px solid var(--border)',display:'flex',flexDirection:'column',overflow:'hidden'}}>

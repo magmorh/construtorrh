@@ -9,7 +9,7 @@ import { Separator } from '@/components/ui/separator'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+// tabs import removed — using sidebar nav instead
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -48,29 +48,29 @@ const PARAMS: ParamConfig[] = [
   },
   {
     chave: 'he_percentual_60',
-    label: 'HE 60% — Dias úteis',
-    descricao: 'Percentual de acréscimo para horas extras normais em dias úteis',
+    label: 'Hora Extra — Dias Úteis',
+    descricao: 'Percentual de acréscimo para horas extras em dias úteis (segunda a sexta)',
     tipo: 'number',
     sufixo: '%',
   },
   {
     chave: 'he_percentual_100',
-    label: 'HE 100% — Domingos e feriados',
-    descricao: 'Percentual de acréscimo para horas extras em domingos e feriados',
+    label: 'Hora Extra — Domingos e Feriados',
+    descricao: 'Percentual de acréscimo para horas extras em domingos e feriados (padrão: 100%)',
     tipo: 'number',
     sufixo: '%',
   },
   {
     chave: 'he_percentual_sabado',
-    label: 'HE Sábado',
+    label: 'Hora Extra — Sábado',
     descricao: 'Percentual de acréscimo para horas extras trabalhadas no sábado (padrão: 50%)',
     tipo: 'number',
     sufixo: '%',
   },
   {
     chave: 'he_percentual_domingo',
-    label: 'HE Domingo / Feriado',
-    descricao: 'Percentual de acréscimo para horas trabalhadas no domingo ou feriado (padrão: 100%)',
+    label: 'Hora Extra — Domingo / Feriado',
+    descricao: 'Percentual de acréscimo para horas extras trabalhadas no domingo ou feriado (padrão: 100%)',
     tipo: 'number',
     sufixo: '%',
   },
@@ -174,6 +174,16 @@ const EMPRESA_FIELDS: { chave: string; label: string; placeholder: string }[] = 
 ]
 
 // ─── componente ──────────────────────────────────────────────────────────────
+// ─── Itens da nav lateral de Configurações ────────────────────────────────
+const CFG_NAV = [
+  { id: 'empresa',    label: 'Empresa',                icon: Building2, color: '#0ea5e9' },
+  { id: 'parametros', label: 'Parâmetros de Pagamento', icon: Sliders,   color: '#8b5cf6' },
+  { id: 'encargos',   label: 'Tabelas de Encargos',     icon: Shield,    color: '#f97316' },
+  { id: 'rescisao',   label: 'Rescisão',                icon: Percent,   color: '#ec4899' },
+  { id: 'usuarios',   label: 'Usuários',                icon: Users,     color: '#14b8a6' },
+] as const
+type CfgTab = typeof CFG_NAV[number]['id']
+
 export default function Configuracoes() {
   const [configs, setConfigs] = useState<ConfigMap>({})
   const [profiles, setProfiles] = useState<Profile[]>([])
@@ -187,6 +197,7 @@ export default function Configuracoes() {
   const [savingEncargos, setSavingEncargos] = useState(false)
   const [tabelaRescisao, setTabelaRescisao] = useState<VerbaRescisoria[]>(DEFAULT_RESCISAO)
   const [savingRescisao, setSavingRescisao] = useState(false)
+  const [cfgTab, setCfgTab]               = useState<CfgTab>('empresa')
   // "Outros" encargos de rescisão adicionados pelo usuário
   const [outrosRescisao, setOutrosRescisao] = useState<VerbaRescisoria[]>([])
   const [uploadingLogo, setUploadingLogo]   = useState(false)
@@ -410,47 +421,76 @@ export default function Configuracoes() {
     )
   }
 
-  // ─── render ────────────────────────────────────────────────────────────────
+// ─── render ────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6">
-      <PageHeader
-        title="Configurações"
-        subtitle="Parâmetros e configurações do sistema ConstrutorRH"
-        action={<Settings className="w-5 h-5 text-muted-foreground" />}
-      />
+    <div style={{ display:'flex', flexDirection:'column', height:'100%', minHeight:0 }}>
+      {/* cabeçalho */}
+      <div style={{ padding:'20px 24px 0', flexShrink:0 }}>
+        <PageHeader
+          title="Configurações"
+          subtitle="Parâmetros e configurações do sistema ConstrutorRH"
+          action={<Settings className="w-5 h-5 text-muted-foreground" />}
+        />
+      </div>
 
       {loadingConfigs ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <Tabs defaultValue="empresa" className="w-full">
-          <TabsList className="mb-6">
-            <TabsTrigger value="empresa" className="gap-1.5">
-              <Building2 className="w-3.5 h-3.5" /> Empresa
-            </TabsTrigger>
-            <TabsTrigger value="parametros" className="gap-1.5">
-              <Sliders className="w-3.5 h-3.5" /> Parâmetros de Pagamento
-            </TabsTrigger>
-            <TabsTrigger value="encargos" className="gap-1.5">
-              <Shield className="w-3.5 h-3.5" /> Tabelas de Encargos
-            </TabsTrigger>
-            <TabsTrigger value="rescisao" className="gap-1.5">
-              <Percent className="w-3.5 h-3.5" /> Rescisão
-            </TabsTrigger>
-            <TabsTrigger
-              value="usuarios"
-              className="gap-1.5"
-              onClick={() => {
-                if (profiles.length === 0) fetchProfiles()
-              }}
-            >
-              <Users className="w-3.5 h-3.5" /> Usuários
-            </TabsTrigger>
-          </TabsList>
+        /* ── layout lateral ──────────────────────────────────────── */
+        <div style={{ display:'flex', flex:1, minHeight:0, gap:0, padding:'16px 24px 24px' }}>
+
+          {/* ── sidebar esquerda ─────────────────────────────────── */}
+          <div style={{
+            width: 220, minWidth: 220, flexShrink: 0,
+            background: '#fff', border: '1px solid #e2e8f0',
+            borderRadius: 12, padding: '8px 0',
+            alignSelf: 'flex-start',
+            position: 'sticky', top: 0,
+          }}>
+            {CFG_NAV.map(item => {
+              const Icon = item.icon
+              const active = cfgTab === item.id
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setCfgTab(item.id)
+                    if (item.id === 'usuarios' && profiles.length === 0) fetchProfiles()
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    width: '100%', padding: '10px 16px',
+                    border: 'none', cursor: 'pointer', textAlign: 'left',
+                    borderRadius: 0,
+                    background: active ? `${item.color}12` : 'transparent',
+                    borderLeft: active ? `3px solid ${item.color}` : '3px solid transparent',
+                    transition: 'background .15s',
+                  }}
+                >
+                  <span style={{
+                    width: 28, height: 28, borderRadius: 7, flexShrink: 0,
+                    background: active ? item.color : '#f1f5f9',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Icon size={14} color={active ? '#fff' : '#64748b'} />
+                  </span>
+                  <span style={{
+                    fontSize: 13, fontWeight: active ? 600 : 400,
+                    color: active ? '#1e293b' : '#475569',
+                    lineHeight: 1.3,
+                  }}>{item.label}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* ── conteúdo da aba ──────────────────────────────────── */}
+          <div style={{ flex: 1, minWidth: 0, paddingLeft: 20 }}>
 
           {/* ── Tab Empresa ────────────────────────────────────────────── */}
-          <TabsContent value="empresa">
+          {cfgTab === 'empresa' && (<div>
             <div className="bg-card border border-border rounded-xl p-6 max-w-xl">
               <h2 className="font-semibold text-base mb-1">Dados da Empresa</h2>
               <p className="text-sm text-muted-foreground mb-5">
@@ -613,10 +653,10 @@ export default function Configuracoes() {
                 </Button>
               </div>
             </div>
-          </TabsContent>
+          </div>)}
 
           {/* ── Tab Parâmetros ─────────────────────────────────────────── */}
-          <TabsContent value="parametros">
+          {cfgTab === 'parametros' && (<div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 860 }}>
 
               {/* Banner regra de ouro */}
@@ -709,10 +749,10 @@ export default function Configuracoes() {
                 </Button>
               </div>
             </div>
-          </TabsContent>
+          </div>)}
 
           {/* ── Tab Encargos ──────────────────────────────────────────── */}
-          <TabsContent value="encargos">
+          {cfgTab === 'encargos' && (<div>
             <div style={{display:'flex',flexDirection:'column',gap:24,maxWidth:900}}>
 
               {/* Banner regra de ouro */}
@@ -863,10 +903,10 @@ export default function Configuracoes() {
                 </Button>
               </div>
             </div>
-          </TabsContent>
+          </div>)}
 
           {/* ── Tab Rescisão ──────────────────────────────────────────────── */}
-          <TabsContent value="rescisao">
+          {cfgTab === 'rescisao' && (<div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 900 }}>
 
               {/* Banner regra de ouro */}
@@ -1033,10 +1073,10 @@ export default function Configuracoes() {
                 </Button>
               </div>
             </div>
-          </TabsContent>
+          </div>)}
 
           {/* ── Tab Usuários ───────────────────────────────────────────── */}
-          <TabsContent value="usuarios">
+          {cfgTab === 'usuarios' && (<div>
             <div className="bg-card border border-border rounded-xl overflow-hidden">
               <div className="px-6 py-4 border-b border-border">
                 <h2 className="font-semibold text-base">Gerenciamento de Usuários</h2>
@@ -1112,8 +1152,10 @@ export default function Configuracoes() {
                 </table>
               )}
             </div>
-          </TabsContent>
-        </Tabs>
+          </div>)}
+
+          </div>
+        </div>
       )}
     </div>
   )

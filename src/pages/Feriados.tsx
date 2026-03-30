@@ -133,7 +133,7 @@ export default function Feriados() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div>
+    <div style={{ padding: "20px 24px" }}>
       <PageHeader
         title="Feriados"
         subtitle={`${rows.length} feriado${rows.length !== 1 ? 's' : ''} em ${anoFiltro}`}

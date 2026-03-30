@@ -35,6 +35,7 @@ interface ParamConfig {
   descricao: string
   tipo: 'number' | 'text'
   sufixo?: string
+  defaultVal?: string
 }
 
 // ─── parâmetros de pagamento ──────────────────────────────────────────────────
@@ -45,6 +46,8 @@ const PARAMS: ParamConfig[] = [
     descricao: 'Horas semanais de trabalho (padrão: 44h)',
     tipo: 'number',
     sufixo: 'h/semana',
+
+    defaultVal: '44',
   },
   {
     chave: 'he_percentual_60',
@@ -52,6 +55,8 @@ const PARAMS: ParamConfig[] = [
     descricao: 'Percentual de acréscimo para horas extras em dias úteis (segunda a sexta)',
     tipo: 'number',
     sufixo: '%',
+
+    defaultVal: '60',
   },
   {
     chave: 'he_percentual_100',
@@ -59,6 +64,8 @@ const PARAMS: ParamConfig[] = [
     descricao: 'Percentual de acréscimo para horas extras em domingos e feriados (padrão: 100%)',
     tipo: 'number',
     sufixo: '%',
+
+    defaultVal: '100',
   },
   {
     chave: 'he_percentual_sabado',
@@ -66,6 +73,8 @@ const PARAMS: ParamConfig[] = [
     descricao: 'Percentual de acréscimo para horas extras trabalhadas no sábado (padrão: 50%)',
     tipo: 'number',
     sufixo: '%',
+
+    defaultVal: '50',
   },
   {
     chave: 'he_percentual_domingo',
@@ -73,6 +82,8 @@ const PARAMS: ParamConfig[] = [
     descricao: 'Percentual de acréscimo para horas extras trabalhadas no domingo ou feriado (padrão: 100%)',
     tipo: 'number',
     sufixo: '%',
+
+    defaultVal: '100',
   },
   {
     chave: 'adicional_noturno_pct',
@@ -80,6 +91,8 @@ const PARAMS: ParamConfig[] = [
     descricao: 'Percentual de adicional noturno (22h–05h) sobre o valor hora (padrão: 20%)',
     tipo: 'number',
     sufixo: '%',
+
+    defaultVal: '20',
   },
   {
     chave: 'vt_desconto_pct',
@@ -87,6 +100,8 @@ const PARAMS: ParamConfig[] = [
     descricao: 'Percentual de desconto do vale transporte sobre o salário do colaborador',
     tipo: 'number',
     sufixo: '%',
+
+    defaultVal: '6',
   },
   {
     chave: 'inss_aliquota',
@@ -94,6 +109,8 @@ const PARAMS: ParamConfig[] = [
     descricao: 'Alíquota única para cálculo simplificado do INSS (use quando não usa tabela progressiva)',
     tipo: 'number',
     sufixo: '%',
+
+    defaultVal: '14',
   },
   {
     chave: 'fgts_aliquota',
@@ -101,6 +118,8 @@ const PARAMS: ParamConfig[] = [
     descricao: 'Percentual de FGTS sobre o salário bruto (padrão: 8%)',
     tipo: 'number',
     sufixo: '%',
+
+    defaultVal: '8',
   },
   {
     chave: 'inss_patronal_aliquota',
@@ -108,6 +127,8 @@ const PARAMS: ParamConfig[] = [
     descricao: 'Percentual de INSS patronal sobre a folha (padrão: 20%)',
     tipo: 'number',
     sufixo: '%',
+
+    defaultVal: '20',
   },
   {
     chave: 'rat_aliquota',
@@ -115,6 +136,8 @@ const PARAMS: ParamConfig[] = [
     descricao: 'Percentual RAT — varia conforme risco da atividade: 1%, 2% ou 3% (padrão: 3,5% com FAP)',
     tipo: 'number',
     sufixo: '%',
+
+    defaultVal: '3.5',
   },
 ]
 
@@ -694,7 +717,7 @@ export default function Configuracoes() {
                       <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end' }}>
                         <input
                           type="number" step="0.01"
-                          value={configs[param.chave] ?? ''}
+                          value={configs[param.chave] !== undefined && configs[param.chave] !== '' ? configs[param.chave] : (param.defaultVal ?? '')}
                           onChange={e => setConfig(param.chave, e.target.value)}
                           placeholder="0"
                           style={{ width:80, padding:'5px 8px', borderRadius:6, border:'1px solid var(--border)', fontSize:13, textAlign:'right', background:'var(--background)' }}
@@ -729,7 +752,7 @@ export default function Configuracoes() {
                       <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end' }}>
                         <input
                           type="number" step="0.01"
-                          value={configs[param.chave] ?? ''}
+                          value={configs[param.chave] !== undefined && configs[param.chave] !== '' ? configs[param.chave] : (param.defaultVal ?? '')}
                           onChange={e => setConfig(param.chave, e.target.value)}
                           placeholder="0"
                           style={{ width:80, padding:'5px 8px', borderRadius:6, border:'1px solid var(--border)', fontSize:13, textAlign:'right', background:'var(--background)' }}

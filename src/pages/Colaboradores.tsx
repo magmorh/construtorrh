@@ -1400,10 +1400,26 @@ export default function Colaboradores() {
       confirmou_sem_pendencias: true,
     } as any).eq('id', inativarColabId)
 
+    // Se falhar por check constraint no motivo, tentar sem motivo
+    let finalError = error
+    if (error && error.message?.includes('motivo_encerramento_check')) {
+      const { error: e2 } = await supabase.from('colaboradores').update({
+        status:                  'inativo',
+        data_status:             inativarData,
+        data_encerramento:       inativarData,
+        motivo_encerramento:     null,
+        observacoes:             inativarMotivo ? `Motivo inativação: ${inativarMotivo}` : undefined,
+        inativado_por:           userEmail,
+        inativado_em:            agora,
+        confirmou_sem_pendencias: true,
+      } as any).eq('id', inativarColabId)
+      finalError = e2
+    }
+
     setInativarSaving(false)
 
-    if (error) {
-      toast.error('Erro ao inativar: ' + error.message)
+    if (finalError) {
+      toast.error('Erro ao inativar: ' + finalError.message)
       return
     }
 

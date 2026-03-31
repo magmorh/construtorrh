@@ -1548,7 +1548,7 @@ export default function Ponto() {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <>
-    <div style={{display:'flex',height:'100%',overflow:'hidden'}}>
+    <div style={{display:'flex',minHeight:'calc(100vh - 57px)',overflow:'hidden'}}>
 
       {/* ── Painel esquerdo ── */}
       <div style={{width:272,flexShrink:0,borderRight:'1px solid var(--border)',display:'flex',flexDirection:'column',overflow:'hidden'}}>
@@ -2118,7 +2118,7 @@ export default function Ponto() {
 
                   {/* Tabela de ponto */}
                   {exp ? (
-                    <div style={{overflowX:'auto',overflowY:'auto',maxHeight:'60vh'}}>
+                    <div style={{overflowX:'auto',overflowY:'auto',maxHeight:'calc(100vh - 300px)'}}>
                       <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
                         <thead>
                           <tr style={{background:'#1e3a5f',color:'#fff',position:'sticky',top:0,zIndex:2}}>
@@ -2866,11 +2866,11 @@ export default function Ponto() {
 }
 
 // ─── Estilos ──────────────────────────────────────────────────────────────────
-const TH:React.CSSProperties={padding:'5px 3px',fontWeight:700,fontSize:9,textTransform:'uppercase',letterSpacing:'0.03em',textAlign:'center',whiteSpace:'nowrap'}
-const TD:React.CSSProperties={padding:'2px 2px',fontSize:11}
+const TH:React.CSSProperties={padding:'4px 2px',fontWeight:700,fontSize:9,textTransform:'uppercase',letterSpacing:'0.02em',textAlign:'center',whiteSpace:'nowrap'}
+const TD:React.CSSProperties={padding:'1px 1px',fontSize:10.5}
 const LBL:React.CSSProperties={display:'block',fontSize:12,fontWeight:600,marginBottom:4,color:'var(--muted-foreground)'}
 const SEL:React.CSSProperties={width:'100%',padding:'8px 10px',fontSize:13,border:'1px solid var(--border)',borderRadius:6,background:'var(--background)',color:'var(--foreground)'}
 
 function TI({value,onChange,disabled}:{value:string;onChange:(v:string)=>void;disabled:boolean}){
-  return<input type="time" value={value} onChange={e=>onChange(e.target.value)} disabled={disabled} style={{width:68,padding:'1px 2px',fontSize:10.5,border:'1px solid var(--border)',borderRadius:3,background:disabled?'transparent':'var(--background)',color:disabled?'#9ca3af':'var(--foreground)',fontFamily:'monospace',textAlign:'center',cursor:disabled?'not-allowed':'text',outline:'none'}}/>
+  return<input type="time" value={value} onChange={e=>onChange(e.target.value)} disabled={disabled} style={{width:48,padding:'1px 1px',fontSize:9.5,border:'1px solid var(--border)',borderRadius:3,background:disabled?'transparent':'var(--background)',color:disabled?'#9ca3af':'var(--foreground)',fontFamily:'monospace',textAlign:'center',cursor:disabled?'not-allowed':'text',outline:'none'}}/>
 }

@@ -14,7 +14,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { toast } from 'sonner'
-import { Settings, Save, Building2, Sliders, Users, Loader2, Shield, Percent, Upload, Trash2, ImageIcon, Plus } from 'lucide-react'
+import { Settings, Save, Building2, Sliders, Users, Loader2, Shield, Percent, Upload, Trash2, ImageIcon, Plus, FileText, GripVertical, X } from 'lucide-react'
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
 interface ConfigMap {
@@ -198,11 +198,35 @@ const EMPRESA_FIELDS: { chave: string; label: string; placeholder: string }[] = 
 
 // ─── componente ──────────────────────────────────────────────────────────────
 // ─── Itens da nav lateral de Configurações ────────────────────────────────
+const TIPOS_DOCUMENTO_PADRAO = [
+  'Contrato de Trabalho',
+  'Exame Admissional',
+  'Exame Demissional',
+  'Exame Periódico',
+  'Atestado Médico',
+  'Certificado de Treinamento',
+  'Declaração de Vínculo',
+  'Carteira de Trabalho (CTPS)',
+  'Documento de Identidade (RG/CNH)',
+  'CPF',
+  'Comprovante de Residência',
+  'Foto 3x4',
+  'Ficha de Registro',
+  'Advertência',
+  'Suspensão',
+  'Comunicação de Acidente (CAT)',
+  'ASO (Atestado de Saúde Ocupacional)',
+  'NR-35 (Trabalho em Altura)',
+  'NR-18 (Construção Civil)',
+  'Outros',
+]
+
 const CFG_NAV = [
   { id: 'empresa',    label: 'Empresa',                icon: Building2, color: '#0ea5e9' },
   { id: 'parametros', label: 'Parâmetros de Pagamento', icon: Sliders,   color: '#8b5cf6' },
   { id: 'encargos',   label: 'Tabelas de Encargos',     icon: Shield,    color: '#f97316' },
   { id: 'rescisao',   label: 'Rescisão',                icon: Percent,   color: '#ec4899' },
+  { id: 'documentos', label: 'Tipos de Documentos',     icon: FileText,  color: '#64748b' },
   { id: 'usuarios',   label: 'Usuários',                icon: Users,     color: '#14b8a6' },
 ] as const
 type CfgTab = typeof CFG_NAV[number]['id']
@@ -224,6 +248,9 @@ export default function Configuracoes() {
   // "Outros" encargos de rescisão adicionados pelo usuário
   const [outrosRescisao, setOutrosRescisao] = useState<VerbaRescisoria[]>([])
   const [uploadingLogo, setUploadingLogo]   = useState(false)
+  const [tiposDoc,     setTiposDoc]         = useState<string[]>(TIPOS_DOCUMENTO_PADRAO)
+  const [novoTipoDoc,  setNovoTipoDoc]      = useState('')
+  const [savingTiposDoc, setSavingTiposDoc] = useState(false)
   const logoInputRef = useRef<HTMLInputElement>(null)
 
   // ─── upload logo ─────────────────────────────────────────────────────────
@@ -322,6 +349,16 @@ export default function Configuracoes() {
       if (map['outros_rescisao']) {
         try { setOutrosRescisao(JSON.parse(map['outros_rescisao'])) } catch {}
       }
+      // Carregar tipos de documentos
+      if (map['tipos_documentos']) {
+        try {
+          const parsed = JSON.parse(map['tipos_documentos'])
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setTiposDoc(parsed)
+            localStorage.setItem('rh_tipos_documentos', JSON.stringify(parsed))
+          }
+        } catch {}
+      }
     }
     setLoadingConfigs(false)
   }, [])
@@ -393,6 +430,37 @@ export default function Configuracoes() {
     setConfigs((prev) => ({ ...prev, [chave]: valor }))
   }
 
+  // ─── tipos de documentos ──────────────────────────────────────────────────
+  async function saveTiposDoc() {
+    setSavingTiposDoc(true)
+    const { error } = await supabase.from('configuracoes').upsert(
+      { chave: 'tipos_documentos', valor: JSON.stringify(tiposDoc) },
+      { onConflict: 'chave' }
+    )
+    setSavingTiposDoc(false)
+    if (error) toast.error('Erro ao salvar tipos: ' + error.message)
+    else { localStorage.setItem('rh_tipos_documentos', JSON.stringify(tiposDoc)); toast.success('Tipos de documentos salvos!') }
+  }
+
+  function addTipoDoc() {
+    const t = novoTipoDoc.trim()
+    if (!t) return
+    if (tiposDoc.some(x => x.toLowerCase() === t.toLowerCase())) {
+      toast.error('Tipo já existe na lista'); return
+    }
+    setTiposDoc(prev => [...prev, t])
+    setNovoTipoDoc('')
+  }
+
+  function removeTipoDoc(idx: number) {
+    setTiposDoc(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  function resetTiposDoc() {
+    setTiposDoc(TIPOS_DOCUMENTO_PADRAO)
+    toast.info('Lista restaurada para o padrão. Salve para confirmar.')
+  }
+
   // ─── upsert config ─────────────────────────────────────────────────────────
   async function upsertConfigs(chaves: string[], setSaving: (v: boolean) => void) {
     setSaving(true)
@@ -448,7 +516,7 @@ export default function Configuracoes() {
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%', minHeight:0 }}>
       {/* cabeçalho */}
-      <div style={{ padding:'20px 24px 0', flexShrink:0 }}>
+      <div style={{ padding:'28px 32px 0', flexShrink:0 }}>
         <PageHeader
           title="Configurações"
           subtitle="Parâmetros e configurações do sistema ConstrutorRH"
@@ -462,7 +530,7 @@ export default function Configuracoes() {
         </div>
       ) : (
         /* ── layout lateral ──────────────────────────────────────── */
-        <div style={{ display:'flex', flex:1, minHeight:0, gap:0, padding:'16px 24px 24px' }}>
+        <div style={{ display:'flex', flex:1, minHeight:0, gap:0, padding:'16px 32px 32px' }}>
 
           {/* ── sidebar esquerda ─────────────────────────────────── */}
           <div style={{
@@ -1097,6 +1165,82 @@ export default function Configuracoes() {
               </div>
             </div>
           </div>)}
+
+          {/* ── Tab Tipos de Documentos ──────────────────────────────── */}
+          {cfgTab === 'documentos' && (
+            <div>
+              <div className="bg-card border border-border rounded-xl overflow-hidden">
+                <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1e293b' }}>Tipos de Documentos</h2>
+                    <p style={{ margin: 0, fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                      Liste os tipos disponíveis ao cadastrar um documento de colaborador. {tiposDoc.length} tipo(s) configurado(s).
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <Button variant="outline" size="sm" onClick={resetTiposDoc} style={{ fontSize: 12 }}>
+                      Restaurar padrão
+                    </Button>
+                    <Button size="sm" onClick={saveTiposDoc} disabled={savingTiposDoc}>
+                      {savingTiposDoc ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Save className="w-3.5 h-3.5 mr-1" />}
+                      Salvar
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Adicionar novo tipo */}
+                <div style={{ padding: '14px 24px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 8 }}>
+                  <input
+                    type="text"
+                    value={novoTipoDoc}
+                    onChange={e => setNovoTipoDoc(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') addTipoDoc() }}
+                    placeholder="Nome do novo tipo (ex: Declaração de Férias)…"
+                    style={{
+                      flex: 1, height: 38, border: '1px solid #e2e8f0', borderRadius: 7,
+                      padding: '0 12px', fontSize: 13, outline: 'none', background: '#fff',
+                    }}
+                    onFocus={e => (e.target.style.borderColor = '#3b82f6')}
+                    onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+                  />
+                  <Button size="sm" onClick={addTipoDoc} disabled={!novoTipoDoc.trim()}>
+                    <Plus className="w-3.5 h-3.5 mr-1" /> Adicionar
+                  </Button>
+                </div>
+
+                {/* Lista de tipos */}
+                <div style={{ padding: '8px 16px' }}>
+                  {tiposDoc.map((tipo, idx) => (
+                    <div key={idx} style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '9px 8px', borderBottom: idx < tiposDoc.length - 1 ? '1px solid #f8fafc' : 'none',
+                    }}>
+                      <FileText size={14} color="#94a3b8" style={{ flexShrink: 0 }}/>
+                      <span style={{ flex: 1, fontSize: 13, color: '#1e293b' }}>{tipo}</span>
+                      <button
+                        onClick={() => removeTipoDoc(idx)}
+                        title="Remover tipo"
+                        style={{
+                          border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8',
+                          padding: '3px 6px', borderRadius: 5, display: 'flex', alignItems: 'center',
+                          transition: 'all 0.12s',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#ef4444'; (e.currentTarget as HTMLElement).style.background = '#fef2f2' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#94a3b8'; (e.currentTarget as HTMLElement).style.background = 'none' }}
+                      >
+                        <X size={13}/>
+                      </button>
+                    </div>
+                  ))}
+                  {tiposDoc.length === 0 && (
+                    <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                      Nenhum tipo cadastrado. Adicione acima ou restaure o padrão.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── Tab Usuários ───────────────────────────────────────────── */}
           {cfgTab === 'usuarios' && (<div>

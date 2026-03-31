@@ -23,6 +23,7 @@ import {
 import { Plus, Pencil, Trash2, Stethoscope, AlertTriangle, FileWarning, Upload, FileText, X, ExternalLink, Link2 } from 'lucide-react'
 import { useProfile } from '@/hooks/useProfile'
 import { traduzirErro } from '@/lib/erros'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type Colaborador = { id: string; nome: string; chapa: string }
@@ -725,7 +726,7 @@ export default function Ocorrencias() {
 
   // ═══════════════════════════════════════════════════════════════════════════
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 24 }}>
+    <div className="page-root">
       <PageHeader
         title="Ocorrências"
         subtitle="Acidentes de Trabalho, Atestados e Advertências"
@@ -955,10 +956,12 @@ export default function Ocorrencias() {
             <div style={g2}>
               <div style={fRow}>
                 <Label>Colaborador *</Label>
-                <Select value={acidForm.colaborador_id || undefined} onValueChange={v => setAcidForm(p => ({ ...p, colaborador_id: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                  <SelectContent>{colaboradores.map(c => <SelectItem key={c.id} value={c.id}>{c.nome}{c.chapa ? ` — ${c.chapa}` : ''}</SelectItem>)}</SelectContent>
-                </Select>
+                <SearchableSelect
+                  options={colaboradores.map(c => ({ value: c.id, label: c.nome, sublabel: c.chapa }))}
+                  value={acidForm.colaborador_id || ''}
+                  onChange={v => setAcidForm(p => ({ ...p, colaborador_id: v }))}
+                  placeholder="Pesquisar colaborador…"
+                />
               </div>
               <div style={fRow}>
                 <Label>Obra</Label>
@@ -1025,13 +1028,15 @@ export default function Ocorrencias() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
             <div style={fRow}>
               <Label>Colaborador *</Label>
-              <Select value={atestForm.colaborador_id || undefined} onValueChange={v => {
-                setAtestForm(p => ({ ...p, colaborador_id: v, acidente_id: '' }))
-                fetchAcidColaborador(v)
-              }}>
-                <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                <SelectContent>{colaboradores.map(c => <SelectItem key={c.id} value={c.id}>{c.nome}{c.chapa ? ` — ${c.chapa}` : ''}</SelectItem>)}</SelectContent>
-              </Select>
+              <SearchableSelect
+                options={colaboradores.map(c => ({ value: c.id, label: c.nome, sublabel: c.chapa }))}
+                value={atestForm.colaborador_id || ''}
+                onChange={v => {
+                  setAtestForm(p => ({ ...p, colaborador_id: v, acidente_id: '' }))
+                  fetchAcidColaborador(v)
+                }}
+                placeholder="Pesquisar colaborador…"
+              />
             </div>
 
             {/* Vincular acidente */}
@@ -1106,10 +1111,12 @@ export default function Ocorrencias() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 0' }}>
             <div style={fRow}>
               <Label>Colaborador *</Label>
-              <Select value={advForm.colaborador_id || undefined} onValueChange={v => setAdvForm(p => ({ ...p, colaborador_id: v }))}>
-                <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                <SelectContent>{colaboradores.map(c => <SelectItem key={c.id} value={c.id}>{c.nome}{c.chapa ? ` — ${c.chapa}` : ''}</SelectItem>)}</SelectContent>
-              </Select>
+              <SearchableSelect
+                options={colaboradores.map(c => ({ value: c.id, label: c.nome, sublabel: c.chapa }))}
+                value={advForm.colaborador_id || ''}
+                onChange={v => setAdvForm(p => ({ ...p, colaborador_id: v }))}
+                placeholder="Pesquisar colaborador…"
+              />
             </div>
             <div style={g2}>
               <div style={fRow}><Label>Data *</Label><Input type="date" value={advForm.data_advertencia} onChange={e => setAdvForm(p => ({ ...p, data_advertencia: e.target.value }))} /></div>

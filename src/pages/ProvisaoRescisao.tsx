@@ -338,12 +338,12 @@ export default function ProvisaoRescisao() {
   // ─────────────────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: 24 }}>
+    <div className="page-root">
 
       {/* ── Cabeçalho ──────────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 12, background: '#1e3a5f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 44, height: 44, borderRadius: 10, background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Calculator size={24} color="#93c5fd" />
           </div>
           <div>

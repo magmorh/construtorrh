@@ -594,8 +594,8 @@ export default function FechamentoPonto() {
       // ── Base de desconto: CLT = horas+DSR / Autônomo = total recebido ───────
       const baseDesconto = tipo === 'clt' ? (valorHoras + dsr) : valorTotal
 
-      // 6% do salário bruto (baseDesconto) — aplicado somente se descontar_6pct=true no VT do mês
-      const descontoVT6pct = setDescontoVT6.has(l.colaborador_id) ? Math.min(baseDesconto * 0.06, vtBruto) : 0
+      // 6% do salário bruto (baseDesconto) — SOMENTE CLT e se descontar_6pct=true no VT do mês
+      const descontoVT6pct = (tipo === 'clt' && setDescontoVT6.has(l.colaborador_id)) ? Math.min(baseDesconto * 0.06, vtBruto) : 0
       const descontoVT     = vtDescontoFaltas + descontoVT6pct
       const inss = tipo === 'clt'
         ? calcINSS(baseDesconto, tabelaInss.length ? tabelaInss : undefined)
@@ -791,6 +791,14 @@ export default function FechamentoPonto() {
   const totalGeral  = useMemo(() => lancamentos.reduce((s, l) => s + l.valor_total, 0), [lancamentos])
   const pendentes    = lancamentos.filter(l => ['em_fechamento','aguardando_aprovacao','aprovado','liberado','rascunho'].includes(l.status))
   const pagos        = lancamentos.filter(l => l.status === 'pago')
+  // Totais financeiros separados
+  const totalAberto  = useMemo(() => pendentes.reduce((s,l) => s + (l.snap_liquido ?? l.valor_total ?? 0), 0), [pendentes])
+  const totalPago    = useMemo(() => pagos.reduce((s,l) => s + (l.snap_liquido ?? l.valor_total ?? 0), 0), [pagos])
+  const totalLiberado= useMemo(() => lancamentos.filter(l=>l.status==='liberado').reduce((s,l)=>s+(l.snap_liquido??l.valor_total??0),0), [lancamentos])
+  const qtdEmFech    = lancamentos.filter(l=>l.status==='em_fechamento').length
+  const qtdAguard    = lancamentos.filter(l=>l.status==='aguardando_aprovacao').length
+  const qtdAprov     = lancamentos.filter(l=>l.status==='aprovado').length
+  const qtdLib       = lancamentos.filter(l=>l.status==='liberado').length
 
   // ── Abrir espelho de ponto de um lançamento ──────────────────────────────
   async function abrirEspelho(lanc: LancItem) {
@@ -1054,7 +1062,7 @@ export default function FechamentoPonto() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6">
+    <div className="page-root">
       <PageHeader
         title="Fechamento de Ponto"
         subtitle="Aprovação e liberação de lançamentos para pagamento"
@@ -1146,38 +1154,62 @@ export default function FechamentoPonto() {
       </div>
 
       {/* ── Cards de resumo ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <SummaryCard
-          sigla="COL"
-          label="Colaboradores"
-          value={String(porColaborador.length)}
-          sub="no período"
-          color="#1e40af"
-          bg="#1e40af"
-        />
-        <SummaryCard
-          sigla="AG"
-          label="Ag. Pagamento"
-          value={String(pendentes.length)}
-          sub="lançamentos"
-          color="#b45309"
-          bg="#b45309"
-        />
-        <SummaryCard
-          sigla="PG"
-          label="Pagos"
-          value={String(pagos.length)}
-          sub="lançamentos"
-          color="#15803d"
-          bg="#15803d"
-        />
-        <SummaryCard
-          sigla="TOT"
-          label="Total Geral"
-          value={formatCurrency(totalGeral)}
-          color="#7c3aed"
-          bg="#7c3aed"
-        />
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:20 }}>
+        {/* Card EM ABERTO */}
+        <div style={{ background:'#fff7ed', border:'2px solid #fed7aa', borderRadius:12, padding:'14px 18px' }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+            <span style={{ fontSize:12, fontWeight:800, color:'#b45309', textTransform:'uppercase', letterSpacing:'0.05em' }}>⏳ Em Aberto</span>
+            <span style={{ background:'#b45309', color:'#fff', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700 }}>{pendentes.length} lanç.</span>
+          </div>
+          <div style={{ fontSize:22, fontWeight:800, color:'#b45309', marginBottom:8 }}>{formatCurrency(totalAberto)}</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#92400e' }}>
+              <span>🔒 Em Fechamento</span><strong>{qtdEmFech}</strong>
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#92400e' }}>
+              <span>⏱ Ag. Aprovação</span><strong>{qtdAguard}</strong>
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#92400e' }}>
+              <span>✅ Aprovados</span><strong>{qtdAprov}</strong>
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#92400e', borderTop:'1px solid #fed7aa', paddingTop:4, marginTop:2 }}>
+              <span>💳 Liberados p/ Pagar</span><strong style={{ color:'#b45309' }}>{qtdLib} · {formatCurrency(totalLiberado)}</strong>
+            </div>
+          </div>
+        </div>
+        {/* Card REALIZADO */}
+        <div style={{ background:'#f0fdf4', border:'2px solid #bbf7d0', borderRadius:12, padding:'14px 18px' }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+            <span style={{ fontSize:12, fontWeight:800, color:'#15803d', textTransform:'uppercase', letterSpacing:'0.05em' }}>✅ Realizados</span>
+            <span style={{ background:'#15803d', color:'#fff', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700 }}>{pagos.length} lanç.</span>
+          </div>
+          <div style={{ fontSize:22, fontWeight:800, color:'#15803d', marginBottom:8 }}>{formatCurrency(totalPago)}</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#166534' }}>
+              <span>👷 Colaboradores pagos</span><strong>{[...new Set(pagos.map((l:any)=>l.colaborador_id))].length}</strong>
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#166534' }}>
+              <span>🏗️ Obras envolvidas</span><strong>{[...new Set(pagos.map((l:any)=>l.obra_id).filter(Boolean))].length}</strong>
+            </div>
+          </div>
+        </div>
+        {/* Card TOTAL GERAL */}
+        <div style={{ background:'#f5f3ff', border:'2px solid #ddd6fe', borderRadius:12, padding:'14px 18px' }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+            <span style={{ fontSize:12, fontWeight:800, color:'#7c3aed', textTransform:'uppercase', letterSpacing:'0.05em' }}>📊 Total Geral</span>
+            <span style={{ background:'#7c3aed', color:'#fff', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700 }}>{lancamentos.length} lanç.</span>
+          </div>
+          <div style={{ fontSize:22, fontWeight:800, color:'#7c3aed', marginBottom:8 }}>{formatCurrency(totalAberto + totalPago)}</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#5b21b6' }}>
+              <span>👥 Colaboradores</span><strong>{porColaborador.length}</strong>
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#5b21b6' }}>
+              <span>📋 Aberto vs Pago</span>
+              <strong>{formatCurrency(totalAberto)} / {formatCurrency(totalPago)}</strong>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ── Lista por colaborador ── */}

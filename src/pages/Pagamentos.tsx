@@ -163,7 +163,7 @@ export default function Pagamentos() {
     setLoadingLancs(true)
     const { data } = await supabase
       .from('ponto_lancamentos')
-      .select('id, colaborador_id, obra_id, mes_referencia, data_inicio, data_fim, status, motivo_recusa, data_pagamento, obs_pagamento, snap_liquido, snap_valor_total, snap_horas, snap_dsr, snap_producao, snap_premio, snap_inss, snap_ir, snap_desconto_vt, snap_desconto_adiant, colaboradores(nome, chapa, tipo_contrato, funcao_id, funcoes(nome)), obras(nome)')
+      .select('id, colaborador_id, obra_id, mes_referencia, data_inicio, data_fim, status, motivo_recusa, data_pagamento, obs_pagamento, snap_liquido, snap_valor_total, snap_horas, snap_dsr, snap_producao, snap_premio, snap_inss, snap_ir, snap_desconto_vt, snap_desconto_adiant, colaboradores(nome, chapa, tipo_contrato, funcao_id, chave_pix, cpf, funcoes(nome)), obras(nome)')
       .in('status', ['liberado', 'pago'])
       .order('mes_referencia', { ascending: false })
     setLancsPendentes(data ?? [])
@@ -260,28 +260,40 @@ export default function Pagamentos() {
 
   // ─── marcar pago (tabela pagamentos) ──────────────────────────────────────
   async function marcarPago(id: string) {
-    const hoje = new Date().toISOString().slice(0, 10)
-    // Busca o registro para saber se é VT
+    // Abre modal para confirmar data
     const row = rows.find(r => r.id === id)
+    if (row) {
+      setModalConfData(new Date().toISOString().slice(0,10))
+      setModalConfPgto(row)
+    }
+  }
+  async function confirmarPagamentoComData() {
+    if (!modalConfPgto) return
+    setSavingPgto(true)
+    const dataPgto = modalConfData || new Date().toISOString().slice(0,10)
     const { error } = await supabase
       .from('pagamentos')
-      .update({ status: 'pago', data_pagamento: hoje })
-      .eq('id', id)
-    if (error) { toast.error('Erro ao confirmar pagamento: ' + error.message); return }
-    // Se for VT, marca o vale_transporte como pago também
-    if (row?.tipo === 'vale_transporte' && row.colaborador_id && row.competencia) {
+      .update({ status: 'pago', data_pagamento: dataPgto })
+      .eq('id', modalConfPgto.id)
+    if (error) { setSavingPgto(false); toast.error('Erro ao confirmar pagamento: ' + error.message); return }
+    if (modalConfPgto.tipo === 'vale_transporte' && modalConfPgto.colaborador_id && modalConfPgto.competencia) {
       await supabase
         .from('vale_transporte')
-        .update({ status: 'pago', data_pagamento: hoje })
-        .eq('colaborador_id', row.colaborador_id)
-        .eq('competencia', row.competencia)
+        .update({ status: 'pago', data_pagamento: dataPgto })
+        .eq('colaborador_id', modalConfPgto.colaborador_id)
+        .eq('competencia', modalConfPgto.competencia)
         .eq('status', 'aguardando_pagamento')
     }
-    toast.success('✅ Pagamento confirmado!')
+    setSavingPgto(false)
+    setModalConfPgto(null)
+    toast.success('✅ Pagamento confirmado em ' + new Date(dataPgto+'T12:00:00').toLocaleDateString('pt-BR') + '!')
     fetchData()
   }
 
   // ─── recusar pagamento (devolve para editável) ─────────────────────────────
+  // Modal de pagamento com data
+  const [modalConfPgto, setModalConfPgto] = useState<PagamentoRow | null>(null)
+  const [modalConfData, setModalConfData] = useState<string>(new Date().toISOString().slice(0,10))
   const [modalRecusarVT, setModalRecusarVT] = useState<PagamentoRow | null>(null)
   async function recusarPagamentoVT() {
     if (!modalRecusarVT) return
@@ -404,6 +416,7 @@ export default function Pagamentos() {
   // — realizados: filtrado pelo mês selecionado
   const [aba, setAba] = useState<'agendados'|'realizados'>('agendados')
   const [abaReal, setAbaReal] = useState<'folha'|'vt'|'outros'>('folha')
+  const [abaAgend, setAbaAgend] = useState<'folha'|'vt'|'outros'>('folha')
   const [showRelatorioVT, setShowRelatorioVT] = useState(false)
 
   // ─── filtros das tabelas de lançamentos ──────────────────────────────────
@@ -419,9 +432,10 @@ export default function Pagamentos() {
   const lancsAgendados  = lancsPendentes.filter((l: any) => {
     const q = filtroNomeLanc.toLowerCase()
     const matchNome   = !q || l.colaboradores?.nome?.toLowerCase().includes(q) || (l.colaboradores?.chapa??'').toLowerCase().includes(q)
+    const matchMes    = filtroMesLanc ? l.mes_referencia === filtroMesLanc : true
     const matchObra   = filtroObraLanc !== 'todos' ? l.obra_id === filtroObraLanc : true
     const matchFuncao = filtroFuncaoLanc !== 'todos' ? l.colaboradores?.funcao_id === filtroFuncaoLanc : true
-    return l.status === 'liberado' && matchNome && matchObra && matchFuncao
+    return l.status === 'liberado' && matchNome && matchMes && matchObra && matchFuncao
   })
   const lancsRealizados = lancsPendentes.filter((l: any) => {
     const matchNome   = !filtroNomeLanc || l.colaboradores?.nome?.toLowerCase().includes(filtroNomeLanc.toLowerCase()) || (l.colaboradores?.chapa??'').toLowerCase().includes(filtroNomeLanc.toLowerCase())
@@ -437,6 +451,55 @@ export default function Pagamentos() {
   const totalRealizado = lancsRealizados.reduce((s: number, l: any) => s + (l.snap_liquido ?? l.valor_liquido ?? 0), 0)
 
   // ── Relatório por Obra/Função ─────────────────────────────────────────────
+  async function gerarRelatorioRealizados() {
+    // Filtra os realizados conforme filtros ativos da tela
+    const pagosLanc = lancsPendentes.filter((l: any) => l.status === 'pago')
+    const pagosAvul = rows.filter((r: any) => r.status === 'pago')
+    if (pagosLanc.length === 0 && pagosAvul.length === 0) {
+      toast.info('Nenhum pagamento realizado no período.'); return
+    }
+    // Agrupa por colaborador
+    const mapaColab: Record<string, { nome:string; chapa:string; funcao:string; pix:string; obra:string; lancs:any[]; total:number }> = {}
+    for (const l of pagosLanc) {
+      const key = l.colaborador_id
+      const nm  = l.colaboradores?.nome ?? '—'
+      const ch  = l.colaboradores?.chapa ?? '—'
+      const fn  = l.colaboradores?.funcoes?.nome ?? '—'
+      const px  = l.colaboradores?.chave_pix ?? l.colaboradores?.cpf ?? '—'
+      const ob  = l.obras?.nome ?? '—'
+      const dtPgt = l.data_pagamento ? new Date(l.data_pagamento).toLocaleDateString('pt-BR') : '—'
+      if (!mapaColab[key]) mapaColab[key] = { nome:nm, chapa:ch, funcao:fn, pix:px, obra:ob, lancs:[], total:0 }
+      mapaColab[key].lancs.push({ tipo:'Folha', dtPgt, valor:l.snap_liquido??0, obra:ob })
+      mapaColab[key].total += (l.snap_liquido??0)
+    }
+    const dataGer = new Date().toLocaleDateString('pt-BR')
+    const blocos = Object.values(mapaColab).sort((a,b)=>a.nome.localeCompare(b.nome)).map(c => {
+      const pixDisp = c.pix !== '—' ? `<span style="background:#f0fdf4;color:#15803d;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700">💳 ${c.pix}</span>` : '—'
+      const subLinhas = c.lancs.map(l => `<tr style="background:#fafafa">
+        <td style="padding:5px 10px;font-size:10px;color:#94a3b8">${l.tipo}</td>
+        <td style="padding:5px 10px;font-size:11px;color:#475569">${l.obra}</td>
+        <td style="padding:5px 10px;font-size:11px;color:#059669;text-align:right">${l.dtPgt}</td>
+        <td style="padding:5px 10px;font-size:12px;font-weight:700;color:#15803d;text-align:right">R$ ${l.valor.toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+      </tr>`).join('')
+      return `<tr style="background:#e8f4fd;border-top:2px solid #bae6fd">
+        <td style="padding:8px 10px;font-weight:700;font-size:13px">${c.chapa !== '—'?`<span style="font-size:10px;color:#0369a1;margin-right:6px">${c.chapa}</span>`:''}${c.nome}</td>
+        <td style="padding:8px 10px;font-size:11px">${c.funcao}</td>
+        <td style="padding:8px 10px">${pixDisp}</td>
+        <td style="padding:8px 10px;font-size:13px;font-weight:800;color:#15803d;text-align:right">R$ ${c.total.toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+      </tr>${subLinhas}`
+    }).join('')
+    const totalGer = Object.values(mapaColab).reduce((s,c)=>s+c.total,0)
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Rel. Realizados</title>
+    <style>body{font-family:Arial,sans-serif;font-size:12px;margin:20px}h2{color:#15803d}table{width:100%;border-collapse:collapse;border:1px solid #e2e8f0}th{padding:6px 10px;background:#f8fafc;text-align:left;font-size:10px;color:#64748b;font-weight:600}tr:hover{background:#f1f5f9}tfoot td{background:#15803d;color:#fff;font-weight:800;font-size:13px}</style></head>
+    <body><h2>✅ Relatório de Pagamentos Realizados</h2><p style="color:#64748b">Emitido em: ${dataGer}</p>
+    <table><thead><tr><th>Colaborador</th><th>Função</th><th>PIX</th><th style="text-align:right">Valor Pago</th></tr></thead>
+    <tbody>${blocos}</tbody>
+    <tfoot><tr><td colspan="3" style="padding:8px 10px">TOTAL GERAL (${Object.keys(mapaColab).length} colaboradores)</td><td style="padding:8px 10px;text-align:right">R$ ${totalGer.toLocaleString('pt-BR',{minimumFractionDigits:2})}</td></tr></tfoot>
+    </table></body></html>`
+    const win = window.open('','_blank','width=900,height=700')
+    if (win) { win.document.write(html); win.document.close(); win.print() }
+  }
+
   async function gerarRelatorioAgendados() {
     // Pega TODOS os agendados (status liberado), sem filtros de tela
     const todos = lancsPendentes.filter((l: any) => l.status === 'liberado')
@@ -460,55 +523,91 @@ export default function Pagamentos() {
       .sort(([a],[b]) => a.localeCompare(b))
       .map(([fn, { cols, total: tfn }]) => {
         const colsOrd = [...cols].sort((a,b) => (a.colaboradores?.nome ?? '').localeCompare(b.colaboradores?.nome ?? ''))
-        const linhas  = colsOrd.map((l: any) => {
-          const dtIni  = l.data_inicio ? l.data_inicio.slice(8)+'/'+l.data_inicio.slice(5,7) : '—'
-          const dtFim  = l.data_fim    ? l.data_fim.slice(8)+'/'+l.data_fim.slice(5,7)       : '—'
-          const per    = `${dtIni} → ${dtFim}`
-          const pix    = l.colaboradores?.chave_pix ?? l.colaboradores?.cpf ?? '—'
-          const obra   = l.obras?.nome ?? '—'
-          const liq    = (l.snap_liquido ?? 0).toLocaleString('pt-BR', { minimumFractionDigits:2 })
-          return `<tr>
-            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#64748b;white-space:nowrap">${per}</td>
-            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#64748b">${l.colaboradores?.chapa ?? '—'}</td>
-            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:13px;font-weight:600;color:#1e293b">${l.colaboradores?.nome ?? '—'}</td>
-            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;color:#64748b">${obra}</td>
-            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;font-weight:700;color:#15803d;text-align:right">R$ ${liq}</td>
-            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:10px;color:#475569">${pix}</td>
-            <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:10px;text-align:center">
-              <span style="background:#fef9c3;color:#b45309;border-radius:4px;padding:2px 7px;font-weight:700;font-size:10px">⏳ Agendado</span>
-            </td>
-          </tr>`
+
+        // Agrupa por colaborador dentro da função
+        const porColab: Record<string, { lancs: any[]; total: number; chapa: string; pix: string }> = {}
+        colsOrd.forEach((l: any) => {
+          const key = l.colaborador_id ?? l.colaboradores?.nome ?? '—'
+          const pix = l.colaboradores?.chave_pix ?? l.colaboradores?.cpf ?? '—'
+          if (!porColab[key]) porColab[key] = { lancs:[], total:0, chapa: l.colaboradores?.chapa ?? '—', pix }
+          porColab[key].lancs.push(l)
+          porColab[key].total += (l.snap_liquido ?? 0)
+        })
+
+        const linhasColab = Object.entries(porColab).map(([, { lancs, total: tc, chapa, pix }]) => {
+          const nome = lancs[0]?.colaboradores?.nome ?? '—'
+          const pixDisplay = pix !== '—'
+            ? `<span style="background:#f0fdf4;color:#15803d;border-radius:4px;padding:2px 7px;font-weight:700;font-size:10px">💳 ${pix}</span>`
+            : `<span style="color:#94a3b8;font-size:10px">—</span>`
+          const totalColab = tc.toLocaleString('pt-BR', { minimumFractionDigits:2 })
+
+          // Linhas de cada lançamento deste colaborador
+          const subLinhas = lancs.map((l: any) => {
+            const dtIni = l.data_inicio ? l.data_inicio.slice(8)+'/'+l.data_inicio.slice(5,7) : '—'
+            const dtFim = l.data_fim    ? l.data_fim.slice(8)+'/'+l.data_fim.slice(5,7)       : '—'
+            const per   = `${dtIni} → ${dtFim}`
+            const obra  = l.obras?.nome ?? '—'
+            const liq   = (l.snap_liquido ?? 0).toLocaleString('pt-BR', { minimumFractionDigits:2 })
+            return `<tr style="background:#fafafa">
+              <td style="padding:4px 10px 4px 28px;border-bottom:1px solid #f1f5f9;font-size:10px;color:#94a3b8;white-space:nowrap">↳ ${per}</td>
+              <td style="padding:4px 10px;border-bottom:1px solid #f1f5f9;font-size:10px;color:#94a3b8">${obra}</td>
+              <td style="padding:4px 10px;border-bottom:1px solid #f1f5f9;font-size:11px;font-weight:600;color:#15803d;text-align:right">R$ ${liq}</td>
+              <td style="padding:4px 10px;border-bottom:1px solid #f1f5f9;font-size:10px;text-align:center">
+                <span style="background:#fef9c3;color:#b45309;border-radius:4px;padding:2px 6px;font-weight:700;font-size:9px">⏳ Agendado</span>
+              </td>
+            </tr>`
+          }).join('')
+
+          const totalRow = lancs.length > 1 ? `
+            <tr style="background:#f0fdf4">
+              <td colspan="2" style="padding:5px 10px;font-size:11px;font-weight:700;color:#15803d">
+                TOTAL ${nome} (${lancs.length} lançamentos)
+              </td>
+              <td style="padding:5px 10px;text-align:right;font-size:12px;font-weight:800;color:#15803d">R$ ${totalColab}</td>
+              <td></td>
+            </tr>` : ''
+
+          return `
+            <tr style="background:#e8f4fd;border-top:2px solid #bae6fd">
+              <td style="padding:8px 10px;font-size:13px;font-weight:700;color:#0c4a6e">
+                ${chapa !== '—' ? `<span style="font-size:10px;color:#0369a1;font-weight:600;margin-right:6px">${chapa}</span>` : ''}
+                ${nome}
+              </td>
+              <td style="padding:8px 10px;font-size:11px;color:#0369a1">${pixDisplay}</td>
+              <td style="padding:8px 10px;text-align:right;font-size:12px;font-weight:700;color:#0c4a6e">R$ ${totalColab}</td>
+              <td style="padding:8px 10px;font-size:10px;color:#64748b;text-align:center">${lancs.length} lanç.</td>
+            </tr>
+            ${subLinhas}
+            ${totalRow}`
         }).join('')
 
         const subtotal = tfn.toLocaleString('pt-BR', { minimumFractionDigits:2 })
+        const nColabs  = Object.keys(porColab).length
         return `
           <div style="margin-bottom:28px;break-inside:avoid">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
               <span style="background:#e0f2fe;color:#0369a1;font-size:11px;font-weight:800;padding:3px 12px;border-radius:4px;letter-spacing:0.06em;border-left:3px solid #0369a1">
                 FUNÇÃO: ${fn}
               </span>
-              <span style="font-size:11px;color:#64748b">— ${cols.length} colaborador(es)</span>
+              <span style="font-size:11px;color:#64748b">— ${nColabs} colaborador(es) · ${cols.length} lançamento(s)</span>
             </div>
             <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0">
               <thead>
                 <tr style="background:#f8fafc">
-                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:600;white-space:nowrap">Período</th>
-                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:600">Chapa</th>
-                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:600">Nome</th>
-                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:600">Obra</th>
-                  <th style="padding:6px 10px;text-align:right;font-size:10px;color:#64748b;font-weight:600">Valor Empresa</th>
-                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:600">PIX / Pagamento</th>
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:600">Nome / Período</th>
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:600">Obra / PIX</th>
+                  <th style="padding:6px 10px;text-align:right;font-size:10px;color:#64748b;font-weight:600">Valor</th>
                   <th style="padding:6px 10px;text-align:center;font-size:10px;color:#64748b;font-weight:600">Status</th>
                 </tr>
               </thead>
-              <tbody>${linhas}</tbody>
+              <tbody>${linhasColab}</tbody>
               <tfoot>
-                <tr style="background:#f1f5f9">
-                  <td colspan="4" style="padding:6px 10px;font-size:11px;font-weight:700;color:#475569">
-                    Subtotal — ${fn} (${cols.length} lançamento(s))
+                <tr style="background:#0369a1">
+                  <td colspan="2" style="padding:7px 10px;font-size:11px;font-weight:700;color:#fff">
+                    Subtotal — ${fn} (${nColabs} colaborador(es) · ${cols.length} lançamento(s))
                   </td>
-                  <td style="padding:6px 10px;text-align:right;font-size:12px;font-weight:800;color:#15803d">R$ ${subtotal}</td>
-                  <td colspan="2"></td>
+                  <td style="padding:7px 10px;text-align:right;font-size:13px;font-weight:800;color:#fff">R$ ${subtotal}</td>
+                  <td></td>
                 </tr>
               </tfoot>
             </table>
@@ -536,70 +635,98 @@ export default function Pagamentos() {
   }
 
   return (
-    <div className="p-6">
+    <div className="page-root">
       {/* Header — padrão do sistema */}
       <PageHeader
-        title="💰 Pagamentos"
+        title="Pagamentos"
         subtitle="Lançamentos liberados da folha e pagamentos avulsos"
       />
 
-      {/* Cards resumo — valores financeiros completos */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
-        <SummaryCard
-          sigla="AB"
-          label="Em Aberto"
-          value={formatCurrency(lancsPendentes.filter((l:any)=>l.status==='liberado').reduce((s:number,l:any)=>s+(l.snap_liquido??0),0))}
-          sub={`${lancsPendentes.filter((l:any)=>l.status==='liberado').length} lanç.`}
-          color="#b45309"
-          bg="#b45309"
-        />
-        <SummaryCard
-          sigla="OK"
-          label="Realizados"
-          value={formatCurrency(lancsPendentes.filter((l:any)=>l.status==='pago'&&l.mes_referencia===filtroMesLanc).reduce((s:number,l:any)=>s+(l.snap_liquido??0),0))}
-          sub={`${lancsPendentes.filter((l:any)=>l.status==='pago'&&l.mes_referencia===filtroMesLanc).length} lanç.`}
-          color="#15803d"
-          bg="#15803d"
-        />
-        <SummaryCard
-          sigla="AV"
-          label="Avulsos"
-          value={formatCurrency(rows.filter(r=>r.status==='pendente').reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0))}
-          sub={`${rows.filter(r=>r.status==='pendente').length} pend.`}
-          color="#7c3aed"
-          bg="#7c3aed"
-        />
-        <SummaryCard
-          sigla="PG"
-          label="Avulsos Pagos"
-          value={formatCurrency(rows.filter(r=>r.status==='pago'&&r.competencia===filtroMesLanc).reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0))}
-          sub={`${rows.filter(r=>r.status==='pago'&&r.competencia===filtroMesLanc).length} reg.`}
-          color="#0f766e"
-          bg="#0f766e"
-        />
-        <SummaryCard
-          sigla="AD"
-          label="Adiantamentos"
-          value={formatCurrency(rows.filter(r=>r.tipo==='adiantamento'&&r.status==='pendente').reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0))}
-          sub={`${rows.filter(r=>r.tipo==='adiantamento'&&r.status==='pendente').length} pend.`}
-          color="#9a3412"
-          bg="#9a3412"
-        />
-        <SummaryCard
-          sigla="PR"
-          label="Prêmios"
-          value={formatCurrency(rows.filter(r=>r.tipo==='premio'&&r.status==='pendente').reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0))}
-          sub={`${rows.filter(r=>r.tipo==='premio'&&r.status==='pendente').length} pend.`}
-          color="#b45309"
-          bg="#b45309"
-        />
-      </div>
+      {/* Cards resumo — 3 painéis EM ABERTO / REALIZADOS / TOTAL */}
+      {(() => {
+        const qtdLib     = lancsPendentes.filter((l:any)=>l.status==='liberado'&&(filtroMesLanc?l.mes_referencia===filtroMesLanc:true)).length
+        const vlLib      = lancsPendentes.filter((l:any)=>l.status==='liberado'&&(filtroMesLanc?l.mes_referencia===filtroMesLanc:true)).reduce((s:number,l:any)=>s+(l.snap_liquido??0),0)
+        const qtdAvPend  = rows.filter(r=>r.status==='pendente').length
+        const vlAvPend   = rows.filter(r=>r.status==='pendente').reduce((s:any,r:any)=>s+(r.valor_liquido??r.valor_bruto??0),0)
+        const qtdAdPend  = rows.filter(r=>r.tipo==='adiantamento'&&r.status==='pendente').length
+        const vlAdPend   = rows.filter(r=>r.tipo==='adiantamento'&&r.status==='pendente').reduce((s:any,r:any)=>s+(r.valor_liquido??r.valor_bruto??0),0)
+        const qtdPrPend  = rows.filter(r=>r.tipo==='premio'&&r.status==='pendente').length
+        const vlPrPend   = rows.filter(r=>r.tipo==='premio'&&r.status==='pendente').reduce((s:any,r:any)=>s+(r.valor_liquido??r.valor_bruto??0),0)
+        const totalAberto= vlLib + vlAvPend + vlAdPend + vlPrPend
+        const qtdAberto  = qtdLib + qtdAvPend + qtdAdPend + qtdPrPend
+
+        const qtdFolhaPaga = lancsPendentes.filter((l:any)=>l.status==='pago'&&l.mes_referencia===filtroMesLanc).length
+        const vlFolhaPaga  = lancsPendentes.filter((l:any)=>l.status==='pago'&&l.mes_referencia===filtroMesLanc).reduce((s:number,l:any)=>s+(l.snap_liquido??0),0)
+        const qtdAvPago    = rows.filter(r=>r.status==='pago'&&r.competencia===filtroMesLanc).length
+        const vlAvPago     = rows.filter(r=>r.status==='pago'&&r.competencia===filtroMesLanc).reduce((s:any,r:any)=>s+(r.valor_liquido??r.valor_bruto??0),0)
+        const totalPago    = vlFolhaPaga + vlAvPago
+        const qtdPago      = qtdFolhaPaga + qtdAvPago
+
+        return (
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:20 }}>
+          {/* EM ABERTO */}
+          <div style={{ background:'#fff7ed', border:'2px solid #fed7aa', borderRadius:12, padding:'14px 18px' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+              <span style={{ fontSize:12, fontWeight:800, color:'#b45309', textTransform:'uppercase', letterSpacing:'0.05em' }}>⏳ Em Aberto</span>
+              <span style={{ background:'#b45309', color:'#fff', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700 }}>{qtdAberto} itens</span>
+            </div>
+            <div style={{ fontSize:22, fontWeight:800, color:'#b45309', marginBottom:8 }}>{formatCurrency(totalAberto)}</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#92400e' }}>
+                <span>💳 Folha liberada</span><strong>{qtdLib} · {formatCurrency(vlLib)}</strong>
+              </div>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#92400e' }}>
+                <span>📋 Avulsos pend.</span><strong>{qtdAvPend} · {formatCurrency(vlAvPend)}</strong>
+              </div>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#92400e' }}>
+                <span>💰 Adiantamentos</span><strong>{qtdAdPend} · {formatCurrency(vlAdPend)}</strong>
+              </div>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#92400e' }}>
+                <span>🏆 Prêmios</span><strong>{qtdPrPend} · {formatCurrency(vlPrPend)}</strong>
+              </div>
+            </div>
+          </div>
+          {/* REALIZADOS */}
+          <div style={{ background:'#f0fdf4', border:'2px solid #bbf7d0', borderRadius:12, padding:'14px 18px' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+              <span style={{ fontSize:12, fontWeight:800, color:'#15803d', textTransform:'uppercase', letterSpacing:'0.05em' }}>✅ Realizados</span>
+              <span style={{ background:'#15803d', color:'#fff', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700 }}>{qtdPago} pagos</span>
+            </div>
+            <div style={{ fontSize:22, fontWeight:800, color:'#15803d', marginBottom:8 }}>{formatCurrency(totalPago)}</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#166534' }}>
+                <span>📑 Folha de ponto</span><strong>{qtdFolhaPaga} · {formatCurrency(vlFolhaPaga)}</strong>
+              </div>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#166534' }}>
+                <span>📋 Avulsos pagos</span><strong>{qtdAvPago} · {formatCurrency(vlAvPago)}</strong>
+              </div>
+            </div>
+          </div>
+          {/* TOTAL GERAL */}
+          <div style={{ background:'#f5f3ff', border:'2px solid #ddd6fe', borderRadius:12, padding:'14px 18px' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+              <span style={{ fontSize:12, fontWeight:800, color:'#7c3aed', textTransform:'uppercase', letterSpacing:'0.05em' }}>📊 Total Geral</span>
+              <span style={{ background:'#7c3aed', color:'#fff', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700 }}>{qtdAberto+qtdPago} lançamentos</span>
+            </div>
+            <div style={{ fontSize:22, fontWeight:800, color:'#7c3aed', marginBottom:8 }}>{formatCurrency(totalAberto + totalPago)}</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#5b21b6' }}>
+                <span>⏳ Em Aberto</span><strong>{formatCurrency(totalAberto)}</strong>
+              </div>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#5b21b6' }}>
+                <span>✅ Realizado</span><strong>{formatCurrency(totalPago)}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+        )
+      })()}
 
       {/* Abas — padrão do sistema */}
       <div className="flex gap-0 mb-0" style={{ borderBottom:'2px solid var(--border)', justifyContent:'space-between', alignItems:'flex-end' }}>
         <div className="flex gap-0">
         {([
-          { key:'agendados',  label:'⏳ Agendados',  count: lancsPendentes.filter(l=>l.status==='liberado').length },
+          { key:'agendados',  label:'⏳ Agendados',  count: lancsPendentes.filter(l=>l.status==='liberado'&&(filtroMesLanc?l.mes_referencia===filtroMesLanc:true)).length },
           { key:'realizados', label:'✅ Realizados', count: lancsPendentes.filter(l=>l.status==='pago').length + rows.filter(r=>r.status==='pago').length },
         ] as {key:'agendados'|'realizados';label:string;count:number}[]).map(tab => (
           <button key={tab.key} onClick={()=>setAba(tab.key)}
@@ -616,11 +743,19 @@ export default function Pagamentos() {
           </button>
         ))}
         </div>
-        {/* Botão de relatório por obra/função */}
-        <button onClick={() => gerarRelatorioAgendados()}
-          style={{ marginBottom:4, padding:'6px 14px', borderRadius:7, border:'1px solid #1d4ed8', background:'#eff6ff', color:'#1d4ed8', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
-          📊 Relatório por Obra/Função
-        </button>
+        {/* Botões de relatório separados por aba */}
+        {aba === 'agendados' && (
+          <button onClick={() => gerarRelatorioAgendados()}
+            style={{ marginBottom:4, padding:'6px 14px', borderRadius:7, border:'1px solid #b45309', background:'#fff7ed', color:'#b45309', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+            📊 Rel. Agendamentos
+          </button>
+        )}
+        {aba === 'realizados' && (
+          <button onClick={() => gerarRelatorioRealizados()}
+            style={{ marginBottom:4, padding:'6px 14px', borderRadius:7, border:'1px solid #15803d', background:'#f0fdf4', color:'#15803d', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+            📊 Rel. Realizados
+          </button>
+        )}
       </div>
 
       {/* Filtros — padrão do sistema com componentes Select/Input */}
@@ -675,150 +810,185 @@ export default function Pagamentos() {
 
       {/* ══ ABA AGENDADOS ══ */}
       {aba === 'agendados' && (
-        loadingLancs ? <LoadingSkeleton /> : <>
+        loadingLancs ? <LoadingSkeleton /> : (() => {
+          const pendentes = rows.filter(r =>
+            r.status === 'pendente' &&
+            (filtroMesLanc ? r.competencia === filtroMesLanc : true) &&
+            (filtroNomeLanc ? (r.colaboradores?.nome?.toLowerCase().includes(filtroNomeLanc.toLowerCase()) || (r.colaboradores?.chapa??'').toLowerCase().includes(filtroNomeLanc.toLowerCase())) : true)
+          )
+          const pendVT     = pendentes.filter(r => r.tipo === 'vale_transporte')
+          const pendOutros = pendentes.filter(r => r.tipo !== 'vale_transporte')
 
-          {/* ── Lançamentos da Folha ── */}
-          {lancsAgendados.length > 0 && (
-          <div style={{ marginBottom: 24 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: 1 }}>📄 Folha de Ponto</h3>
-            <div style={{ border:'1px solid var(--border)', borderRadius:10, overflow:'hidden' }}>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Colaborador</TableHead>
-                  <TableHead>Obra</TableHead>
-                  <TableHead className="text-center">Período</TableHead>
-                  <TableHead className="text-center">Competência</TableHead>
-                  <TableHead className="text-right">💵 Líquido</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lancsAgendados.map((l: any) => (
-                  <TableRow key={l.id}>
-                    <TableCell>
-                      <div className="font-semibold text-sm">{l.colaboradores?.nome ?? '—'}</div>
-                      <div className="text-xs text-muted-foreground">{l.colaboradores?.chapa} · {l.colaboradores?.tipo_contrato?.toUpperCase()}</div>
-                    </TableCell>
-                    <TableCell className="text-sm">{l.obras?.nome ?? '—'}</TableCell>
-                    <TableCell className="text-center text-xs text-muted-foreground">
-                      {l.data_inicio?.slice(8)}/{l.data_inicio?.slice(5,7)} → {l.data_fim?.slice(8)}/{l.data_fim?.slice(5,7)}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <BadgeStatus status="liberado" />
-                      <div className="text-xs text-muted-foreground mt-0.5">{l.mes_referencia?.slice(5)}/{l.mes_referencia?.slice(0,4)}</div>
-                    </TableCell>
-                    <TableCell className="text-right font-bold text-sm" style={{ color:'#15803d' }}>
-                      {l.snap_liquido ? formatCurrency(l.snap_liquido) : '—'}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button size="sm" className="h-7 text-xs"
-                        onClick={() => { setModalPagarLanc(l); setDataPagamento(new Date().toISOString().slice(0,10)); setObsPagamento('') }}>
-                        💰 Pagar
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-              <TableFooter>
-                <TableRow>
-                  <TableCell colSpan={5} className="text-sm font-semibold">Total agendado — {lancsAgendados.length} lançamento(s)</TableCell>
-                  <TableCell className="text-right font-bold text-sm" style={{ color:'#b45309' }}>{formatCurrency(totalAgendado)}</TableCell>
-                </TableRow>
-              </TableFooter>
-            </Table>
-            </div>
-          </div>
-          )}
-
-          {/* ── Pagamentos Pendentes (VT e Avulsos) ── */}
-          {(() => {
-            const pendentes = rows.filter(r =>
-              (r.status === 'pendente') &&
-              (filtroNomeLanc ? r.colaboradores?.nome?.toLowerCase().includes(filtroNomeLanc.toLowerCase()) : true) &&
-              (filtroMesLanc ? r.competencia === filtroMesLanc : true)
-            )
-            if (pendentes.length === 0 && lancsAgendados.length === 0) return (
-              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--muted-foreground)', fontSize: 14 }}>
-                Nenhum pagamento pendente de confirmação.
+          return (
+          <>
+            {/* Sub-abas Folha / VT / Outros */}
+            <div style={{ display:'flex', gap:0, borderBottom:'2px solid var(--border)', marginBottom:16 }}>
+              {([
+                { key:'folha',  label:'📄 Folha de Ponto', count: lancsAgendados.length },
+                { key:'vt',     label:'🚌 Vale Transporte', count: pendVT.length },
+                { key:'outros', label:'📋 Outros', count: pendOutros.length },
+              ] as {key:'folha'|'vt'|'outros';label:string;count:number}[]).map(st => (
+                <button key={st.key} onClick={() => setAbaAgend(st.key)}
+                  style={{ padding:'9px 20px', fontWeight: abaAgend===st.key?700:500, fontSize:13,
+                    borderBottom: abaAgend===st.key?'3px solid #1d4ed8':'3px solid transparent',
+                    color: abaAgend===st.key?'#1d4ed8':'var(--muted-foreground)', background:'none', border:'none',
+                    borderBottomStyle:'solid', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+                  {st.label}
+                  {st.count > 0 && <span style={{ background: abaAgend===st.key?'#1d4ed8':'#94a3b8', color:'#fff', borderRadius:20, padding:'1px 8px', fontSize:10, fontWeight:700 }}>{st.count}</span>}
+                </button>
+              ))}
+              <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', paddingBottom:4 }}>
+                {abaAgend === 'folha' && lancsAgendados.length > 0 && (
+                  <button onClick={() => gerarRelatorioAgendados()}
+                    style={{ padding:'5px 14px', borderRadius:7, border:'1px solid #b45309', background:'#fff7ed', color:'#b45309', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                    📊 Rel. Folha Agendada
+                  </button>
+                )}
+                {abaAgend === 'vt' && pendVT.length > 0 && (
+                  <button onClick={() => setShowRelatorioVT(true)}
+                    style={{ padding:'5px 14px', borderRadius:7, border:'1px solid #0369a1', background:'#eff6ff', color:'#0369a1', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                    📊 Rel. Vale Transporte
+                  </button>
+                )}
               </div>
-            )
-            if (pendentes.length === 0) return null
-            return (
-              <div>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
-                  <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: 1, margin:0 }}>🚌 Pendente de Pagamento</h3>
-                  {pendentes.filter(r=>r.tipo==='vale_transporte').length > 0 && (
-                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-                      onClick={() => setShowRelatorioVT(true)}>
-                      <FileText size={13}/> Relatório VT
-                    </Button>
-                  )}
+            </div>
+
+            {/* ── SUB-ABA: FOLHA DE PONTO ── */}
+            {abaAgend === 'folha' && (
+              lancsAgendados.length === 0
+                ? <div style={{ textAlign:'center', padding:40, color:'#94a3b8', fontSize:14 }}>✅ Nenhum lançamento de folha pendente no período</div>
+                : <div style={{ border:'1px solid var(--border)', borderRadius:10, overflow:'hidden', marginBottom:24 }}>
+                  <Table>
+                    <TableHeader><TableRow>
+                      <TableHead>Colaborador</TableHead>
+                      <TableHead>Obra</TableHead>
+                      <TableHead className="text-center">Período</TableHead>
+                      <TableHead className="text-center">Competência</TableHead>
+                      <TableHead className="text-right">💵 Líquido</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow></TableHeader>
+                    <TableBody>
+                      {lancsAgendados.map((l: any) => (
+                        <TableRow key={l.id}>
+                          <TableCell>
+                            <div className="font-semibold text-sm">{l.colaboradores?.nome ?? '—'}</div>
+                            <div className="text-xs text-muted-foreground">{l.colaboradores?.chapa} · {l.colaboradores?.tipo_contrato?.toUpperCase()}</div>
+                          </TableCell>
+                          <TableCell className="text-sm">{l.obras?.nome ?? '—'}</TableCell>
+                          <TableCell className="text-center text-xs text-muted-foreground">
+                            {l.data_inicio?.slice(8)}/{l.data_inicio?.slice(5,7)} → {l.data_fim?.slice(8)}/{l.data_fim?.slice(5,7)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <BadgeStatus status="liberado" />
+                            <div className="text-xs text-muted-foreground mt-0.5">{l.mes_referencia?.slice(5)}/{l.mes_referencia?.slice(0,4)}</div>
+                          </TableCell>
+                          <TableCell className="text-right font-bold text-sm" style={{ color:'#15803d' }}>
+                            {l.snap_liquido ? formatCurrency(l.snap_liquido) : '—'}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button size="sm" className="h-7 text-xs"
+                              onClick={() => { setModalPagarLanc(l); setDataPagamento(new Date().toISOString().slice(0,10)); setObsPagamento('') }}>
+                              💰 Pagar
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                    <TableFooter><TableRow>
+                      <TableCell colSpan={5} className="text-sm font-semibold">Total — {lancsAgendados.length} lançamento(s)</TableCell>
+                      <TableCell className="text-right font-bold text-sm" style={{ color:'#b45309' }}>{formatCurrency(lancsAgendados.reduce((s:number,l:any)=>s+(l.snap_liquido??0),0))}</TableCell>
+                    </TableRow></TableFooter>
+                  </Table>
                 </div>
-                <div style={{ border:'1px solid var(--border)', borderRadius:10, overflow:'hidden' }}>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
+            )}
+
+            {/* ── SUB-ABA: VALE TRANSPORTE ── */}
+            {abaAgend === 'vt' && (
+              pendVT.length === 0
+                ? <div style={{ textAlign:'center', padding:40, color:'#94a3b8', fontSize:14 }}>✅ Nenhum Vale Transporte pendente</div>
+                : <div style={{ border:'1px solid var(--border)', borderRadius:10, overflow:'hidden', marginBottom:24 }}>
+                  <Table>
+                    <TableHeader><TableRow>
+                      <TableHead>Colaborador</TableHead>
+                      <TableHead className="text-center">Competência</TableHead>
+                      <TableHead>Observação</TableHead>
+                      <TableHead className="text-right">💵 Valor</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow></TableHeader>
+                    <TableBody>
+                      {pendVT.map((r) => (
+                        <TableRow key={r.id}>
+                          <TableCell>
+                            <div className="font-semibold text-sm">{r.colaboradores?.nome ?? '—'}</div>
+                            <div className="text-xs text-muted-foreground">{r.colaboradores?.chapa}</div>
+                          </TableCell>
+                          <TableCell className="text-center text-sm">{r.competencia?.slice(5)}/{r.competencia?.slice(0,4)}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[220px] truncate">{r.observacoes ?? '—'}</TableCell>
+                          <TableCell className="text-right font-bold text-sm" style={{ color:'#15803d' }}>{formatCurrency(r.valor_liquido ?? r.valor_bruto ?? 0)}</TableCell>
+                          <TableCell className="text-right">
+                            <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
+                              <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => marcarPago(r.id)}>✅ Confirmar</Button>
+                              <Button size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-300 hover:bg-red-50" onClick={() => setModalRecusarVT(r)}>✕ Recusar</Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                    <TableFooter><TableRow>
+                      <TableCell colSpan={4} className="text-sm font-semibold">Total VT — {pendVT.length} registro(s)</TableCell>
+                      <TableCell className="text-right font-bold text-sm" style={{ color:'#15803d' }}>{formatCurrency(pendVT.reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0))}</TableCell>
+                    </TableRow></TableFooter>
+                  </Table>
+                </div>
+            )}
+
+            {/* ── SUB-ABA: OUTROS (adiantamentos, prêmios) ── */}
+            {abaAgend === 'outros' && (
+              pendOutros.length === 0
+                ? <div style={{ textAlign:'center', padding:40, color:'#94a3b8', fontSize:14 }}>✅ Nenhum pagamento avulso pendente</div>
+                : <div style={{ border:'1px solid var(--border)', borderRadius:10, overflow:'hidden', marginBottom:24 }}>
+                  <Table>
+                    <TableHeader><TableRow>
                       <TableHead>Colaborador</TableHead>
                       <TableHead>Tipo</TableHead>
                       <TableHead className="text-center">Competência</TableHead>
                       <TableHead>Observação</TableHead>
                       <TableHead className="text-right">💵 Valor</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {pendentes.map((r) => (
-                      <TableRow key={r.id}>
-                        <TableCell>
-                          <div className="font-semibold text-sm">{r.colaboradores?.nome ?? '—'}</div>
-                          <div className="text-xs text-muted-foreground">{r.colaboradores?.chapa}</div>
-                        </TableCell>
-                        <TableCell>
-                          <span style={{ background:'#ede9fe', color:'#7c3aed', borderRadius:99, padding:'2px 10px', fontSize:11, fontWeight:700 }}>
-                            {r.tipo === 'vale_transporte' ? '🚌 Vale Transporte' : r.tipo ?? '—'}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-center text-sm">{r.competencia?.slice(5)}/{r.competencia?.slice(0,4)}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">{r.observacoes ?? '—'}</TableCell>
-                        <TableCell className="text-right font-bold text-sm" style={{ color:'#15803d' }}>
-                          {formatCurrency(r.valor_liquido ?? r.valor_bruto ?? 0)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
-                            <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-                              onClick={() => marcarPago(r.id)}>
-                              ✅ Confirmar
-                            </Button>
-                            {(r.tipo === 'vale_transporte' || r.tipo === 'adiantamento' || r.tipo === 'premio') && (
-                            <Button size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-300 hover:bg-red-50"
-                              onClick={() => setModalRecusarVT(r)}>
-                              ✕ Recusar
-                            </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                  <TableFooter>
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-sm font-semibold">Pendente — {pendentes.length} registro(s)</TableCell>
-                      <TableCell className="text-right font-bold text-sm" style={{ color:'#15803d' }}>
-                        {formatCurrency(pendentes.reduce((s, r) => s + (r.valor_liquido ?? r.valor_bruto ?? 0), 0))}
-                      </TableCell>
-                      <TableCell />
-                    </TableRow>
-                  </TableFooter>
-                </Table>
+                    </TableRow></TableHeader>
+                    <TableBody>
+                      {pendOutros.map((r) => (
+                        <TableRow key={r.id}>
+                          <TableCell>
+                            <div className="font-semibold text-sm">{r.colaboradores?.nome ?? '—'}</div>
+                            <div className="text-xs text-muted-foreground">{r.colaboradores?.chapa}</div>
+                          </TableCell>
+                          <TableCell><span style={{ background:'#ede9fe', color:'#7c3aed', borderRadius:99, padding:'2px 10px', fontSize:11, fontWeight:700 }}>{r.tipo ?? '—'}</span></TableCell>
+                          <TableCell className="text-center text-sm">{r.competencia?.slice(5)}/{r.competencia?.slice(0,4)}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">{r.observacoes ?? '—'}</TableCell>
+                          <TableCell className="text-right font-bold text-sm" style={{ color:'#15803d' }}>{formatCurrency(r.valor_liquido ?? r.valor_bruto ?? 0)}</TableCell>
+                          <TableCell className="text-right">
+                            <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
+                              <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => marcarPago(r.id)}>✅ Confirmar</Button>
+                              <Button size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-300 hover:bg-red-50" onClick={() => setModalRecusarVT(r)}>✕ Recusar</Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                    <TableFooter><TableRow>
+                      <TableCell colSpan={5} className="text-sm font-semibold">Total — {pendOutros.length} registro(s)</TableCell>
+                      <TableCell className="text-right font-bold text-sm" style={{ color:'#15803d' }}>{formatCurrency(pendOutros.reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0))}</TableCell>
+                    </TableRow></TableFooter>
+                  </Table>
                 </div>
-              </div>
-            )
-          })()}
-        </>
+            )}
+          </>
+          )
+        })()
       )}
 
-      {/* ══ ABA REALIZADOS ══ */}
+            {/* ══ ABA REALIZADOS ══ */}
       {aba === 'realizados' && (() => {
         // ── dados filtrados ──────────────────────────────────────────────────
         const folhaPaga = lancsRealizados
@@ -1364,6 +1534,27 @@ export default function Pagamentos() {
         )
       })()}
 
+      {/* ── Modal Confirmar Pagamento com Data ── */}
+      {modalConfPgto && (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center' }}>
+          <div style={{ background:'#fff',borderRadius:14,padding:'28px 32px',minWidth:360,boxShadow:'0 8px 32px rgba(0,0,0,0.18)' }}>
+            <h3 style={{ margin:'0 0 6px',fontSize:16,fontWeight:800,color:'#15803d' }}>✅ Confirmar Pagamento</h3>
+            <p style={{ margin:'0 0 16px',fontSize:13,color:'#64748b' }}>
+              <strong>{modalConfPgto.colaboradores?.nome}</strong><br/>
+              <span style={{fontSize:12}}>{modalConfPgto.tipo === 'vale_transporte' ? '🚌 Vale Transporte' : String(modalConfPgto.tipo)} · {formatCurrency((modalConfPgto as any).valor_liquido ?? (modalConfPgto as any).valor_bruto ?? 0)}</span>
+            </p>
+            <label style={{ fontSize:12,fontWeight:700,color:'#374151',display:'block',marginBottom:6 }}>📅 Data de efetivação do pagamento</label>
+            <input type="date" value={modalConfData} onChange={e=>setModalConfData(e.target.value)}
+              style={{ width:'100%',padding:'8px 12px',border:'1px solid #d1d5db',borderRadius:8,fontSize:14,marginBottom:20,boxSizing:'border-box' as any }} />
+            <div style={{ display:'flex',gap:10,justifyContent:'flex-end' }}>
+              <button onClick={()=>setModalConfPgto(null)} style={{ padding:'8px 18px',borderRadius:8,border:'1px solid #d1d5db',background:'#f9fafb',cursor:'pointer',fontSize:13 }}>Cancelar</button>
+              <button onClick={confirmarPagamentoComData} disabled={savingPgto} style={{ padding:'8px 18px',borderRadius:8,border:'none',background:'#15803d',color:'#fff',cursor:'pointer',fontSize:13,fontWeight:700 }}>
+                {savingPgto ? 'Salvando...' : '✅ Confirmar Pago'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <AlertDialog open={!!modalRecusarVT} onOpenChange={(o) => !o && setModalRecusarVT(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

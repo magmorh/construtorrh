@@ -165,7 +165,7 @@ export default function Usuarios() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 24 }}>
+    <div className="page-root">
       <PageHeader
         title="Usuários"
         subtitle="Gerencie quem acessa o sistema e quais permissões cada um tem"

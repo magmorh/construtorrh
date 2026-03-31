@@ -288,3 +288,191 @@ button[style*="background: #1d4ed8"]:hover {
 [role="dialog"], [data-radix-popper-content-wrapper] {
   animation: fadeInDown 0.15s ease;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PADRONIZAÇÃO GLOBAL DE LAYOUT — ConstrutorRH v2
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Page wrapper padrão — todas as páginas devem usar esta classe */
+.page-root {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 28px 32px 32px;
+  min-height: 100%;
+  background: var(--background);
+}
+
+/* Header de página padronizado */
+.page-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--foreground);
+  margin: 0;
+  line-height: 1.2;
+  letter-spacing: -0.3px;
+}
+
+.page-subtitle {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  margin: 3px 0 0;
+  font-weight: 400;
+}
+
+/* Seção de header com título + botão de ação */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  gap: 16px;
+}
+
+/* Cards de KPI/Estatísticas — padrão visual unificado */
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  transition: box-shadow 0.15s;
+}
+.stat-card:hover {
+  box-shadow: 0 3px 10px rgba(0,0,0,0.09);
+}
+.stat-card-icon {
+  width: 42px; height: 42px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.stat-card-value {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--foreground);
+}
+.stat-card-label {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+/* Grid de KPIs */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+/* Tabelas padronizadas */
+.data-table-wrap {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+/* Toolbar de filtros */
+.filter-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+/* Botão padrão de ação primária */
+.btn-primary-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 13px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+/* Seção de card de conteúdo */
+.content-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+/* Tabs customizadas inline */
+.inline-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.inline-tab {
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  color: var(--muted-foreground);
+  margin-bottom: -1px;
+  transition: color 0.12s, border-color 0.12s;
+}
+.inline-tab:hover {
+  color: var(--foreground);
+}
+.inline-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+/* Sidebar nav btns hover */
+.sidebar-nav-btn:hover {
+  background: rgba(255,255,255,0.09) !important;
+  cursor: pointer;
+}
+
+/* Flyout item hover */
+.flyout-item:hover {
+  background: #f1f5f9 !important;
+}
+.flyout-item.active {
+  background: rgba(13,63,86,0.08) !important;
+  color: #0d3f56 !important;
+}
+
+/* Garantir que tabelas de dados tenham boa legibilidade */
+th {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground) !important;
+  white-space: nowrap;
+}
+
+/* Remove emoji dos títulos via CSS (sem mudar o HTML) — mantém acessibilidade */
+h1 .page-emoji, h2 .page-emoji {
+  font-style: normal;
+}
+
+/* Paddings responsivos */
+@media (max-width: 1200px) {
+  .page-root { padding: 20px 20px 28px; }
+}
+@media (max-width: 768px) {
+  .page-root { padding: 16px 14px 24px; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}

@@ -158,7 +158,7 @@ export default function PortalLayout({ children }: PortalLayoutProps) {
             <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:2 }}>
               <div style={{ width:6, height:6, borderRadius:'50%', background: online ? '#4ade80' : '#f87171', boxShadow: online ? '0 0 0 2px rgba(74,222,128,0.35)' : '0 0 0 2px rgba(248,113,113,0.35)', flexShrink:0, animation: online ? 'pulse-green 2s infinite' : 'none' }}/>
               <div style={{ color:'rgba(255,255,255,0.60)', fontSize:10, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:180 }}>
-                {user?.obra_nome ?? user?.login ?? 'Encarregado'}
+                {user?.login ?? user?.nome ?? 'Encarregado'}
               </div>
             </div>
           </div>
@@ -194,13 +194,6 @@ export default function PortalLayout({ children }: PortalLayoutProps) {
             {user.nome.charAt(0).toUpperCase()}
           </div>
           <div style={{ fontSize:12, fontWeight:700, color:'#1e293b', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user.nome}</div>
-          {user.obra_nome && (<>
-            <ChevronRight size={10} color="#cbd5e1"/>
-            <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-              <Building2 size={11} color="#94a3b8"/>
-              <div style={{ fontSize:11, color:'#64748b', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:200 }}>{user.obra_nome}</div>
-            </div>
-          </>)}
           <span style={{ marginLeft:'auto', fontSize:10, color:'#94a3b8', fontWeight:500, whiteSpace:'nowrap' }}>{data}</span>
         </div>
       )}

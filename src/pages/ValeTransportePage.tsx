@@ -821,12 +821,12 @@ export default function ValeTransportePage() {
 
   // ─── render ───────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', height: '100%', flexDirection: 'column', gap: 0, padding: 24 }}>
+    <div className="page-root" style={{ gap:0 }}>
 
       {/* Header */}
       <div style={{ paddingBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>🚌 Vale Transporte</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Vale Transporte</h1>
           <p style={{ fontSize: 13, color: 'var(--muted-foreground)', marginTop: 2 }}>Controle de vale transporte por colaborador</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

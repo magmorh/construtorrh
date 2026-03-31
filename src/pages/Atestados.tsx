@@ -253,7 +253,7 @@ export default function Atestados() {
   // ── render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6">
+    <div className="page-root">
       <PageHeader
         title="Atestados Médicos"
         subtitle={`${filtered.length} registro(s)`}

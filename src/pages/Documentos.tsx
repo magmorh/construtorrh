@@ -17,6 +17,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { FileText, ExternalLink, Search, Plus, Upload, X, Trash2 } from 'lucide-react'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import { toast } from 'sonner'
 import { traduzirErro } from '@/lib/erros'
 
@@ -84,6 +85,7 @@ export default function Documentos() {
 
   const [docs,          setDocs]          = useState<DocEntry[]>([])
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([])
+  const [tiposAvulso,   setTiposAvulso]   = useState<string[]>(TIPOS_AVULSO.map(t => t.label))
   const [loading,       setLoading]       = useState(true)
   const [filtroColabo,  setFiltroColabo]  = useState<string>('todos')
   const [filtroTipo,    setFiltroTipo]    = useState<string>('todos')
@@ -99,6 +101,25 @@ export default function Documentos() {
   // delete
   const [deleteId,     setDeleteId]     = useState<string | null>(null)
   const [deleteSource, setDeleteSource] = useState<string>('')
+
+  // ── carregar tipos de documentos das configurações ─────────────────────────
+  const fetchTipos = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from('configuracoes')
+        .select('chave, valor')
+        .eq('chave', 'tipos_documentos')
+        .limit(1)
+      const row = Array.isArray(data) && data.length > 0 ? data[0] : null
+      if (row?.valor) {
+        const parsed = JSON.parse(row.valor)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setTiposAvulso(parsed)
+          return
+        }
+      }
+    } catch {}
+  }, [])
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -152,6 +173,7 @@ export default function Documentos() {
     if (!r4.error) {
       for (const a of ((r4.data ?? []) as any[])) {
         const col = Array.isArray(a.colaboradores) ? a.colaboradores[0] : a.colaboradores
+        // tipo pode ser string direta (novo) ou chave legada (antigo) — mostra como está
         const tipoLabel = TIPOS_AVULSO.find(t => t.value === a.tipo)?.label ?? a.tipo ?? 'Outros'
         entries.push({ id: a.id, source: 'avulso', tipo: tipoLabel, colaborador_id: a.colaborador_id,
           colaborador_nome: col?.nome ?? 'Geral', colaborador_chapa: col?.chapa ?? '',
@@ -163,10 +185,11 @@ export default function Documentos() {
     entries.sort((a, b) => (a.data > b.data ? -1 : 1))
     setDocs(entries)
     setColaboradores((r5.data as Colaborador[]) ?? [])
+
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => { fetchAll(); fetchTipos() }, [fetchAll, fetchTipos])
 
   // ── upload file ───────────────────────────────────────────────────────────
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -225,13 +248,13 @@ export default function Documentos() {
   })
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 24 }}>
+    <div className="page-root">
       <PageHeader
         title="Documentos"
         subtitle={`Todos os documentos do sistema · ${filtered.length} documento${filtered.length !== 1 ? 's' : ''}`}
         action={
           permissions.canCreate ? (
-            <Button onClick={() => { setForm(EMPTY_FORM); setModalOpen(true) }}>
+            <Button onClick={() => { setForm(EMPTY_FORM); setModalOpen(true); fetchTipos() }}>
               <Plus size={14} style={{ marginRight: 6 }} /> Novo Documento
             </Button>
           ) : undefined
@@ -324,27 +347,27 @@ export default function Documentos() {
       }
 
       {/* Modal: Novo documento avulso */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+      <Dialog open={modalOpen} onOpenChange={(open) => { setModalOpen(open); if (open) fetchTipos() }}>
         <DialogContent style={{ maxWidth: 480 }}
           onPointerDownOutside={e => e.preventDefault()} onEscapeKeyDown={e => e.preventDefault()}>
           <DialogHeader><DialogTitle>Novo Documento</DialogTitle></DialogHeader>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '8px 0' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <Label>Colaborador</Label>
-              <Select value={form.colaborador_id || 'nenhum'} onValueChange={v => setForm(p => ({ ...p, colaborador_id: v === 'nenhum' ? '' : v }))}>
-                <SelectTrigger><SelectValue placeholder="Selecione (opcional)" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="nenhum">— Documento geral (sem colaborador) —</SelectItem>
-                  {colaboradores.map(c => <SelectItem key={c.id} value={c.id}>{c.nome}{c.chapa ? ` — ${c.chapa}` : ''}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                options={colaboradores.map(c => ({ value: c.id, label: c.nome, sublabel: c.chapa }))}
+                value={form.colaborador_id || ''}
+                onChange={v => setForm(p => ({ ...p, colaborador_id: v }))}
+                placeholder="Pesquisar colaborador…"
+                emptyLabel="— Documento geral (sem colaborador) —"
+              />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <Label>Tipo *</Label>
                 <Select value={form.tipo || undefined} onValueChange={v => setForm(p => ({ ...p, tipo: v }))}>
                   <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                  <SelectContent>{TIPOS_AVULSO.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+                  <SelectContent>{tiposAvulso.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

@@ -1175,7 +1175,7 @@ export default function Relatorios() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="page-root">
       <PageHeader
         title="Relatórios"
         subtitle="Folha por obra/função, encargos patronais e provisões CLT"

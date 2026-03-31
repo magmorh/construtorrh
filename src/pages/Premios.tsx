@@ -296,7 +296,7 @@ export default function Premios() {
 
   // ─── render ────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6">
+    <div className="page-root">
 
       {/* ── Header ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>

@@ -640,10 +640,10 @@ export default function Juridico() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: '24px' }}>
+    <div className="page-root">
       {/* Cabeçalho */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
-        <div style={{ width: 48, height: 48, borderRadius: 12, background: '#1e3a5f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 44, height: 44, borderRadius: 10, background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Scale size={24} color="#93c5fd" />
         </div>
         <div>
@@ -654,7 +654,7 @@ export default function Juridico() {
 
       {/* Abas */}
       <div style={{ display: 'flex', gap: 4, background: 'var(--muted)', borderRadius: 10, padding: 4, marginBottom: 24, width: 'fit-content' }}>
-        {([['ficha','📋 Dossiê do Colaborador'],['lista_negra','🚫 Lista Negra']] as const).map(([id, label]) => (
+        {([['ficha','Dossiê do Colaborador'],['lista_negra','Lista Negra']] as const).map(([id, label]) => (
           <button key={id} onClick={() => setAba(id)} style={{
             padding: '8px 20px', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13,
             background: aba === id ? 'var(--background)' : 'transparent',

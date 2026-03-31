@@ -443,7 +443,7 @@ export default function Dashboard() {
   const maxFolha = Math.max(...d.folhaMensal.map(m => m.valor), 1)
 
   return (
-    <div className="flex flex-col gap-6 p-6 bg-gray-50/60">
+    <div className="page-root">
 
       {/* ══ TOPO: saudação + alertas ═══════════════════════════════════════ */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

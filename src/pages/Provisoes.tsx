@@ -211,7 +211,7 @@ export default function Provisoes() {
 
   // ─── render ────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6">
+    <div className="page-root">
       <PageHeader
         title="Provisões FGTS"
         subtitle="Controle de provisões mensais de FGTS, férias e 13º salário"

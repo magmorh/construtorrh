@@ -102,7 +102,7 @@ export default function PortalAdmin() {
   }
 
   return (
-    <div style={{ padding: '24px' }}>
+    <div className="page-root">
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>

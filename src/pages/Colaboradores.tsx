@@ -273,7 +273,7 @@ function FuncoesTab() {
   }
 
   return (
-    <div>
+    <div className="page-root">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ position: 'relative', width: 280 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted-foreground)' }} />
@@ -645,7 +645,7 @@ function SolicitacoesPortalTab({ obras, funcoes }: { obras: Obra[]; funcoes: Fun
   }
 
   return (
-    <div>
+    <div className="page-root">
       {/* Toolbar */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16, flexWrap:'wrap', gap:10 }}>
         <div>
@@ -1639,7 +1639,7 @@ export default function Colaboradores() {
     // 4. Criar novo colaborador (cópia dos dados pessoais + novo vínculo)
     const novoPayload: any = {
       nome:              colabAtual.nome,
-      cpf:               colabAtual.cpf,
+      cpf:               null,           // CPF removido: constraint unique — histórico preservado via vinculo_anterior_id
       rg:                colabAtual.rg,
       pis_nit:           colabAtual.pis_nit,
       data_nascimento:   colabAtual.data_nascimento,
@@ -1749,7 +1749,7 @@ export default function Colaboradores() {
 
   // ── render: abas da página ────────────────────────────────────────────────
   return (
-    <div>
+    <div className="page-root">
       {/* Tabs de página */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 24 }}>
         {(['colaboradores', 'funcoes'] as const).map(t => (
@@ -1792,8 +1792,20 @@ export default function Colaboradores() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
             <div style={{ display: 'flex', gap: 8, flex: 1, flexWrap: 'wrap' }}>
               <div style={{ position: 'relative', width: 280 }}>
-                <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted-foreground)' }} />
-                <Input style={{ paddingLeft: 32 }} placeholder="Buscar por nome, chapa ou CPF…" value={search} onChange={e => setSearch(e.target.value)} />
+                <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted-foreground)', pointerEvents: 'none' }} />
+                <input
+                  type="text"
+                  key="colab-search"
+                  style={{ paddingLeft: 32, width: '100%', height: 40, borderRadius: 6, border: '1px solid hsl(var(--input))', fontSize: 14, outline: 'none', background: '#fff', color: '#0f172a' }}
+                  placeholder="Buscar por nome, chapa ou CPF…"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  defaultValue={search}
+                  onChange={e => { setSearch(e.target.value) }}
+                  onFocus={e => (e.target.style.boxShadow = '0 0 0 2px rgba(59,130,246,0.3)')}
+                  onBlur={e => (e.target.style.boxShadow = 'none')}
+                />
               </div>
               <Select value={filterStatus} onValueChange={setFilterStatus}>
                 <SelectTrigger style={{ width: 150 }}><SelectValue /></SelectTrigger>
@@ -3795,7 +3807,7 @@ function FuncaoSection({
 // ─── micro-componentes ────────────────────────────────────────────────────────
 function Sec({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div>
+    <div className="page-root">
       <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted-foreground)', borderBottom: '1px solid var(--border)', paddingBottom: 4, marginBottom: 12 }}>
         {title}
       </div>

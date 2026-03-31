@@ -1284,13 +1284,14 @@ function TabDesligamentos({ obras, perfil }: { obras: Obra[]; perfil: any }) {
 // ─── ABA: RELATÓRIO DE PRESENÇA ───────────────────────────────────────────────
 function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
   const hoje = new Date()
-  const [modo,      setModo]      = useState<'colaborador'|'obra'>('colaborador')
+  const [modo,      setModo]      = useState<'colaborador'|'obra'|'lancamento'>('colaborador')
   const [colabId,   setColabId]   = useState('')
   const [colabBusca,setColabBusca]= useState('')
   const [obraId,    setObraId]    = useState('')
   const [mesAno,    setMesAno]    = useState(`${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}`)
   const [loading,   setLoading]   = useState(false)
   const [resultado, setResultado] = useState<ResultadoRel | null>(null)
+  const [filtroSinc, setFiltroSinc] = useState<'todos'|'sincronizado'|'pendente'>('todos')
 
   // Edição inline de um dia do portal
   const [editDia,   setEditDia]   = useState<{id:string; status:string; he:number; hf:number; obs:string} | null>(null)
@@ -1299,7 +1300,7 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
 
   interface DiaRel {
     id?: string; data:string; status:string; he:number; hf:number; obs:string
-    sincronizado:boolean; lancamento_portal:boolean; editavel:boolean
+    sincronizado:boolean; lancamento_portal:boolean; editavel:boolean; obra?:string
   }
   interface ColabRel  { nome:string; chapa:string; funcao:string; obra:string; dias:DiaRel[]; presentes:number; faltas:number; he:number; hf:number }
   interface ResultadoRel { periodo:string; registros:ColabRel[] }
@@ -1324,7 +1325,7 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
       .select('id,colaborador_id,obra_id,data,status,horas_extra,horas_falta,observacoes,sincronizado_em,colaboradores(nome,chapa,funcoes(nome)),obras(nome)')
       .gte('data', inicio).lte('data', fim)
       .order('colaborador_id').order('data')
-    if (modo === 'colaborador' && colabId) qPortal = qPortal.eq('colaborador_id', colabId)
+    if ((modo === 'colaborador'||modo==='lancamento') && colabId) qPortal = qPortal.eq('colaborador_id', colabId)
     if (modo === 'obra'        && obraId)  qPortal = qPortal.eq('obra_id', obraId)
     const { data: rowsPortal } = await qPortal
 
@@ -1334,7 +1335,7 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
       .select('id,colaborador_id,obra_id,data,presente,falta,horas_trabalhadas,horas_extras,observacoes,lancamento_id,colaboradores(nome,chapa,funcoes(nome)),obras(nome)')
       .gte('data', inicio).lte('data', fim)
       .order('colaborador_id').order('data')
-    if (modo === 'colaborador' && colabId) qSist = qSist.eq('colaborador_id', colabId)
+    if ((modo === 'colaborador'||modo==='lancamento') && colabId) qSist = qSist.eq('colaborador_id', colabId)
     if (modo === 'obra'        && obraId)  qSist = qSist.eq('obra_id', obraId)
     const { data: rowsSist } = await qSist
 
@@ -1345,7 +1346,7 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
     const mapaColab: Record<string, ColabRel> = {}
 
     function getOrCreate(colabId2: string, obraId2: string|null, cNome: string, cChapa: string, cFuncao: string, oNome: string) {
-      const key = colabId2 + '|' + (obraId2 ?? '__avulso__')
+      const key = modo==='lancamento' ? colabId2 : colabId2 + '|' + (obraId2 ?? '__avulso__')
       if (!mapaColab[key]) mapaColab[key] = { nome:cNome, chapa:cChapa, funcao:cFuncao, obra:oNome || '(avulso)', dias:[], presentes:0, faltas:0, he:0, hf:0 }
       return mapaColab[key]
     }
@@ -1356,6 +1357,8 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
       const cChapa = r.colaboradores?.chapa ?? '—'
       const cFuncao= r.colaboradores?.funcoes?.nome ?? '—'
       const oNome  = r.obras?.nome ?? obras.find(o=>o.id===r.obra_id)?.nome ?? ''
+      const oCodigo = r.obras?.codigo ?? obras.find(o=>o.id===r.obra_id)?.codigo ?? ''
+      const oLabel  = oCodigo ? `#${oCodigo} ${oNome}` : (oNome||'(sem obra)')
       const reg    = getOrCreate(r.colaborador_id, r.obra_id, cNome, cChapa, cFuncao, oNome)
       const presente = r.status==='presente'||r.status==='meio_periodo'
       const falta    = r.status==='falta'||r.status==='falta_justificada'
@@ -1366,7 +1369,7 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
         r.status==='presente'?'Presente':r.status==='atestado'?'Atestado':
         r.status==='feriado'?'Feriado':r.status==='falta_justificada'?'Falta Justif.':
         r.status==='producao'?'Produção': r.status??'—'
-      reg.dias.push({ id:r.id, data:r.data, status:statusLabel, he:heMin, hf:hfMin, obs:r.observacoes??'', sincronizado:!!r.sincronizado_em, lancamento_portal:true, editavel:false })
+      reg.dias.push({ id:r.id, data:r.data, status:statusLabel, he:heMin, hf:hfMin, obs:r.observacoes??'', sincronizado:!!r.sincronizado_em, lancamento_portal:true, editavel:false, obra:oLabel })
       if (presente) reg.presentes++
       if (falta)    reg.faltas++
       reg.he += heMin; reg.hf += hfMin
@@ -1378,8 +1381,10 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
       const cChapa = r.colaboradores?.chapa ?? '—'
       const cFuncao= r.colaboradores?.funcoes?.nome ?? '—'
       const oNome  = r.obras?.nome ?? obras.find(o=>o.id===r.obra_id)?.nome ?? ''
+      const oCodigo2= r.obras?.codigo ?? obras.find(o=>o.id===r.obra_id)?.codigo ?? ''
+      const oLabel2 = oCodigo2 ? `#${oCodigo2} ${oNome}` : (oNome||'(sem obra)')
       // Evita duplicar se já vier do portal
-      const key = r.colaborador_id + '|' + (r.obra_id ?? '__avulso__')
+      const key = modo==='lancamento' ? r.colaborador_id : r.colaborador_id + '|' + (r.obra_id ?? '__avulso__')
       const diaJaNoPortal = mapaColab[key]?.dias.find(d=>d.data===r.data&&d.lancamento_portal)
       if (diaJaNoPortal) continue  // portal tem precedência
       const reg    = getOrCreate(r.colaborador_id, r.obra_id, cNome, cChapa, cFuncao, oNome)
@@ -1388,7 +1393,7 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
       const heMin    = Math.round((r.horas_extras ?? 0) * 60)
       const hfMin    = 0
       const statusLabel = falta?'FALTA':presente?'Presente':'—'
-      reg.dias.push({ id:undefined, data:r.data, status:statusLabel, he:heMin, hf:hfMin, obs:r.observacoes??'', sincronizado:true, lancamento_portal:false, editavel:false })
+      reg.dias.push({ id:undefined, data:r.data, status:statusLabel, he:heMin, hf:hfMin, obs:r.observacoes??'', sincronizado:true, lancamento_portal:false, editavel:false, obra:oLabel2 })
       if (presente) reg.presentes++
       if (falta)    reg.faltas++
       reg.he += heMin; reg.hf += hfMin
@@ -1434,8 +1439,9 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
 
   async function gerarPDF() {
     if (!resultado) return
-    const linhas = resultado.registros.map(c => {
-      const tabDias = c.dias.map(d => {
+    const isLanc = modo === 'lancamento'
+    const linhas = resultado.registros.filter(c => filtroSinc==='todos' || c.dias.some(d => filtroSinc==='sincronizado'?d.sincronizado:!d.sincronizado)).map(c => {
+      const tabDias = c.dias.filter(d => filtroSinc==='todos' || (filtroSinc==='sincronizado'?d.sincronizado:!d.sincronizado)).map(d => {
         const dtFmt = new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})
         const cor   = d.status==='FALTA'?'#fee2e2':d.status==='Presente'?'#f0fdf4':'#fefce8'
         const corSt = d.status==='FALTA'?'#dc2626':d.status==='Presente'?'#15803d':'#92400e'
@@ -1443,6 +1449,7 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
         const portal= d.lancamento_portal ? '● Portal' : '● Sistema'
         return `<tr style="background:${cor}">
           <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px">${dtFmt}</td>
+          ${isLanc ? `<td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px">${(()=>{const obrasU=[...new Set(c.dias.map((x:any)=>x.obra||''))];const idx=obrasU.indexOf(d.obra||'');const pals=[{bg:'#eff6ff',fg:'#1d4ed8'},{bg:'#f0fdf4',fg:'#15803d'},{bg:'#faf5ff',fg:'#7c3aed'},{bg:'#fff7ed',fg:'#c2410c'},{bg:'#fef2f2',fg:'#b91c1c'},{bg:'#f0fdfa',fg:'#0f766e'}];const p=pals[idx%pals.length];return '<span style="background:'+p.bg+';color:'+p.fg+';font-weight:700;border-radius:4px;padding:1px 6px">'+( d.obra||'—')+'</span>'})()}</td>` : ''}
           <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;font-weight:700;color:${corSt}">${d.status}</td>
           <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#15803d">${d.he?`+${minToHM(d.he)}`:''}</td>
           <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;color:#dc2626">${d.hf?`-${minToHM(d.hf)}`:''}</td>
@@ -1469,11 +1476,11 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
         </div>
         <table>
           <thead><tr>
-            <th>Data</th><th>Status</th><th>H.Extra</th><th>H.Falta</th><th>Observação</th><th>Origem</th><th>Sincronizado</th>
+            <th>Data</th>${isLanc ? '<th>Obra</th>' : ''}<th>Status</th><th>H.Extra</th><th>H.Falta</th><th>Observação</th><th>Origem</th><th>Sincronizado</th>
           </tr></thead>
           <tbody>${tabDias}</tbody>
           <tfoot><tr style="background:#f1f5f9;font-weight:700">
-            <td colspan="2" style="padding:6px 8px">TOTAIS</td>
+            <td colspan="${isLanc ? 3 : 2}" style="padding:6px 8px">TOTAIS</td>
             <td style="padding:6px 8px;color:#15803d">${minToHM(c.he)}</td>
             <td style="padding:6px 8px;color:#dc2626">${minToHM(c.hf)}</td>
             <td colspan="3" style="padding:6px 8px">${c.presentes} dias • ${c.faltas} falta${c.faltas!==1?'s':''}</td>
@@ -1514,7 +1521,7 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
       .quebra{page-break-after:always;height:0;margin:0}
       @media print{.quebra{page-break-after:always}.colaborador{break-inside:avoid}}
     </style></head><body>
-    ${gerarCabecalhoHTML(_empPonto, { titulo: 'Espelho de Ponto — Portal + Sistema', periodo: resultado.periodo })}
+    ${gerarCabecalhoHTML(_empPonto, { titulo: isLanc ? 'Relatório de Lançamento' : 'Espelho de Ponto — Portal + Sistema', periodo: resultado.periodo })}
     ${linhas}
     <script>window.onload=()=>{window.print()}<\/script>
     </body></html>`
@@ -1536,13 +1543,13 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
           <div>
             <div style={{ fontSize:11, fontWeight:600, color:'var(--muted-foreground)', marginBottom:4 }}>TIPO</div>
             <div style={{ display:'flex', gap:0, border:'1px solid var(--border)', borderRadius:7, overflow:'hidden' }}>
-              {(['colaborador','obra'] as const).map(m => (
+              {(['colaborador','obra','lancamento'] as const).map(m => (
                 <button key={m} onClick={() => { setModo(m); setResultado(null) }} style={{
                   padding:'7px 16px', border:'none', cursor:'pointer', fontSize:12, fontWeight:600,
                   background:modo===m?'var(--primary)':'var(--card)',
                   color:modo===m?'#fff':'var(--muted-foreground)', transition:'all 120ms',
                 }}>
-                  {m==='colaborador' ? '👷 Por Colaborador' : '🏗️ Por Obra'}
+                  {m==='colaborador' ? '👷 Por Colaborador' : m==='obra' ? '🏗️ Por Obra' : '📋 Rel. Lançamento'}
                 </button>
               ))}
             </div>
@@ -1654,6 +1661,21 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
           <Button onClick={gerar} disabled={loading} style={{ height:36, gap:6, background:'#1e3a5f', color:'#fff', fontWeight:700 }}>
             {loading ? <><RefreshCw size={14} className="animate-spin"/> Gerando…</> : <><FileBarChart2 size={14}/> Gerar</>}
           </Button>
+          {/* Filtro sincronização — aparece após gerar */}
+          {resultado && resultado.registros.length > 0 && (
+            <div>
+              <div style={{ fontSize:11, fontWeight:600, color:'var(--muted-foreground)', marginBottom:4 }}>SINCRONIZAÇÃO</div>
+              <div style={{ display:'flex', gap:0, border:'1px solid var(--border)', borderRadius:7, overflow:'hidden' }}>
+                {([['todos','Todos'],['sincronizado','✓ Sincronizados'],['pendente','⏳ Pendentes']] as const).map(([v,l]) => (
+                  <button key={v} onClick={() => setFiltroSinc(v)} style={{
+                    padding:'7px 12px', border:'none', cursor:'pointer', fontSize:11, fontWeight:600,
+                    background:filtroSinc===v?(v==='pendente'?'#b45309':v==='sincronizado'?'#15803d':'var(--primary)'):'var(--card)',
+                    color:filtroSinc===v?'#fff':'var(--muted-foreground)', transition:'all 120ms',
+                  }}>{l}</button>
+                ))}
+              </div>
+            </div>
+          )}
           {resultado && resultado.registros.length > 0 && (
             <Button onClick={gerarPDF} style={{ height:36, gap:6, background:'#15803d', color:'#fff', fontWeight:700 }}>
               <Download size={14}/> Imprimir / PDF
@@ -1720,7 +1742,7 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
             </span>
           </div>
 
-          {resultado.registros.map((c, ci) => (
+          {resultado.registros.filter(c => filtroSinc==='todos' || c.dias.some(d => filtroSinc==='sincronizado'?d.sincronizado:!d.sincronizado)).map((c, ci) => (
             <div key={ci} style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:10, marginBottom:20, overflow:'hidden' }}>
               {/* Cabeçalho */}
               <div style={{ background:'#1e3a5f', color:'#fff', padding:'10px 16px', display:'flex', alignItems:'flex-start', gap:12, flexWrap:'wrap' }}>
@@ -1745,19 +1767,34 @@ function TabRelatorio({ obras, colabs }: { obras: Obra[]; colabs: Colab[] }) {
                 <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
                   <thead>
                     <tr style={{ background:'var(--muted)' }}>
-                      {['Data','Status','H.Extra','H.Falta','Observação','Origem','Sincronizado','Ações'].map(h=>(
+                      {(modo==='lancamento'?['Data','Obra','Status','H.Extra','H.Falta','Observação','Origem','Sincronizado','Ações']:['Data','Status','H.Extra','H.Falta','Observação','Origem','Sincronizado','Ações']).map(h=>(
                         <th key={h} style={{ padding:'7px 10px', textAlign:'left', fontWeight:700, fontSize:11, color:'var(--muted-foreground)', borderBottom:'2px solid var(--border)', whiteSpace:'nowrap' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {c.dias.map((d, di) => {
+                    {c.dias.filter(d => filtroSinc==='todos' || (filtroSinc==='sincronizado'?d.sincronizado:!d.sincronizado)).map((d, di) => {
                       const dtFmt = new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})
                       const corBg = d.status==='FALTA'?'#fef2f2':d.status==='Presente'?'#f0fdf4':'var(--card)'
                       const corSt = d.status==='FALTA'?'#dc2626':d.status==='Presente'?'#15803d':'#b45309'
                       return (
                         <tr key={di} style={{ background:corBg, borderBottom:'1px solid var(--border)' }}>
                           <td style={{ padding:'6px 10px', fontWeight:600, whiteSpace:'nowrap' }}>{dtFmt}</td>
+                          {modo==='lancamento' && (()=>{
+                            const obrasUnicas = [...new Set(c.dias.map(x=>x.obra||''))];
+                            const oIdx = obrasUnicas.indexOf(d.obra||'');
+                            const paleta = [
+                              {bg:'#eff6ff',fg:'#1d4ed8'},{bg:'#f0fdf4',fg:'#15803d'},
+                              {bg:'#faf5ff',fg:'#7c3aed'},{bg:'#fff7ed',fg:'#c2410c'},
+                              {bg:'#fef2f2',fg:'#b91c1c'},{bg:'#f0fdfa',fg:'#0f766e'},
+                            ];
+                            const cor = paleta[oIdx % paleta.length];
+                            return <td style={{ padding:'4px 8px', whiteSpace:'nowrap' }}>
+                              <span style={{ background:cor.bg, color:cor.fg, fontWeight:700, fontSize:11, borderRadius:5, padding:'2px 7px', display:'inline-block' }}>
+                                {d.obra||'—'}
+                              </span>
+                            </td>
+                          })()}
                           <td style={{ padding:'6px 10px', fontWeight:700, color:corSt, whiteSpace:'nowrap' }}>{d.status}</td>
                           <td style={{ padding:'6px 10px', color:'#15803d', fontWeight:600 }}>{d.he?`+${minToHM(d.he)}`:'—'}</td>
                           <td style={{ padding:'6px 10px', color:'#dc2626', fontWeight:600 }}>{d.hf?`-${minToHM(d.hf)}`:'—'}</td>
@@ -1873,11 +1910,11 @@ export default function Solicitacoes() {
   const totalPendente = counts.cadastros + counts.ocorrencias + counts.epis + counts.documentos + counts.desligamentos
 
   return (
-    <div style={{ padding:'24px 28px', minHeight:'100vh', background:'var(--background)' }}>
+    <div className="page-root">
       {/* Header */}
       <div style={{ marginBottom:24 }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <div style={{ fontWeight:800, fontSize:22, color:'var(--foreground)' }}>📥 Solicitações do Portal</div>
+          <div style={{ fontWeight:800, fontSize:22, color:'var(--foreground)' }}>Solicitações do Portal</div>
           {totalPendente > 0 && (
             <span style={{ background:'#ef4444', color:'#fff', borderRadius:20, padding:'2px 10px', fontSize:12, fontWeight:700 }}>
               {totalPendente} pendente{totalPendente !== 1 ? 's' : ''}

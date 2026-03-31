@@ -274,7 +274,7 @@ export default function Obras() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6">
+    <div className="page-root">
       <PageHeader
         title="Obras"
         subtitle={`${obras.length} obra${obras.length !== 1 ? 's' : ''} cadastrada${obras.length !== 1 ? 's' : ''}`}

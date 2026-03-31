@@ -189,7 +189,7 @@ export default function Playbooks() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 24 }}>
+    <div className="page-root" style={{ height:'100%' }}>
 
       <PageHeader
         title="Playbooks de Produção"

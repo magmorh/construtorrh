@@ -342,7 +342,7 @@ export default function EncargosPage() {
 
   // ─── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6 space-y-6">
+    <div className="page-root">
       <PageHeader
         title="Encargos Trabalhistas"
         subtitle="INSS, IR, FGTS e encargos patronais — dados do Fechamento de Ponto"

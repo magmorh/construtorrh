@@ -261,7 +261,7 @@ export default function Acidentes() {
   // ── render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6">
+    <div className="page-root">
       <PageHeader
         title="Acidentes de Trabalho"
         subtitle={`${filtered.length} registro(s)`}

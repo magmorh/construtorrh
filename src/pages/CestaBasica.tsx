@@ -466,12 +466,12 @@ export default function CestaBasica() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: '24px 28px' }}>
+    <div className="page-root">
 
       {/* ── Cabeçalho ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
         <div style={{ width: 48, height: 48, borderRadius: 14, background: 'linear-gradient(135deg,#1e3a5f,#2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <ShoppingBasket size={26} color="#fff" />
+          <ShoppingBasket size={22} color="#fff" />
         </div>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--foreground)', margin: 0 }}>Cesta Básica</h1>

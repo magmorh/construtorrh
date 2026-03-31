@@ -19,7 +19,7 @@ import {
 
 // ─── Cor principal da sidebar ───────────────────────────────────────────────
 const SIDEBAR_BG = '#0d3f56'
-const SIDEBAR_W  = 68   // um pouco mais largo para labels legíveis
+const SIDEBAR_W  = 74   // um pouco mais largo para labels legíveis
 
 // ─── Mapa de títulos de páginas ─────────────────────────────────────────────
 const PAGE_TITLES: Record<string, { label: string; icon: React.ElementType; color: string }> = {
@@ -111,7 +111,7 @@ const NAV_GROUPS = [
   {
     id:    'financeiro',
     label: 'Financeiro',
-    short: 'Finanças',
+    short: 'Financ.',
     icon:  Banknote,
     items: [
       { to: '/fechamento-ponto', label: 'Fechamento',         icon: Lock,       color: '#fb923c', badge: 'fech' as const },
@@ -769,9 +769,10 @@ function SidebarBtn({
     >
       {icon}
       <span style={{
-        fontSize:9, fontWeight:700, letterSpacing:'0.02em', lineHeight:1,
-        color: active ? '#fff' : open ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.45)',
-        maxWidth:56, textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+        fontSize:9.5, fontWeight:700, letterSpacing:'0.01em', lineHeight:1.2,
+        color: active ? '#fff' : open ? 'rgba(255,255,255,0.80)' : 'rgba(255,255,255,0.50)',
+        maxWidth:64, textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+        display:'block',
       }}>
         {label}
       </span>

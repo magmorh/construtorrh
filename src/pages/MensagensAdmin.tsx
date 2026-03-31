@@ -102,7 +102,7 @@ export default function MensagensAdmin() {
   const obraAtual = obras.find(o => o.id === obraId)
 
   return (
-    <div className="p-6">
+    <div className="page-root">
       {/* Header */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20 }}>
         <div>

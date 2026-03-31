@@ -840,7 +840,7 @@ export default function Epis() {
 
   // ─── render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: 24 }}>
+    <div className="page-root">
       <PageHeader
         title="EPIs"
         subtitle="Equipamentos de Proteção Individual — catálogo, vínculos e solicitações"

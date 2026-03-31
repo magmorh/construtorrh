@@ -16,20 +16,49 @@ export function BadgeStatus({ status, className }: BadgeStatusProps) {
   )
 }
 
+// ─── PageWrapper — container raiz padronizado ────────────────────────────────
+interface PageWrapperProps {
+  children: React.ReactNode
+  className?: string
+  style?: React.CSSProperties
+}
+
+export function PageWrapper({ children, className, style }: PageWrapperProps) {
+  return (
+    <div className={cn('page-root', className)} style={style}>
+      {children}
+    </div>
+  )
+}
+
+// ─── PageHeader — cabeçalho de página padronizado ─────────────────────────────
 interface PageHeaderProps {
   title: string
   subtitle?: string
   action?: React.ReactNode
+  icon?: React.ReactNode
 }
 
-export function PageHeader({ title, subtitle, action }: PageHeaderProps) {
+export function PageHeader({ title, subtitle, action, icon }: PageHeaderProps) {
   return (
-    <div className="flex items-center justify-between mb-6">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-        {subtitle && <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>}
+    <div className="page-header">
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        {icon && (
+          <div style={{
+            width: 40, height: 40, borderRadius: 10,
+            background: 'var(--primary)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            color: '#fff', flexShrink: 0, marginTop: 2,
+          }}>
+            {icon}
+          </div>
+        )}
+        <div>
+          <h1 className="page-title">{title}</h1>
+          {subtitle && <p className="page-subtitle">{subtitle}</p>}
+        </div>
       </div>
-      {action && <div>{action}</div>}
+      {action && <div style={{ flexShrink: 0 }}>{action}</div>}
     </div>
   )
 }
@@ -88,14 +117,13 @@ export function LoadingSkeleton({ rows = 5 }: { rows?: number }) {
 }
 
 // ─── SummaryCard — card padrão de resumo/total (design unificado) ─────────────
-// Ícone com fundo colorido (initials/sigla), label, valor grande, subtítulo
 export interface SummaryCardProps {
-  sigla: string          // 2-3 chars, ex: "RS", "IN", "IR", "CLT", "EMP"
-  label: string          // ex: "BRUTO TOTAL"
-  value: string          // formatado, ex: "R$ 2.691,27"
-  sub?: string           // subtítulo, ex: "FGTS + INSS Pat. + RAT"
-  color: string          // texto e ícone, ex: "#15803d"
-  bg: string             // fundo do ícone, ex: "#15803d"
+  sigla: string
+  label: string
+  value: string
+  sub?: string
+  color: string
+  bg: string
   onClick?: () => void
 }
 
@@ -117,7 +145,6 @@ export function SummaryCard({ sigla, label, value, sub, color, bg, onClick }: Su
       onMouseEnter={e => { if (onClick) (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 12px rgba(0,0,0,0.10)' }}
       onMouseLeave={e => { if (onClick) (e.currentTarget as HTMLElement).style.boxShadow = '' }}
     >
-      {/* ícone com sigla */}
       <div style={{
         width: 36, height: 36, minWidth: 36, borderRadius: 8,
         background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -125,7 +152,6 @@ export function SummaryCard({ sigla, label, value, sub, color, bg, onClick }: Su
       }}>
         {sigla}
       </div>
-      {/* conteúdo */}
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>
           {label}

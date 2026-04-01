@@ -130,6 +130,9 @@ export default function Pagamentos() {
   // ── modal estornar ─────────────────────────────────────────────────────────
   const [modalEstornar, setModalEstornar] = useState<any | null>(null)
   const [motivoEstorno, setMotivoEstorno] = useState('')
+  // ── modal recusar lançamento de folha ─────────────────────────────────────
+  const [modalRecusarLanc, setModalRecusarLanc] = useState<any | null>(null)
+  const [motivoRecusaLanc, setMotivoRecusaLanc] = useState('')
 
   // ── linhas expandidas (composição do pagamento) ────────────────────────────
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
@@ -161,11 +164,15 @@ export default function Pagamentos() {
   // ─── fetch lançamentos liberados ───────────────────────────────────────────
   const fetchLancsPendentes = useCallback(async () => {
     setLoadingLancs(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('ponto_lancamentos')
-      .select('id, colaborador_id, obra_id, mes_referencia, data_inicio, data_fim, status, motivo_recusa, data_pagamento, obs_pagamento, snap_liquido, snap_valor_total, snap_horas, snap_dsr, snap_producao, snap_premio, snap_inss, snap_ir, snap_desconto_vt, snap_desconto_adiant, colaboradores(nome, chapa, tipo_contrato, funcao_id, chave_pix, cpf, funcoes(nome)), obras(nome)')
+      .select('id, colaborador_id, obra_id, mes_referencia, data_inicio, data_fim, status, motivo_recusa, data_pagamento, obs_pagamento, snap_liquido, snap_valor_total, snap_horas, snap_dsr, snap_producao, snap_premio, snap_inss, snap_ir, snap_desconto_vt, snap_desconto_adiant, colaboradores(nome, chapa, tipo_contrato, funcao_id, cpf, funcoes(nome)), obras(nome)')
       .in('status', ['liberado', 'pago'])
       .order('mes_referencia', { ascending: false })
+    if (error) {
+      console.error('Erro ao carregar lançamentos:', error)
+      toast.error('Erro ao carregar lançamentos de folha: ' + error.message)
+    }
     setLancsPendentes(data ?? [])
     setLoadingLancs(false)
   }, [])
@@ -434,7 +441,9 @@ export default function Pagamentos() {
     const matchNome   = !q || l.colaboradores?.nome?.toLowerCase().includes(q) || (l.colaboradores?.chapa??'').toLowerCase().includes(q)
     const matchObra   = filtroObraLanc !== 'todos' ? l.obra_id === filtroObraLanc : true
     const matchFuncao = filtroFuncaoLanc !== 'todos' ? l.colaboradores?.funcao_id === filtroFuncaoLanc : true
-    return l.status === 'liberado' && matchNome && matchObra && matchFuncao
+    const matchDtIni  = filtroDataIni ? (l.data_inicio ?? '') >= filtroDataIni : true
+    const matchDtFim  = filtroDataFim ? (l.data_fim    ?? '') <= filtroDataFim : true
+    return l.status === 'liberado' && matchNome && matchObra && matchFuncao && matchDtIni && matchDtFim
   })
   const lancsRealizados = lancsPendentes.filter((l: any) => {
     const matchNome   = !filtroNomeLanc || l.colaboradores?.nome?.toLowerCase().includes(filtroNomeLanc.toLowerCase()) || (l.colaboradores?.chapa??'').toLowerCase().includes(filtroNomeLanc.toLowerCase())
@@ -759,11 +768,7 @@ export default function Pagamentos() {
 
       {/* Filtros — padrão do sistema com componentes Select/Input */}
       <div className="flex flex-wrap items-end gap-3 py-4 mb-4" style={{ borderBottom:'1px solid var(--border)' }}>
-        <div>
-          <label className="text-xs font-semibold text-muted-foreground block mb-1">Competência</label>
-          <input type="month" value={filtroMesLanc} onChange={e=>setFiltroMesLanc(e.target.value)}
-            className="h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground" />
-        </div>
+
         <div className="relative">
           <label className="text-xs font-semibold text-muted-foreground block mb-1">Colaborador</label>
           <div className="relative">
@@ -788,18 +793,16 @@ export default function Pagamentos() {
             {funcoes.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
           </select>
         </div>
-        {aba==='realizados' && (<>
-          <div>
-            <label className="text-xs font-semibold text-muted-foreground block mb-1">Data pgto de</label>
-            <input type="date" value={filtroDataIni} onChange={e=>setFiltroDataIni(e.target.value)}
-              className="h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground" />
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-muted-foreground block mb-1">até</label>
-            <input type="date" value={filtroDataFim} onChange={e=>setFiltroDataFim(e.target.value)}
-              className="h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground" />
-          </div>
-        </>)}
+        <div>
+          <label className="text-xs font-semibold text-muted-foreground block mb-1">{aba==='agendados'?'Período de':'Data pgto de'}</label>
+          <input type="date" value={filtroDataIni} onChange={e=>setFiltroDataIni(e.target.value)}
+            className="h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-muted-foreground block mb-1">até</label>
+          <input type="date" value={filtroDataFim} onChange={e=>setFiltroDataFim(e.target.value)}
+            className="h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground" />
+        </div>
         {(filtroNomeLanc||filtroDataIni||filtroDataFim||filtroObraLanc!=='todos'||filtroFuncaoLanc!=='todos') && (
           <Button variant="outline" size="sm" onClick={()=>{setFiltroNomeLanc('');setFiltroDataIni('');setFiltroDataFim('');setFiltroObraLanc('todos');setFiltroFuncaoLanc('todos')}}>
             ✕ Limpar
@@ -885,10 +888,16 @@ export default function Pagamentos() {
                             {l.snap_liquido ? formatCurrency(l.snap_liquido) : '—'}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button size="sm" className="h-7 text-xs"
-                              onClick={() => { setModalPagarLanc(l); setDataPagamento(new Date().toISOString().slice(0,10)); setObsPagamento('') }}>
-                              💰 Pagar
-                            </Button>
+                            <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
+                              <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                                onClick={() => { setModalPagarLanc(l); setDataPagamento(new Date().toISOString().slice(0,10)); setObsPagamento('') }}>
+                                ✅ Confirmar
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-300 hover:bg-red-50"
+                                onClick={() => { setModalRecusarLanc(l); setMotivoRecusaLanc('') }}>
+                                ✕ Recusar
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}

@@ -428,14 +428,13 @@ export default function Pagamentos() {
   const [filtroFuncaoLanc, setFiltroFuncaoLanc] = useState('todos')
 
   // Filtros lançamentos da folha
-  // BUG FIX: agendados mostra TODOS os liberados (sem filtro por mês)
+  // Agendados: mostra TODOS os liberados (sem filtro por mês — todos os períodos pendentes aparecem)
   const lancsAgendados  = lancsPendentes.filter((l: any) => {
     const q = filtroNomeLanc.toLowerCase()
     const matchNome   = !q || l.colaboradores?.nome?.toLowerCase().includes(q) || (l.colaboradores?.chapa??'').toLowerCase().includes(q)
-    const matchMes    = filtroMesLanc ? l.mes_referencia === filtroMesLanc : true
     const matchObra   = filtroObraLanc !== 'todos' ? l.obra_id === filtroObraLanc : true
     const matchFuncao = filtroFuncaoLanc !== 'todos' ? l.colaboradores?.funcao_id === filtroFuncaoLanc : true
-    return l.status === 'liberado' && matchNome && matchMes && matchObra && matchFuncao
+    return l.status === 'liberado' && matchNome && matchObra && matchFuncao
   })
   const lancsRealizados = lancsPendentes.filter((l: any) => {
     const matchNome   = !filtroNomeLanc || l.colaboradores?.nome?.toLowerCase().includes(filtroNomeLanc.toLowerCase()) || (l.colaboradores?.chapa??'').toLowerCase().includes(filtroNomeLanc.toLowerCase())
@@ -644,8 +643,8 @@ export default function Pagamentos() {
 
       {/* Cards resumo — 3 painéis EM ABERTO / REALIZADOS / TOTAL */}
       {(() => {
-        const qtdLib     = lancsPendentes.filter((l:any)=>l.status==='liberado'&&(filtroMesLanc?l.mes_referencia===filtroMesLanc:true)).length
-        const vlLib      = lancsPendentes.filter((l:any)=>l.status==='liberado'&&(filtroMesLanc?l.mes_referencia===filtroMesLanc:true)).reduce((s:number,l:any)=>s+(l.snap_liquido??0),0)
+        const qtdLib     = lancsPendentes.filter((l:any)=>l.status==='liberado').length
+        const vlLib      = lancsPendentes.filter((l:any)=>l.status==='liberado').reduce((s:number,l:any)=>s+(l.snap_liquido??0),0)
         const qtdAvPend  = rows.filter(r=>r.status==='pendente').length
         const vlAvPend   = rows.filter(r=>r.status==='pendente').reduce((s:any,r:any)=>s+(r.valor_liquido??r.valor_bruto??0),0)
         const qtdAdPend  = rows.filter(r=>r.tipo==='adiantamento'&&r.status==='pendente').length
@@ -726,7 +725,7 @@ export default function Pagamentos() {
       <div className="flex gap-0 mb-0" style={{ borderBottom:'2px solid var(--border)', justifyContent:'space-between', alignItems:'flex-end' }}>
         <div className="flex gap-0">
         {([
-          { key:'agendados',  label:'⏳ Agendados',  count: lancsPendentes.filter(l=>l.status==='liberado'&&(filtroMesLanc?l.mes_referencia===filtroMesLanc:true)).length },
+          { key:'agendados',  label:'⏳ Agendados',  count: lancsPendentes.filter(l=>l.status==='liberado').length },
           { key:'realizados', label:'✅ Realizados', count: lancsPendentes.filter(l=>l.status==='pago').length + rows.filter(r=>r.status==='pago').length },
         ] as {key:'agendados'|'realizados';label:string;count:number}[]).map(tab => (
           <button key={tab.key} onClick={()=>setAba(tab.key)}

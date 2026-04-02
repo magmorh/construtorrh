@@ -911,7 +911,7 @@ export default function Colaboradores() {
   const [funcoes, setFuncoes] = useState<Funcao[]>([])
   const [obras, setObras]   = useState<Obra[]>([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
+  const [busca, setBusca] = useState('')
   const [filterStatus, setFilterStatus] = useState('todos')
   const [filterFuncao, setFilterFuncao] = useState('todas')
   const [filterContrato, setFilterContrato] = useState('todos')
@@ -1012,20 +1012,22 @@ export default function Colaboradores() {
   useEffect(() => { fetchData() }, [fetchData])
 
   // ── filtros ───────────────────────────────────────────────────────────────
-  const filtered = rows.filter(c => {
+  const filtered = useMemo(() => {
     const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    const q = norm(search)
-    const matchQ = !q
-      || norm(c.nome).includes(q)
-      || norm(c.chapa ?? '').includes(q)
-      || (c.cpf ?? '').replace(/\D/g,'').includes(q.replace(/\D/g,''))
-      || norm((c as any).funcoes?.nome ?? '').includes(q)
-      || norm((c as any).obras?.nome ?? '').includes(q)
-    const matchS = filterStatus === 'todos' || c.status === filterStatus
-    const matchF = filterFuncao === 'todas' || (c as any).funcao_id === filterFuncao
-    const matchC = filterContrato === 'todos' || (c.tipo_contrato ?? '').toLowerCase() === filterContrato
-    return matchQ && matchS && matchF && matchC
-  })
+    const q = norm(busca)
+    return rows.filter(c => {
+      const matchQ = !q
+        || norm(c.nome).includes(q)
+        || norm(c.chapa ?? '').includes(q)
+        || (c.cpf ?? '').replace(/\D/g,'').includes(q.replace(/\D/g,''))
+        || norm((c as any).funcoes?.nome ?? '').includes(q)
+        || norm((c as any).obras?.nome ?? '').includes(q)
+      const matchS = filterStatus === 'todos' || c.status === filterStatus
+      const matchF = filterFuncao === 'todas' || (c as any).funcao_id === filterFuncao
+      const matchC = filterContrato === 'todos' || (c.tipo_contrato ?? '').toLowerCase() === filterContrato
+      return matchQ && matchS && matchF && matchC
+    })
+  }, [rows, busca, filterStatus, filterFuncao, filterContrato])
 
   // ── helpers form ──────────────────────────────────────────────────────────
   const set = (k: keyof FormData, v: string | boolean) => setForm(p => ({ ...p, [k]: v }))
@@ -1801,8 +1803,8 @@ export default function Colaboradores() {
                   autoComplete="off"
                   autoCorrect="off"
                   spellCheck={false}
-                  value={search}
-                  onChange={e => { setSearch(e.target.value) }}
+                  value={busca}
+                  onChange={e => setBusca(e.target.value)}
                   onFocus={e => (e.target.style.boxShadow = '0 0 0 2px rgba(59,130,246,0.3)')}
                   onBlur={e => (e.target.style.boxShadow = 'none')}
                 />

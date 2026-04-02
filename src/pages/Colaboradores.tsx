@@ -1795,13 +1795,12 @@ export default function Colaboradores() {
                 <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted-foreground)', pointerEvents: 'none' }} />
                 <input
                   type="text"
-                  key="colab-search"
                   style={{ paddingLeft: 32, width: '100%', height: 40, borderRadius: 6, border: '1px solid hsl(var(--input))', fontSize: 14, outline: 'none', background: '#fff', color: '#0f172a' }}
                   placeholder="Buscar por nome, chapa ou CPF…"
                   autoComplete="off"
                   autoCorrect="off"
                   spellCheck={false}
-                  defaultValue={search}
+                  value={search}
                   onChange={e => { setSearch(e.target.value) }}
                   onFocus={e => (e.target.style.boxShadow = '0 0 0 2px rgba(59,130,246,0.3)')}
                   onBlur={e => (e.target.style.boxShadow = 'none')}

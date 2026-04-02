@@ -108,7 +108,7 @@ export default function Documentos() {
       supabase.from('colaboradores').select('id,nome,chapa,status').order('nome'),
       supabase.from('documentos').select('id,colaborador_id,tipo,created_at,descricao,arquivo_url,arquivo_nome,colaboradores(nome,chapa)').order('created_at', { ascending: false }),
       supabase.from('documentos_avulsos').select('id,colaborador_id,tipo,created_at,descricao,documento_url,documento_nome,colaboradores(nome,chapa)').order('created_at', { ascending: false }),
-      supabase.from('atestados').select('id,colaborador_id,data_inicio,tipo_atestado,descricao,arquivo_url,arquivo_nome,colaboradores(nome,chapa)').order('data_inicio', { ascending: false }),
+      supabase.from('atestados').select('id,colaborador_id,data,data_inicio,tipo,descricao,documento_url,documento_nome,colaboradores(nome,chapa)').order('data_inicio', { ascending: false }),
       supabase.from('acidentes').select('id,colaborador_id,data_ocorrencia,tipo,descricao,documento_url,documento_nome,colaboradores(nome,chapa)').order('data_ocorrencia', { ascending: false }),
       supabase.from('advertencias').select('id,colaborador_id,data_advertencia,tipo,descricao,documento_url,documento_nome,colaboradores(nome,chapa)').order('data_advertencia', { ascending: false }),
     ])
@@ -118,7 +118,7 @@ export default function Documentos() {
     const entries: DocEntry[] = []
     for (const r of (docsPes ?? []) as any[])  entries.push({ id: r.id, source: 'documento',   tipo: r.tipo ?? 'Documento',       colaborador_id: r.colaborador_id, data: r.created_at?.slice(0,10) ?? '', descricao: r.descricao ?? '', documento_url: r.arquivo_url ?? '',    documento_nome: r.arquivo_nome ?? '' })
     for (const r of (docsAvul ?? []) as any[]) entries.push({ id: r.id, source: 'avulso',      tipo: r.tipo ?? 'Outros',           colaborador_id: r.colaborador_id, data: r.created_at?.slice(0,10) ?? '', descricao: r.descricao ?? '', documento_url: r.documento_url ?? '', documento_nome: r.documento_nome ?? '' })
-    for (const r of (atst ?? []) as any[])     entries.push({ id: r.id, source: 'atestado',    tipo: 'Atestado Médico',             colaborador_id: r.colaborador_id, data: r.data_inicio ?? '', descricao: r.tipo_atestado ?? r.descricao ?? '', documento_url: r.arquivo_url ?? '', documento_nome: r.arquivo_nome ?? '' })
+    for (const r of (atst ?? []) as any[])     entries.push({ id: r.id, source: 'atestado',    tipo: 'Atestado Médico',             colaborador_id: r.colaborador_id, data: r.data_inicio ?? r.data ?? '', descricao: r.tipo ?? r.descricao ?? '', documento_url: r.documento_url ?? '', documento_nome: r.documento_nome ?? '' })
     for (const r of (acid ?? []) as any[])     entries.push({ id: r.id, source: 'acidente',    tipo: 'Comunicação de Acidente (CAT)', colaborador_id: r.colaborador_id, data: r.data_ocorrencia ?? '', descricao: r.descricao ?? '', documento_url: r.documento_url ?? '', documento_nome: r.documento_nome ?? '' })
     for (const r of (advt ?? []) as any[])     entries.push({ id: r.id, source: 'advertencia', tipo: 'Advertência',                 colaborador_id: r.colaborador_id, data: r.data_advertencia ?? '', descricao: r.tipo ?? r.descricao ?? '', documento_url: r.documento_url ?? '', documento_nome: r.documento_nome ?? '' })
 

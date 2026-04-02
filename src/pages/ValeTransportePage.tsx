@@ -19,18 +19,11 @@ import { toast } from 'sonner'
 import { traduzirErro } from '@/lib/erros'
 import { SummaryCard } from '@/components/Shared'
 import {
-
-// ─── helper: último dia real do mês ─────────────────────────────────────────
-function getUltimoDia(mesAno: string): string {
-  const [y, m] = mesAno.split('-').map(Number)
-  const ud = new Date(y, m, 0).getDate()
-  return `${mesAno}-${String(ud).padStart(2, '0')}`
-}
-
   Bus, Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight,
   CheckCircle2, AlertCircle, X, ToggleLeft, ToggleRight,
   CreditCard, Building2, CheckSquare, Square, Loader2, FileText,
 } from 'lucide-react'
+import { getUltimoDia } from '@/lib/dateUtils'
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
 type ColaboradorVT = Pick<Colaborador, 'id' | 'nome' | 'chapa' | 'salario' | 'vt_dados'> & {

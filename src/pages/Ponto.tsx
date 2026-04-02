@@ -12,13 +12,9 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { traduzirErro } from '@/lib/erros'
 import { calcDSRComFaltas } from '@/lib/dsr'
+import { getUltimoDia } from '@/lib/dateUtils'
 
-// ─── helper: último dia real do mês ─────────────────────────────────────────
-function getUltimoDia(mesAno: string): string {
-  const [y, m] = mesAno.split('-').map(Number)
-  const ud = new Date(y, m, 0).getDate()
-  return `${mesAno}-${String(ud).padStart(2, '0')}`
-}
+
 
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────

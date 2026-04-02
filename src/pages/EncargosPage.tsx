@@ -13,13 +13,8 @@ import {
 import { traduzirErro } from '@/lib/erros'
 import { Briefcase, Download } from 'lucide-react'
 import { toast } from 'sonner'
+import { getUltimoDia } from '@/lib/dateUtils'
 
-// ─── helper: último dia real do mês ─────────────────────────────────────────
-function getUltimoDia(mesAno: string): string {
-  const [y, m] = mesAno.split('-').map(Number)
-  const ud = new Date(y, m, 0).getDate()
-  return `${mesAno}-${String(ud).padStart(2, '0')}`
-}
 
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────

@@ -4,19 +4,12 @@ import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { fetchEmpresaData, CABECALHO_CSS, gerarCabecalhoHTML } from '@/lib/relatorioHeader'
 import {
-
-// ─── helper: último dia real do mês ─────────────────────────────────────────
-function getUltimoDia(mesAno: string): string {
-  const [y, m] = mesAno.split('-').map(Number)
-  const ud = new Date(y, m, 0).getDate()
-  return `${mesAno}-${String(ud).padStart(2, '0')}`
-}
-
   Scale, UserX, Search, Plus, Trash2, FileText, ChevronDown, ChevronUp,
   Loader2, ShieldAlert, X, Building2, Calendar, CreditCard, Clock,
   AlertTriangle, Shield, DollarSign, Truck, Package, MapPin, Phone,
   Mail, User, Briefcase, Hash, Camera, ExternalLink,
 } from 'lucide-react'
+import { getUltimoDia } from '@/lib/dateUtils'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const fmtDate = (d: string | null | undefined) =>

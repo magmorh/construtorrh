@@ -1,27 +1,19 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { formatDate } from '@/lib/utils'
-import { PageHeader, EmptyState, LoadingSkeleton } from '@/components/Shared'
+import { EmptyState, LoadingSkeleton } from '@/components/Shared'
 import { useProfile } from '@/hooks/useProfile'
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { FileText, ExternalLink, Search, Plus, Upload, X, Trash2 } from 'lucide-react'
-import { SearchableSelect } from '@/components/ui/searchable-select'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { FileText, Search, Plus, Upload, X, Trash2, ExternalLink, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
-import { traduzirErro } from '@/lib/erros'
 
-type Colaborador = { id: string; nome: string; chapa: string }
+type Colaborador = { id: string; nome: string; chapa: string; status: string }
 
 type DocEntry = {
   id: string
@@ -68,7 +60,7 @@ async function uploadDoc(file: File): Promise<{ url: string; nome: string } | nu
 function TipoBadge({ tipo }: { tipo: string }) {
   const s = TIPO_COLORS[tipo] ?? { bg: '#f3f4f6', color: '#6b7280' }
   return (
-    <span style={{ padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: s.bg, color: s.color }}>
+    <span style={{ padding: '3px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: s.bg, color: s.color, whiteSpace: 'nowrap' }}>
       {tipo}
     </span>
   )
@@ -78,346 +70,290 @@ type AvulsoForm = {
   colaborador_id: string; tipo: string; data: string
   descricao: string; documento_url: string; documento_nome: string
 }
-const EMPTY_FORM: AvulsoForm = { colaborador_id: '', tipo: '', data: '', descricao: '', documento_url: '', documento_nome: '' }
+
+const EMPTY_FORM: AvulsoForm = {
+  colaborador_id: '', tipo: 'outros', data: new Date().toISOString().slice(0, 10),
+  descricao: '', documento_url: '', documento_nome: '',
+}
 
 export default function Documentos() {
-  const { permissions } = useProfile()
-
-  const [docs,          setDocs]          = useState<DocEntry[]>([])
+  const { profile } = useProfile()
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([])
-  const [tiposAvulso,   setTiposAvulso]   = useState<string[]>(TIPOS_AVULSO.map(t => t.label))
-  const [loading,       setLoading]       = useState(true)
-  const [filtroColabo,  setFiltroColabo]  = useState<string>('todos')
-  const [filtroTipo,    setFiltroTipo]    = useState<string>('todos')
-  const [busca,         setBusca]         = useState('')
+  const [docs, setDocs]     = useState<DocEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [colabSel, setColabSel] = useState<Colaborador | null>(null)
+
+  // busca no painel esquerdo
+  const [busca, setBusca] = useState('')
 
   // modal novo doc avulso
-  const [modalOpen,   setModalOpen]   = useState(false)
-  const [form,        setForm]        = useState<AvulsoForm>(EMPTY_FORM)
-  const [uploading,   setUploading]   = useState(false)
-  const [saving,      setSaving]      = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [form, setForm]   = useState<AvulsoForm>(EMPTY_FORM)
+  const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // delete
-  const [deleteId,     setDeleteId]     = useState<string | null>(null)
-  const [deleteSource, setDeleteSource] = useState<string>('')
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [deleteSource, setDeleteSource] = useState<DocEntry['source'] | null>(null)
 
-  // ── carregar tipos de documentos das configurações ─────────────────────────
-  const fetchTipos = useCallback(async () => {
-    try {
-      const { data } = await supabase
-        .from('configuracoes')
-        .select('chave, valor')
-        .eq('chave', 'tipos_documentos')
-        .limit(1)
-      const row = Array.isArray(data) && data.length > 0 ? data[0] : null
-      if (row?.valor) {
-        const parsed = JSON.parse(row.valor)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setTiposAvulso(parsed)
-          return
-        }
-      }
-    } catch {}
-  }, [])
-
+  // ── fetch ──────────────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     setLoading(true)
-
-    const [r1, r2, r3, r4, r5] = await Promise.all([
-      supabase.from('atestados')
-        .select('id, colaborador_id, data, tipo, descricao, documento_url, documento_nome, colaboradores(id, nome, chapa)')
-        .not('documento_url', 'is', null),
-      supabase.from('advertencias')
-        .select('id, colaborador_id, data_advertencia, tipo, motivo, documento_url, documento_nome, colaboradores(id, nome, chapa)')
-        .not('documento_url', 'is', null),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      supabase.from('acidentes' as any)
-        .select('id, colaborador_id, data_acidente, tipo, descricao, documento_url, documento_nome, colaboradores(id, nome, chapa)')
-        .not('documento_url', 'is', null)
-        .eq('cat_emitida', true),
-      supabase.from('documentos_avulsos')
-        .select('id, colaborador_id, tipo, data, descricao, documento_url, documento_nome, colaboradores(id, nome, chapa)')
-        .order('data', { ascending: false }),
-      supabase.from('colaboradores').select('id, nome, chapa').eq('status', 'ativo').order('nome'),
+    const [{ data: cols }, { data: atst }, { data: advt }, { data: acid }, { data: avul }] = await Promise.all([
+      supabase.from('colaboradores').select('id,nome,chapa,status').order('nome'),
+      supabase.from('atestados').select('id,colaborador_id,data_inicio,tipo_atestado,descricao,arquivo_url,arquivo_nome,colaboradores(nome,chapa)').order('data_inicio', { ascending: false }),
+      supabase.from('ocorrencias').select('id,colaborador_id,data,tipo,descricao,documento_url,documento_nome,colaboradores(nome,chapa)').order('data', { ascending: false }),
+      supabase.from('acidentes').select('id,colaborador_id,data_acidente,descricao,documento_url,documento_nome,colaboradores(nome,chapa)').order('data_acidente', { ascending: false }),
+      supabase.from('documentos_colaborador').select('id,colaborador_id,tipo,data,descricao,documento_url,documento_nome,colaboradores(nome,chapa)').order('data', { ascending: false }),
     ])
+    if (cols) setColaboradores(cols as Colaborador[])
 
     const entries: DocEntry[] = []
-
-    for (const a of ((r1.data ?? []) as any[])) {
-      if (!a.documento_url) continue
-      const col = Array.isArray(a.colaboradores) ? a.colaboradores[0] : a.colaboradores
-      entries.push({ id: a.id, source: 'atestado', tipo: 'Atestado', colaborador_id: a.colaborador_id,
-        colaborador_nome: col?.nome ?? '—', colaborador_chapa: col?.chapa ?? '',
-        data: a.data, descricao: `Tipo: ${a.tipo ?? '—'}${a.descricao ? ' · ' + a.descricao : ''}`,
-        documento_url: a.documento_url, documento_nome: a.documento_nome ?? 'Atestado' })
+    for (const r of (atst ?? []) as any[]) entries.push({ id: r.id, source: 'atestado', tipo: 'Atestado', colaborador_id: r.colaborador_id, colaborador_nome: r.colaboradores?.nome ?? '—', colaborador_chapa: r.colaboradores?.chapa ?? '—', data: r.data_inicio, descricao: r.tipo_atestado ?? r.descricao ?? '', documento_url: r.arquivo_url ?? '', documento_nome: r.arquivo_nome ?? '' })
+    for (const r of (advt ?? []) as any[]) entries.push({ id: r.id, source: 'advertencia', tipo: 'Advertência', colaborador_id: r.colaborador_id, colaborador_nome: r.colaboradores?.nome ?? '—', colaborador_chapa: r.colaboradores?.chapa ?? '—', data: r.data, descricao: r.descricao ?? '', documento_url: r.documento_url ?? '', documento_nome: r.documento_nome ?? '' })
+    for (const r of (acid ?? []) as any[]) entries.push({ id: r.id, source: 'acidente', tipo: 'CAT (Acidente)', colaborador_id: r.colaborador_id, colaborador_nome: r.colaboradores?.nome ?? '—', colaborador_chapa: r.colaboradores?.chapa ?? '—', data: r.data_acidente, descricao: r.descricao ?? '', documento_url: r.documento_url ?? '', documento_nome: r.documento_nome ?? '' })
+    for (const r of (avul ?? []) as any[]) {
+      const tipoLabel = TIPOS_AVULSO.find(t => t.value === r.tipo)?.label ?? r.tipo ?? 'Outros'
+      entries.push({ id: r.id, source: 'avulso', tipo: tipoLabel, colaborador_id: r.colaborador_id, colaborador_nome: r.colaboradores?.nome ?? '—', colaborador_chapa: r.colaboradores?.chapa ?? '—', data: r.data, descricao: r.descricao ?? '', documento_url: r.documento_url ?? '', documento_nome: r.documento_nome ?? '' })
     }
-    for (const a of ((r2.data ?? []) as any[])) {
-      if (!a.documento_url) continue
-      const col = Array.isArray(a.colaboradores) ? a.colaboradores[0] : a.colaboradores
-      entries.push({ id: a.id, source: 'advertencia', tipo: 'Advertência', colaborador_id: a.colaborador_id,
-        colaborador_nome: col?.nome ?? '—', colaborador_chapa: col?.chapa ?? '',
-        data: a.data_advertencia, descricao: `${a.tipo ?? ''} · ${a.motivo ?? ''}`,
-        documento_url: a.documento_url, documento_nome: a.documento_nome ?? 'Advertência' })
-    }
-    if (!r3.error) {
-      for (const a of ((r3.data ?? []) as any[])) {
-        if (!a.documento_url) continue
-        const col = Array.isArray(a.colaboradores) ? a.colaboradores[0] : a.colaboradores
-        entries.push({ id: a.id, source: 'acidente', tipo: 'CAT (Acidente)', colaborador_id: a.colaborador_id,
-          colaborador_nome: col?.nome ?? '—', colaborador_chapa: col?.chapa ?? '',
-          data: a.data_acidente, descricao: `${a.tipo ?? ''} · ${a.descricao ?? ''}`,
-          documento_url: a.documento_url, documento_nome: a.documento_nome ?? 'CAT' })
-      }
-    }
-    if (!r4.error) {
-      for (const a of ((r4.data ?? []) as any[])) {
-        const col = Array.isArray(a.colaboradores) ? a.colaboradores[0] : a.colaboradores
-        // tipo pode ser string direta (novo) ou chave legada (antigo) — mostra como está
-        const tipoLabel = TIPOS_AVULSO.find(t => t.value === a.tipo)?.label ?? a.tipo ?? 'Outros'
-        entries.push({ id: a.id, source: 'avulso', tipo: tipoLabel, colaborador_id: a.colaborador_id,
-          colaborador_nome: col?.nome ?? 'Geral', colaborador_chapa: col?.chapa ?? '',
-          data: a.data, descricao: a.descricao ?? '',
-          documento_url: a.documento_url, documento_nome: a.documento_nome ?? 'Documento' })
-      }
-    }
-
-    entries.sort((a, b) => (a.data > b.data ? -1 : 1))
+    entries.sort((a, b) => (b.data ?? '').localeCompare(a.data ?? ''))
     setDocs(entries)
-    setColaboradores((r5.data as Colaborador[]) ?? [])
-
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchAll(); fetchTipos() }, [fetchAll, fetchTipos])
+  useEffect(() => { fetchAll() }, [fetchAll])
 
-  // ── upload file ───────────────────────────────────────────────────────────
+  // ── lista colaboradores filtrada por busca ─────────────────────────────────
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const colabsFiltrados = useMemo(() => {
+    const q = norm(busca)
+    return colaboradores.filter(c =>
+      !q || norm(c.nome).includes(q) || norm(c.chapa ?? '').includes(q)
+    )
+  }, [colaboradores, busca])
+
+  // ── docs do colaborador selecionado ───────────────────────────────────────
+  const docsColab = useMemo(() =>
+    colabSel ? docs.filter(d => d.colaborador_id === colabSel.id) : [],
+    [docs, colabSel]
+  )
+
+  // ── contagem por colaborador ──────────────────────────────────────────────
+  const countMap = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const d of docs) { if (d.colaborador_id) m[d.colaborador_id] = (m[d.colaborador_id] ?? 0) + 1 }
+    return m
+  }, [docs])
+
+  // ── upload ────────────────────────────────────────────────────────────────
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (!['application/pdf','image/jpeg','image/png','image/webp'].includes(file.type)) { toast.error('Apenas PDF ou imagem'); return }
-    if (file.size > 10 * 1024 * 1024) { toast.error('Máx 10 MB'); return }
+    const file = e.target.files?.[0]; if (!file) return
     setUploading(true)
     const res = await uploadDoc(file)
     setUploading(false)
-    if (res) { setForm(p => ({ ...p, documento_url: res.url, documento_nome: res.nome })); toast.success('Documento anexado!') }
+    if (res) setForm(p => ({ ...p, documento_url: res.url, documento_nome: res.nome }))
   }
 
   // ── salvar doc avulso ─────────────────────────────────────────────────────
   async function handleSave() {
-    if (!form.tipo)            { toast.error('Selecione o tipo'); return }
-    if (!form.data)            { toast.error('Data obrigatória'); return }
-    if (!form.documento_url)   { toast.error('Anexe o documento'); return }
+    if (!form.colaborador_id) return toast.error('Selecione um colaborador')
+    if (!form.data) return toast.error('Data obrigatória')
     setSaving(true)
-    const { error } = await supabase.from('documentos_avulsos').insert({
-      colaborador_id: form.colaborador_id || null,
-      tipo: form.tipo, data: form.data,
-      descricao: form.descricao || null,
-      documento_url: form.documento_url, documento_nome: form.documento_nome,
+    const { error } = await supabase.from('documentos_colaborador').insert({
+      colaborador_id: form.colaborador_id, tipo: form.tipo, data: form.data,
+      descricao: form.descricao || null, documento_url: form.documento_url || null,
+      documento_nome: form.documento_nome || null,
     })
     setSaving(false)
-    if (error) { toast.error(traduzirErro(error.message)); return }
-    toast.success('Documento adicionado!')
-    setModalOpen(false); setForm(EMPTY_FORM); fetchAll()
+    if (error) { toast.error('Erro ao salvar: ' + error.message); return }
+    toast.success('Documento salvo!')
+    setModalOpen(false); setForm(EMPTY_FORM)
+    fetchAll()
   }
 
-  // ── deletar doc avulso ────────────────────────────────────────────────────
+  // ── deletar ───────────────────────────────────────────────────────────────
   async function handleDelete() {
-    if (!deleteId || deleteSource !== 'avulso') return
-    const { error } = await supabase.from('documentos_avulsos').delete().eq('id', deleteId)
-    setDeleteId(null)
-    if (error) { toast.error(traduzirErro(error.message)); return }
-    toast.success('Documento excluído'); fetchAll()
+    if (!deleteId || !deleteSource) return
+    const tableMap: Record<DocEntry['source'], string> = { atestado: 'atestados', advertencia: 'ocorrencias', acidente: 'acidentes', avulso: 'documentos_colaborador' }
+    const { error } = await supabase.from(tableMap[deleteSource]).delete().eq('id', deleteId)
+    setDeleteId(null); setDeleteSource(null)
+    if (error) { toast.error('Erro ao excluir'); return }
+    toast.success('Documento excluído!')
+    fetchAll()
   }
 
-  const tiposDisponiveis = [
-    'Atestado', 'Advertência', 'CAT (Acidente)',
-    ...TIPOS_AVULSO.map(t => t.label),
-  ]
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'rh'
 
-  const filtered = docs.filter(d => {
-    if (filtroColabo !== 'todos' && d.colaborador_id !== filtroColabo) return false
-    if (filtroTipo   !== 'todos' && d.tipo !== filtroTipo)             return false
-    if (busca.trim()) {
-      const q = busca.toLowerCase()
-      if (!d.colaborador_nome.toLowerCase().includes(q) &&
-          !d.descricao.toLowerCase().includes(q) &&
-          !d.documento_nome.toLowerCase().includes(q)) return false
-    }
-    return true
-  })
-
+  // ── render ────────────────────────────────────────────────────────────────
   return (
-    <div className="page-root">
-      <PageHeader
-        title="Documentos"
-        subtitle={`Todos os documentos do sistema · ${filtered.length} documento${filtered.length !== 1 ? 's' : ''}`}
-        action={
-          permissions.canCreate ? (
-            <Button onClick={() => { setForm(EMPTY_FORM); setModalOpen(true); fetchTipos() }}>
-              <Plus size={14} style={{ marginRight: 6 }} /> Novo Documento
-            </Button>
-          ) : undefined
-        }
-      />
+    <div style={{ display: 'flex', minHeight: 'calc(100vh - 57px)', overflow: 'hidden' }}>
 
-      {/* Filtros */}
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: '1 1 200px', minWidth: 180 }}>
-          <Search size={14} style={{ position: 'absolute', top: 10, left: 10, color: '#9ca3af' }} />
-          <Input placeholder="Buscar…" value={busca} onChange={e => setBusca(e.target.value)} style={{ paddingLeft: 30 }} />
+      {/* ══ PAINEL ESQUERDO — Lista de colaboradores ══════════════════════════ */}
+      <div style={{ width: 272, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+        {/* Cabeçalho */}
+        <div style={{ padding: '12px 12px 8px', background: '#1e3a5f', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: '#fff' }}>📄 Documentos</div>
+          <div style={{ position: 'relative' }}>
+            <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+            <input
+              value={busca} onChange={e => setBusca(e.target.value)}
+              placeholder="Buscar colaborador…"
+              style={{ width: '100%', height: 33, border: '1px solid #334155', borderRadius: 7, paddingLeft: 28, paddingRight: 8, fontSize: 12, background: '#0f172a', color: '#fff', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8' }}>
+            {colaboradores.length} colaborador(es) · {docs.length} doc(s)
+          </div>
         </div>
-        <div style={{ minWidth: 220 }}>
-          <Select value={filtroColabo} onValueChange={setFiltroColabo}>
-            <SelectTrigger><SelectValue placeholder="Todos os colaboradores" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos os colaboradores</SelectItem>
-              {colaboradores.map(c => (
-                <SelectItem key={c.id} value={c.id}>{c.nome}{c.chapa ? ` — ${c.chapa}` : ''}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div style={{ minWidth: 200 }}>
-          <Select value={filtroTipo} onValueChange={setFiltroTipo}>
-            <SelectTrigger><SelectValue placeholder="Tipo" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos os tipos</SelectItem>
-              {tiposDisponiveis.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-            </SelectContent>
-          </Select>
+
+        {/* Lista */}
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {loading ? <LoadingSkeleton rows={6} /> : colabsFiltrados.length === 0 ? (
+            <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>Nenhum colaborador</div>
+          ) : colabsFiltrados.map(c => {
+            const qtd = countMap[c.id] ?? 0
+            const sel = colabSel?.id === c.id
+            return (
+              <div key={c.id} onClick={() => setColabSel(sel ? null : c)}
+                style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: sel ? 'hsl(var(--primary)/.08)' : 'transparent', borderLeft: sel ? '3px solid hsl(var(--primary))' : '3px solid transparent', transition: 'background .15s' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: sel ? 700 : 500, fontSize: 13, color: sel ? 'hsl(var(--primary))' : 'var(--foreground)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.nome}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 1 }}>{c.chapa} · {c.status}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                  {qtd > 0 && <span style={{ background: sel ? 'hsl(var(--primary))' : '#e2e8f0', color: sel ? '#fff' : '#475569', borderRadius: 20, padding: '1px 7px', fontSize: 11, fontWeight: 700 }}>{qtd}</span>}
+                  <ChevronRight size={14} color={sel ? 'hsl(var(--primary))' : '#94a3b8'} />
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
 
-      {loading ? <LoadingSkeleton /> :
-        filtered.length === 0 ? (
-          <EmptyState icon={<FileText size={40} color="#94a3b8" />} title="Nenhum documento encontrado"
-            description="Os documentos aparecerão aqui. Use o botão acima para adicionar."
-            action={permissions.canCreate ? <Button onClick={() => setModalOpen(true)}><Plus size={14} style={{ marginRight: 6 }} />Novo Documento</Button> : undefined} />
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Colaborador</TableHead>
-                  <TableHead>Data</TableHead>
-                  <TableHead>Descrição</TableHead>
-                  <TableHead>Arquivo</TableHead>
-                  {permissions.canDelete && <TableHead style={{ textAlign: 'right' }}>Ações</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map(d => (
-                  <TableRow key={`${d.source}-${d.id}`}>
-                    <TableCell><TipoBadge tipo={d.tipo} /></TableCell>
-                    <TableCell>
-                      <div style={{ fontWeight: 600 }}>{d.colaborador_nome}</div>
-                      {d.colaborador_chapa && <div style={{ fontSize: 11, color: '#94a3b8' }}>{d.colaborador_chapa}</div>}
-                    </TableCell>
-                    <TableCell style={{ fontSize: 13 }}>{formatDate(d.data)}</TableCell>
-                    <TableCell style={{ fontSize: 12, color: '#64748b', maxWidth: 240 }}>
-                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.descricao}</div>
-                    </TableCell>
-                    <TableCell>
-                      <a href={d.documento_url} target="_blank" rel="noopener noreferrer"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#2563eb', textDecoration: 'none', padding: '4px 10px', borderRadius: 6, border: '1px solid #bfdbfe', background: '#eff6ff' }}>
-                        <FileText size={13} />
-                        {d.documento_nome.length > 24 ? d.documento_nome.slice(0, 21) + '…' : d.documento_nome}
-                        <ExternalLink size={11} />
-                      </a>
-                    </TableCell>
-                    {permissions.canDelete && (
-                      <TableCell style={{ textAlign: 'right' }}>
-                        {d.source === 'avulso' && (
-                          <Button variant="outline" size="sm"
-                            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
-                            onClick={() => { setDeleteId(d.id); setDeleteSource(d.source) }}>
-                            <Trash2 size={13} />
-                          </Button>
-                        )}
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )
-      }
+      {/* ══ PAINEL DIREITO — Documentos do colaborador ════════════════════════ */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-      {/* Modal: Novo documento avulso */}
-      <Dialog open={modalOpen} onOpenChange={(open) => { setModalOpen(open); if (open) fetchTipos() }}>
-        <DialogContent style={{ maxWidth: 480 }}
-          onPointerDownOutside={e => e.preventDefault()} onEscapeKeyDown={e => e.preventDefault()}>
-          <DialogHeader><DialogTitle>Novo Documento</DialogTitle></DialogHeader>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '8px 0' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <Label>Colaborador</Label>
-              <SearchableSelect
-                options={colaboradores.map(c => ({ value: c.id, label: c.nome, sublabel: c.chapa }))}
-                value={form.colaborador_id || ''}
-                onChange={v => setForm(p => ({ ...p, colaborador_id: v }))}
-                placeholder="Pesquisar colaborador…"
-                emptyLabel="— Documento geral (sem colaborador) —"
-              />
+        {/* Toolbar */}
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+          <div>
+            {colabSel ? (
+              <>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{colabSel.nome}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{colabSel.chapa} · {docsColab.length} documento(s)</div>
+              </>
+            ) : (
+              <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--muted-foreground)' }}>← Selecione um colaborador</div>
+            )}
+          </div>
+          {isAdmin && (
+            <Button size="sm" onClick={() => { setForm({ ...EMPTY_FORM, colaborador_id: colabSel?.id ?? '' }); setModalOpen(true) }}>
+              <Plus size={14} /> Novo Documento
+            </Button>
+          )}
+        </div>
+
+        {/* Conteúdo */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+          {!colabSel ? (
+            <EmptyState icon={<FileText size={32} />} title="Selecione um colaborador" description="Escolha um colaborador no painel à esquerda para ver seus documentos." />
+          ) : loading ? <LoadingSkeleton rows={4} /> : docsColab.length === 0 ? (
+            <EmptyState icon={<FileText size={32} />} title="Nenhum documento" description={`${colabSel.nome} não possui documentos cadastrados.`}
+              action={isAdmin ? <Button size="sm" onClick={() => { setForm({ ...EMPTY_FORM, colaborador_id: colabSel.id }); setModalOpen(true) }}><Plus size={13} /> Novo Documento</Button> : undefined} />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {docsColab.map(doc => (
+                <div key={doc.id} style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                  <div style={{ flexShrink: 0, marginTop: 2 }}>
+                    <TipoBadge tipo={doc.tipo} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted-foreground)', marginBottom: 2 }}>{formatDate(doc.data)}</div>
+                    {doc.descricao && <div style={{ fontSize: 13, color: 'var(--foreground)', marginBottom: 4 }}>{doc.descricao}</div>}
+                    {doc.documento_url && (
+                      <a href={doc.documento_url} target="_blank" rel="noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'hsl(var(--primary))', textDecoration: 'none' }}>
+                        <ExternalLink size={12} /> {doc.documento_nome || 'Ver documento'}
+                      </a>
+                    )}
+                  </div>
+                  {isAdmin && doc.source === 'avulso' && (
+                    <button onClick={() => { setDeleteId(doc.id); setDeleteSource(doc.source) }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4, flexShrink: 0 }}>
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <Label>Tipo *</Label>
-                <Select value={form.tipo || undefined} onValueChange={v => setForm(p => ({ ...p, tipo: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                  <SelectContent>{tiposAvulso.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+          )}
+        </div>
+      </div>
+
+      {/* ══ MODAL — Novo documento ════════════════════════════════════════════ */}
+      <Dialog open={modalOpen} onOpenChange={o => { if (!o) { setModalOpen(false); setForm(EMPTY_FORM) } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>📄 Novo Documento</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-1">
+            <div>
+              <Label className="text-xs font-semibold">Colaborador *</Label>
+              <select value={form.colaborador_id} onChange={e => setForm(p => ({ ...p, colaborador_id: e.target.value }))}
+                className="w-full h-9 px-3 text-sm border border-input rounded-md bg-background mt-1">
+                <option value="">— selecione —</option>
+                {colaboradores.map(c => <option key={c.id} value={c.id}>{c.nome} ({c.chapa})</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold">Tipo *</Label>
+                <Select value={form.tipo} onValueChange={v => setForm(p => ({ ...p, tipo: v }))}>
+                  <SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>{TIPOS_AVULSO.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <Label>Data *</Label>
-                <Input type="date" value={form.data} onChange={e => setForm(p => ({ ...p, data: e.target.value }))} />
+              <div>
+                <Label className="text-xs font-semibold">Data *</Label>
+                <Input type="date" value={form.data} onChange={e => setForm(p => ({ ...p, data: e.target.value }))} className="h-9 mt-1" />
               </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <Label>Descrição</Label>
-              <Textarea value={form.descricao} onChange={e => setForm(p => ({ ...p, descricao: e.target.value }))} rows={2} placeholder="Informações adicionais…" />
+            <div>
+              <Label className="text-xs font-semibold">Descrição</Label>
+              <Textarea value={form.descricao} onChange={e => setForm(p => ({ ...p, descricao: e.target.value }))} rows={2} className="mt-1" />
             </div>
-
-            {/* Upload */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <Label>Arquivo <span style={{ color: '#dc2626' }}>*</span></Label>
-              {form.documento_url ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 8, border: '1px solid #bbf7d0', background: '#f0fdf4' }}>
-                  <FileText size={15} color="#16a34a" />
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: '#15803d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{form.documento_nome}</span>
-                  <a href={form.documento_url} target="_blank" rel="noopener noreferrer" style={{ color: '#16a34a' }}><ExternalLink size={13} /></a>
-                  <button onClick={() => setForm(p => ({ ...p, documento_url: '', documento_nome: '' }))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }}><X size={13} /></button>
-                </div>
-              ) : (
-                <div onClick={() => !uploading && fileRef.current?.click()}
-                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '18px', borderRadius: 8, border: '2px dashed #d1d5db', background: '#fafafa', cursor: uploading ? 'wait' : 'pointer' }}>
-                  <Upload size={18} color="#9ca3af" />
-                  <span style={{ fontSize: 12, color: '#6b7280' }}>{uploading ? 'Enviando…' : 'Clique para anexar arquivo'}</span>
-                  <span style={{ fontSize: 11, color: '#9ca3af' }}>PDF, JPG, PNG, WEBP · máx 10 MB</span>
-                </div>
-              )}
-              <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" style={{ display: 'none' }} onChange={handleFile} />
+            <div>
+              <Label className="text-xs font-semibold">Arquivo (PDF/imagem)</Label>
+              <div className="flex gap-2 mt-1">
+                <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
+                  <Upload size={13} /> {uploading ? 'Enviando…' : 'Selecionar'}
+                </Button>
+                {form.documento_nome && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <FileText size={12} />{form.documento_nome}
+                    <button onClick={() => setForm(p => ({ ...p, documento_url: '', documento_nome: '' }))}><X size={12} /></button>
+                  </div>
+                )}
+              </div>
+              <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={handleFile} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
-            <Button onClick={handleSave} disabled={saving || !form.documento_url}>{saving ? 'Salvando…' : 'Salvar'}</Button>
+            <Button onClick={handleSave} disabled={saving || uploading}>{saving ? 'Salvando…' : 'Salvar'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Confirm delete */}
-      <AlertDialog open={!!deleteId} onOpenChange={o => { if (!o) setDeleteId(null) }}>
+      {/* ══ CONFIRM DELETE ═══════════════════════════════════════════════════ */}
+      <AlertDialog open={!!deleteId} onOpenChange={o => { if (!o) { setDeleteId(null); setDeleteSource(null) } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir documento?</AlertDialogTitle>
-            <AlertDialogDescription>⚠️ Esta ação é permanente e não pode ser desfeita.</AlertDialogDescription>
+            <AlertDialogDescription>Esta ação não pode ser desfeita.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} style={{ background: '#dc2626' }}>Excluir mesmo assim</AlertDialogAction>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Excluir</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

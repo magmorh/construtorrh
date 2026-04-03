@@ -1182,11 +1182,14 @@ ${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><t
 
   // ── filtros ───────────────────────────────────────────────────────────────
   // Filtro inline — calculado a cada render
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   const filtered = rows.filter(c => {
     const matchS = filterStatus === 'todos' || c.status === filterStatus
     const matchF = filterFuncao === 'todas' || (c as any).funcao_id === filterFuncao
     const matchC = filterContrato === 'todos' || (c.tipo_contrato ?? '').toLowerCase() === filterContrato
-    return matchS && matchF && matchC
+    const q = norm(busca.trim())
+    const matchB = !q || norm(c.nome).includes(q) || norm(c.chapa ?? '').includes(q) || norm((c.funcoes as any)?.nome ?? '').includes(q)
+    return matchS && matchF && matchC && matchB
   })
 
   // ── helpers form ──────────────────────────────────────────────────────────
@@ -1983,13 +1986,31 @@ ${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><t
                 )
               })}
             </div>
+            {/* Campo de busca por nome */}
+            <div style={{ position: 'relative' }}>
+              <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }} />
+              <input
+                value={busca}
+                onChange={e => setBusca(e.target.value)}
+                placeholder="Buscar por nome, chapa…"
+                style={{ width: '100%', height: 32, paddingLeft: 28, paddingRight: busca ? 28 : 8, borderRadius: 6, border: '1px solid #334155', background: '#0f172a', color: '#fff', fontSize: 12, boxSizing: 'border-box', outline: 'none' }}
+              />
+              {busca && (
+                <button onClick={() => setBusca('')} style={{ position: 'absolute', right: 7, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 0, display: 'flex', lineHeight: 1 }}>
+                  <XCircle size={14} />
+                </button>
+              )}
+            </div>
             {/* Filtro função */}
             <select value={filterFuncao} onChange={e => setFilterFuncao(e.target.value)}
               style={{ height: 28, borderRadius: 6, border: '1px solid #334155', background: '#0f172a', color: '#94a3b8', fontSize: 11, paddingLeft: 8 }}>
               <option value="todas">Todas as funções</option>
               {funcoes.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
             </select>
-            <div style={{ fontSize: 11, color: '#64748b' }}>{filtered.length} de {rows.length} colaborador(es)</div>
+            <div style={{ fontSize: 11, color: '#64748b' }}>
+              {filtered.length} de {rows.length} colaborador(es)
+              {busca && <span style={{ color: '#fbbf24', marginLeft: 4 }}>· "{busca}"</span>}
+            </div>
           </div>
 
           {/* Lista de colaboradores */}

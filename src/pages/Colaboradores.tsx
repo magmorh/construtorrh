@@ -912,6 +912,7 @@ export default function Colaboradores() {
   const [obras, setObras]   = useState<Obra[]>([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('todos')
   const [filterFuncao, setFilterFuncao] = useState('todas')
   const [filterContrato, setFilterContrato] = useState('todos')
@@ -1014,12 +1015,15 @@ export default function Colaboradores() {
   useEffect(() => { fetchData() }, [fetchData])
 
   // ── filtros ───────────────────────────────────────────────────────────────
-  // Filtro por status/função/contrato (sem busca por nome)
+  // Filtro inline — calculado a cada render
+  const _st = searchTerm.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
   const filtered = rows.filter(c => {
+    const _n = (s:string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    const matchT = !_st || _n(c.nome).includes(_st) || _n(c.chapa??'').includes(_st) || (c.cpf??'').replace(/\D/g,'').includes(searchTerm.replace(/\D/g,''))
     const matchS = filterStatus === 'todos' || c.status === filterStatus
     const matchF = filterFuncao === 'todas' || (c as any).funcao_id === filterFuncao
     const matchC = filterContrato === 'todos' || (c.tipo_contrato ?? '').toLowerCase() === filterContrato
-    return matchS && matchF && matchC
+    return matchT && matchS && matchF && matchC
   })
 
   // ── helpers form ──────────────────────────────────────────────────────────
@@ -1804,6 +1808,13 @@ export default function Colaboradores() {
               <option value="todas">Todas as funções</option>
               {funcoes.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
             </select>
+            <input
+              type="search"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="🔍 Nome, CPF ou chapa…"
+              style={{ width:'100%', height:34, border:'1px solid #334155', borderRadius:7, padding:'0 10px', fontSize:12, background:'#0f172a', color:'#fff', boxSizing:'border-box', outline:'none' }}
+            />
             <div style={{ fontSize: 11, color: '#64748b' }}>{filtered.length} de {rows.length} colaborador(es)</div>
           </div>
 

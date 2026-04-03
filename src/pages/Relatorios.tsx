@@ -369,26 +369,28 @@ export default function Relatorios() {
 
       // ── 4. Faltas por Obra ───────────────────────────────────────────────
       else if (relatAtivo === 'faltas-obra') {
-        // horas = snap_horas_normais + snap_horas_extras (total trabalhado)
+        // colaboradores = IDs únicos por obra
         const q = supabase.from('ponto_lancamentos')
-          .select(`obra_id, snap_faltas, snap_horas_normais, snap_horas_extras, obras(nome)`)
+          .select(`colaborador_id, obra_id, snap_faltas, snap_horas_normais, snap_horas_extras, obras(nome)`)
           .eq('mes_referencia', mesRef)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
         const map: Record<string, Record<string, unknown>> = {}
+        const mapColabs: Record<string, Set<string>> = {}
         for (const d of data ?? []) {
           const o = (d as Record<string, unknown>).obras as Record<string, unknown> | null
           const id = String((d as Record<string, unknown>).obra_id ?? 'sem')
-          if (!map[id]) map[id] = { obra: o ? String(o.nome) : '—', faltas: 0, horas: 0, horas_extras: 0, colaboradores: 0 }
+          if (!map[id]) { map[id] = { obra: o ? String(o.nome) : '—', faltas: 0, horas: 0, horas_extras: 0, colaboradores: 0 }; mapColabs[id] = new Set() }
           map[id].faltas = (map[id].faltas as number) + Number((d as Record<string, unknown>).snap_faltas ?? 0)
           map[id].horas = (map[id].horas as number) + Number((d as Record<string, unknown>).snap_horas_normais ?? 0)
           map[id].horas_extras = (map[id].horas_extras as number) + Number((d as Record<string, unknown>).snap_horas_extras ?? 0)
-          ;(map[id].colaboradores as number)++
+          mapColabs[id].add(String((d as Record<string, unknown>).colaborador_id))
         }
-        resultado = Object.values(map).map(r => {
+        resultado = Object.entries(map).map(([id, r]) => {
           const horasTotal = (r.horas as number) + (r.horas_extras as number)
           return {
             ...r,
+            colaboradores: mapColabs[id]?.size ?? 0,
             horas_total: horasTotal,
             pct_ausencia: horasTotal ? (((r.faltas as number) * 8 / (horasTotal + (r.faltas as number) * 8)) * 100).toFixed(1) : '0.0'
           }
@@ -544,21 +546,22 @@ export default function Relatorios() {
 
       // ── 12. Custo por Função ──────────────────────────────────────────────
       else if (relatAtivo === 'custo-funcao') {
-        // snap_bruto→snap_valor_total
+        // contar colabs_ids únicos por função (um colab em 2 obras = 2 lançamentos, mas 1 colab)
         const { data } = await supabase.from('ponto_lancamentos')
-          .select('snap_valor_total, snap_liquido, colaboradores(funcao_id, funcoes(nome))')
+          .select('colaborador_id, snap_valor_total, snap_liquido, colaboradores(funcao_id, funcoes(nome))')
           .eq('mes_referencia', mesRef)
         const map: Record<string, Record<string, unknown>> = {}
+        const mapColabs: Record<string, Set<string>> = {}
         for (const d of data ?? []) {
           const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
           const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
           const nome = func ? String(func.nome) : '(Sem Função)'
-          if (!map[nome]) map[nome] = { funcao: nome, bruto: 0, liquido: 0, colaboradores: 0 }
+          if (!map[nome]) { map[nome] = { funcao: nome, bruto: 0, liquido: 0, colaboradores: 0 }; mapColabs[nome] = new Set() }
           map[nome].bruto = (map[nome].bruto as number) + Number((d as Record<string, unknown>).snap_valor_total ?? 0)
           map[nome].liquido = (map[nome].liquido as number) + Number((d as Record<string, unknown>).snap_liquido ?? 0)
-          map[nome].colaboradores = (map[nome].colaboradores as number) + 1
+          mapColabs[nome].add(String((d as Record<string, unknown>).colaborador_id))
         }
-        resultado = Object.values(map).sort((a, b) => (b.bruto as number) - (a.bruto as number))
+        resultado = Object.values(map).map(r => ({ ...r, colaboradores: mapColabs[String(r.funcao)]?.size ?? 0 })).sort((a, b) => (b.bruto as number) - (a.bruto as number))
       }
 
       // ── 13. Produtividade por Função ──────────────────────────────────────
@@ -659,24 +662,23 @@ export default function Relatorios() {
 
       // ── 17. Evolução de Horas ─────────────────────────────────────────────
       else if (relatAtivo === 'evolucao-horas') {
-        // horas = normais + extras (total real trabalhado por mês)
+        // colaboradores = IDs únicos por mês
         const q = supabase.from('ponto_lancamentos')
-          .select('mes_referencia, snap_horas_normais, snap_horas_extras, snap_faltas, obra_id')
+          .select('colaborador_id, mes_referencia, snap_horas_normais, snap_horas_extras, snap_faltas, obra_id')
           .gte('mes_referencia', mesRefIni).lte('mes_referencia', mesRefFim)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
         const map: Record<string, Record<string, unknown>> = {}
+        const mapColabs: Record<string, Set<string>> = {}
         for (const d of data ?? []) {
           const m = String((d as Record<string, unknown>).mes_referencia)
-          if (!map[m]) map[m] = { mes: m, horas_normais: 0, horas_extras: 0, horas: 0, faltas: 0, colaboradores: 0 }
+          if (!map[m]) { map[m] = { mes: m, horas_normais: 0, horas_extras: 0, horas: 0, faltas: 0, colaboradores: 0 }; mapColabs[m] = new Set() }
           map[m].horas_normais = (map[m].horas_normais as number) + Number((d as Record<string, unknown>).snap_horas_normais ?? 0)
           map[m].horas_extras = (map[m].horas_extras as number) + Number((d as Record<string, unknown>).snap_horas_extras ?? 0)
-          map[m].horas = (map[m].horas_normais as number) + (map[m].horas_extras as number)
           map[m].faltas = (map[m].faltas as number) + Number((d as Record<string, unknown>).snap_faltas ?? 0)
-          map[m].colaboradores = (map[m].colaboradores as number) + 1
+          mapColabs[m].add(String((d as Record<string, unknown>).colaborador_id))
         }
-        // Recalcular horas totais após acumular
-        resultado = Object.values(map).map(r => ({ ...r, horas: (r.horas_normais as number) + (r.horas_extras as number) })).sort((a, b) => String(a.mes).localeCompare(String(b.mes)))
+        resultado = Object.values(map).map(r => ({ ...r, horas: (r.horas_normais as number) + (r.horas_extras as number), colaboradores: mapColabs[String(r.mes)]?.size ?? 0 })).sort((a, b) => String(a.mes).localeCompare(String(b.mes)))
       }
 
       // ── 18. Painel de Acidentes ───────────────────────────────────────────
@@ -750,16 +752,17 @@ export default function Relatorios() {
 
       // ── 21. Resumo de Folha ───────────────────────────────────────────────
       else if (relatAtivo === 'resumo-folha') {
-        // horas = normais + extras; snap_vt→snap_desconto_vt; snap_ad→snap_desconto_adiant
+        // colaboradores = IDs únicos por mês (colab em 2 obras = 2 lançamentos, mas 1 colab)
         const q = supabase.from('ponto_lancamentos')
-          .select('snap_valor_total, snap_liquido, snap_inss, snap_ir, snap_desconto_vt, snap_desconto_adiant, snap_horas_normais, snap_horas_extras, snap_faltas, mes_referencia, obras(nome)')
+          .select('colaborador_id, snap_valor_total, snap_liquido, snap_inss, snap_ir, snap_desconto_vt, snap_desconto_adiant, snap_horas_normais, snap_horas_extras, snap_faltas, mes_referencia')
           .gte('mes_referencia', mesRefIni).lte('mes_referencia', mesRefFim)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
         const map: Record<string, Record<string, unknown>> = {}
+        const mapColabs: Record<string, Set<string>> = {}
         for (const d of data ?? []) {
           const m = String((d as Record<string, unknown>).mes_referencia)
-          if (!map[m]) map[m] = { mes: m, bruto: 0, liquido: 0, inss: 0, ir: 0, vt: 0, ad: 0, horas: 0, horas_extras: 0, faltas: 0, colaboradores: 0 }
+          if (!map[m]) { map[m] = { mes: m, bruto: 0, liquido: 0, inss: 0, ir: 0, vt: 0, ad: 0, horas: 0, horas_extras: 0, faltas: 0, colaboradores: 0 }; mapColabs[m] = new Set() }
           map[m].bruto = (map[m].bruto as number) + Number((d as Record<string, unknown>).snap_valor_total ?? 0)
           map[m].liquido = (map[m].liquido as number) + Number((d as Record<string, unknown>).snap_liquido ?? 0)
           map[m].inss = (map[m].inss as number) + Number((d as Record<string, unknown>).snap_inss ?? 0)
@@ -769,9 +772,9 @@ export default function Relatorios() {
           map[m].horas = (map[m].horas as number) + Number((d as Record<string, unknown>).snap_horas_normais ?? 0)
           map[m].horas_extras = (map[m].horas_extras as number) + Number((d as Record<string, unknown>).snap_horas_extras ?? 0)
           map[m].faltas = (map[m].faltas as number) + Number((d as Record<string, unknown>).snap_faltas ?? 0)
-          map[m].colaboradores = (map[m].colaboradores as number) + 1
+          mapColabs[m].add(String((d as Record<string, unknown>).colaborador_id))
         }
-        resultado = Object.values(map).map(r => ({ ...r, horas_total: (r.horas as number) + (r.horas_extras as number) })).sort((a, b) => String(a.mes).localeCompare(String(b.mes)))
+        resultado = Object.values(map).map(r => ({ ...r, colaboradores: mapColabs[String(r.mes)]?.size ?? 0, horas_total: (r.horas as number) + (r.horas_extras as number) })).sort((a, b) => String(a.mes).localeCompare(String(b.mes)))
       }
 
       // ── 22. Provisões Acumuladas ──────────────────────────────────────────
@@ -822,27 +825,29 @@ export default function Relatorios() {
 
       // ── 24. Custo Hora Médio ──────────────────────────────────────────────
       else if (relatAtivo === 'custo-hora') {
-        // horas_total = normais + extras (base real para custo/hora)
+        // contar colabs únicos por função (colab em 2 obras = 2 lançamentos, mas 1 colab)
         const q = supabase.from('ponto_lancamentos')
-          .select('snap_valor_total, snap_horas_normais, snap_horas_extras, colaboradores(funcao_id, funcoes(nome)), obra_id, obras(nome)')
+          .select('colaborador_id, snap_valor_total, snap_horas_normais, snap_horas_extras, colaboradores(funcao_id, funcoes(nome)), obra_id')
           .eq('mes_referencia', mesRef)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
         const map: Record<string, Record<string, unknown>> = {}
+        const mapColabs: Record<string, Set<string>> = {}
         for (const d of data ?? []) {
           const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
           const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
           const nome = func ? String(func.nome) : '(Sem Função)'
-          if (!map[nome]) map[nome] = { funcao: nome, bruto_total: 0, horas_total: 0, horas_extras: 0, colaboradores: 0 }
+          if (!map[nome]) { map[nome] = { funcao: nome, bruto_total: 0, horas_total: 0, horas_extras: 0, colaboradores: 0 }; mapColabs[nome] = new Set() }
           map[nome].bruto_total = (map[nome].bruto_total as number) + Number((d as Record<string, unknown>).snap_valor_total ?? 0)
           const normais = Number((d as Record<string, unknown>).snap_horas_normais ?? 0)
           const extras = Number((d as Record<string, unknown>).snap_horas_extras ?? 0)
           map[nome].horas_total = (map[nome].horas_total as number) + normais + extras
           map[nome].horas_extras = (map[nome].horas_extras as number) + extras
-          map[nome].colaboradores = (map[nome].colaboradores as number) + 1
+          mapColabs[nome].add(String((d as Record<string, unknown>).colaborador_id))
         }
         resultado = Object.values(map).map(r => ({
           ...r,
+          colaboradores: mapColabs[String(r.funcao)]?.size ?? 0,
           custo_hora: r.horas_total ? ((r.bruto_total as number) / (r.horas_total as number)) : 0
         })).sort((a, b) => (b.custo_hora as number) - (a.custo_hora as number))
       }

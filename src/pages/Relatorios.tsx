@@ -19,19 +19,9 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const MESES = [
-  { value: '01', label: 'Janeiro' },   { value: '02', label: 'Fevereiro' },
-  { value: '03', label: 'Março' },     { value: '04', label: 'Abril' },
-  { value: '05', label: 'Maio' },      { value: '06', label: 'Junho' },
-  { value: '07', label: 'Julho' },     { value: '08', label: 'Agosto' },
-  { value: '09', label: 'Setembro' },  { value: '10', label: 'Outubro' },
-  { value: '11', label: 'Novembro' },  { value: '12', label: 'Dezembro' },
-]
+// helpers de período
+const NOME_MES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
-const ANOS = Array.from({ length: 6 }, (_, i) => {
-  const y = new Date().getFullYear() - i
-  return { value: String(y), label: String(y) }
-})
 
 const fmtDate = (d: string | null | undefined) =>
   d ? new Date(d + (d.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('pt-BR') : '—'
@@ -51,6 +41,8 @@ const fmtNum = (v: number | null | undefined) =>
 
 const anoAtual = String(new Date().getFullYear())
 const mesAtual = String(new Date().getMonth() + 1).padStart(2, '0')
+const hoje = new Date().toISOString().split('T')[0]
+const primeiroDiaMes = `${anoAtual}-${mesAtual}-01`
 
 async function abrirPDF(titulo: string, htmlBody: string, subtitulo?: string, periodo?: string) {
   try {
@@ -221,12 +213,8 @@ export default function Relatorios() {
   const [filtroObra, setFiltroObra] = useState('todos')
   const [filtroColaborador, setFiltroColaborador] = useState('todos')
   const [filtroFuncao, setFiltroFuncao] = useState('todos')
-  const [filtroMes, setFiltroMes] = useState(mesAtual)
-  const [filtroAno, setFiltroAno] = useState(anoAtual)
-  const [filtroMesIni, setFiltroMesIni] = useState(mesAtual)
-  const [filtroAnoIni, setFiltroAnoIni] = useState(anoAtual)
-  const [filtroMesFim, setFiltroMesFim] = useState(mesAtual)
-  const [filtroAnoFim, setFiltroAnoFim] = useState(anoAtual)
+  const [filtroDataIni, setFiltroDataIni] = useState(primeiroDiaMes)
+  const [filtroDataFim, setFiltroDataFim] = useState(hoje)
   const [diasVencimento, setDiasVencimento] = useState('30')
 
   // Estado de dados
@@ -251,9 +239,10 @@ export default function Relatorios() {
     setDados([]); setGerado(false)
   }, [relatAtivo])
 
-  const mesRef = `${filtroAno}-${filtroMes}`
-  const mesRefIni = `${filtroAnoIni}-${filtroMesIni}`
-  const mesRefFim = `${filtroAnoFim}-${filtroMesFim}`
+  // Derivados de data → mês (YYYY-MM) para tabelas sem data exata
+  const mesRefIni = filtroDataIni.substring(0, 7)
+  const mesRefFim = filtroDataFim.substring(0, 7)
+  const mesRef = mesRefIni   // relatórios de mês único usam o mês inicial
 
   // ── Gerar relatório ──────────────────────────────────────────────────────────
 
@@ -401,8 +390,8 @@ export default function Relatorios() {
       else if (relatAtivo === 'acidentes-obra') {
         const q = supabase.from('acidentes')
           .select(`obra_id, tipo, gravidade, cat_emitida, obras(nome)`)
-          .gte('data_ocorrencia', `${filtroAnoIni}-${filtroMesIni}-01`)
-          .lte('data_ocorrencia', `${filtroAnoFim}-${filtroMesFim}-31`)
+          .gte('data_ocorrencia', filtroDataIni)
+          .lte('data_ocorrencia', filtroDataFim)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
         const map: Record<string, Record<string, unknown>> = {}
@@ -454,10 +443,10 @@ export default function Relatorios() {
       else if (relatAtivo === 'historico-ponto') {
         if (filtroColaborador === 'todos') { toast.warning('Selecione um colaborador.'); setLoading(false); return }
         const { data } = await supabase.from('registro_ponto')
-          .select('data, presente, falta, hora_entrada, hora_saida, horas_trabalhadas, horas_extras, justificativa, status')
+          .select('data, presente, falta, hora_entrada, saida_almoco, retorno_almoco, hora_saida, horas_trabalhadas, horas_extras, justificativa, status')
           .eq('colaborador_id', filtroColaborador)
-          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
-          .lte('data', `${filtroAnoFim}-${filtroMesFim}-31`)
+          .gte('data', filtroDataIni)
+          .lte('data', filtroDataFim)
           .order('data')
         resultado = (data ?? []) as Record<string, unknown>[]
       }
@@ -685,8 +674,8 @@ export default function Relatorios() {
       else if (relatAtivo === 'painel-acidentes') {
         const q = supabase.from('acidentes')
           .select('data_ocorrencia, tipo, gravidade, local_acidente, cat_emitida, descricao, status, colaboradores(nome), obras(nome)')
-          .gte('data_ocorrencia', `${filtroAnoIni}-${filtroMesIni}-01`)
-          .lte('data_ocorrencia', `${filtroAnoFim}-${filtroMesFim}-31`)
+          .gte('data_ocorrencia', filtroDataIni)
+          .lte('data_ocorrencia', filtroDataFim)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
         resultado = (data ?? []).map(d => ({
@@ -705,8 +694,8 @@ export default function Relatorios() {
       else if (relatAtivo === 'painel-atestados') {
         const q = supabase.from('atestados')
           .select('data, tipo, dias_afastamento, cid, medico, com_afastamento, status, colaboradores(nome)')
-          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
-          .lte('data', `${filtroAnoFim}-${filtroMesFim}-31`)
+          .gte('data', filtroDataIni)
+          .lte('data', filtroDataFim)
         if (filtroColaborador !== 'todos') q.eq('colaborador_id', filtroColaborador)
         const { data } = await q
         const byCid: Record<string, number> = {}
@@ -857,10 +846,17 @@ export default function Relatorios() {
         const { data } = await supabase.from('colaboradores')
           .select('nome, chapa, data_nascimento, funcoes(nome), obras(nome), telefone, email')
           .eq('status', 'ativo')
-        const dia = filtroMes
+        // gerar lista de meses cobertos pelo período selecionado
+        const mesesCobertos: string[] = []
+        let [yy, mm] = mesRefIni.split('-').map(Number)
+        const [yyFim, mmFim] = mesRefFim.split('-').map(Number)
+        while (yy < yyFim || (yy === yyFim && mm <= mmFim)) {
+          mesesCobertos.push(String(mm).padStart(2, '0'))
+          mm++; if (mm > 12) { mm = 1; yy++ }
+        }
         resultado = (data ?? []).filter(c => {
           const dn = c.data_nascimento ? c.data_nascimento.substring(5, 7) : null
-          return dn === dia
+          return dn && mesesCobertos.includes(dn)
         }).map(c => ({
           nome: c.nome,
           chapa: c.chapa ?? '—',
@@ -870,7 +866,13 @@ export default function Relatorios() {
           obra: ((c as Record<string, unknown>).obras as Record<string, unknown> | null)?.nome ?? '—',
           telefone: c.telefone ?? '—',
           email: c.email ?? '—',
-        })).sort((a, b) => parseInt(String(a.data_nascimento).split('/')[0]) - parseInt(String(b.data_nascimento).split('/')[0])) as Record<string, unknown>[]
+        })).sort((a, b) => {
+          const ma = String(a.data_nascimento).split('/')[1] || '00'
+          const da = String(a.data_nascimento).split('/')[0] || '00'
+          const mb = String(b.data_nascimento).split('/')[1] || '00'
+          const db = String(b.data_nascimento).split('/')[0] || '00'
+          return ma !== mb ? Number(ma) - Number(mb) : Number(da) - Number(db)
+        }) as Record<string, unknown>[]
       }
 
       // ── 26. Contratos Vencendo ────────────────────────────────────────────
@@ -920,8 +922,8 @@ export default function Relatorios() {
       else if (relatAtivo === 'historico-advertencias') {
         const q = supabase.from('advertencias')
           .select('data_advertencia, tipo, motivo, dias_suspensao, assinada, colaboradores(nome, chapa, funcoes(nome), obras(nome))')
-          .gte('data_advertencia', `${filtroAnoIni}-${filtroMesIni}-01`)
-          .lte('data_advertencia', `${filtroAnoFim}-${filtroMesFim}-31`)
+          .gte('data_advertencia', filtroDataIni)
+          .lte('data_advertencia', filtroDataFim)
           .order('data_advertencia', { ascending: false })
         if (filtroColaborador !== 'todos') q.eq('colaborador_id', filtroColaborador)
         const { data } = await q
@@ -1065,7 +1067,10 @@ export default function Relatorios() {
         dados.map(r => [String(r.colaborador), String(r.chapa), String(r.epi), String(r.ca), String(r.categoria), String(r.data_validade), r.dias_restantes != null ? String(r.dias_restantes) : '—', badgeHTML(String(r.situacao))])
       )
     } else if (relatAtivo === 'aniversariantes') {
-      htmlBody = kpiHTML([{ val: String(dados.length), lbl: `Aniversariantes em ${MESES.find(m => m.value === filtroMes)?.label}` }]) +
+      const mesIniLabel = NOME_MES[parseInt(mesRefIni.split('-')[1]) - 1]
+      const mesFimLabel = NOME_MES[parseInt(mesRefFim.split('-')[1]) - 1]
+      const lblPeriodo = mesIniLabel === mesFimLabel ? mesIniLabel : `${mesIniLabel} a ${mesFimLabel}`
+      htmlBody = kpiHTML([{ val: String(dados.length), lbl: `Aniversariantes — ${lblPeriodo}` }]) +
         tabelaHTML(
           ['Nome', 'Chapa', 'Nascimento', 'Idade', 'Função', 'Obra', 'Telefone', 'E-mail'],
           dados.map(r => [String(r.nome), String(r.chapa), String(r.data_nascimento), String(r.idade), String(r.funcao), String(r.obra), String(r.telefone), String(r.email)])
@@ -1087,8 +1092,8 @@ export default function Relatorios() {
       }
     }
 
-    await abrirPDF(titulo, htmlBody, undefined, periodo)
-  }, [dados, relatAtivo, mesRefIni, mesRefFim, filtroColaborador, filtroMes, colaboradores])
+    await abrirPDF(titulo, htmlBody, undefined, `${fmtDate(filtroDataIni)} a ${fmtDate(filtroDataFim)}`)
+  }, [dados, relatAtivo, mesRefIni, mesRefFim, filtroDataIni, filtroDataFim, filtroColaborador, colaboradores])
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -1096,9 +1101,8 @@ export default function Relatorios() {
   const itemAtivo = GRUPOS.flatMap(g => g.items).find(i => i.id === relatAtivo)
 
   const isColabRequired = ['ficha-financeira', 'historico-ponto', 'producao-individual', 'ocorrencias-colab', 'custo-colab'].includes(relatAtivo)
-  const isPeriodoRange = ['custo-obra', 'producao-obra', 'acidentes-obra', 'producao-funcao', 'ranking-producao', 'producao-playbook', 'evolucao-horas', 'painel-acidentes', 'painel-atestados', 'ficha-financeira', 'historico-ponto', 'producao-individual', 'custo-colab', 'provisoes', 'resumo-folha', 'historico-advertencias'].includes(relatAtivo)
-  const isPeriodoMes = ['faltas-obra', 'custo-funcao', 'meta-realizado', 'custo-hora'].includes(relatAtivo)
-  const isMesSomente = ['aniversariantes'].includes(relatAtivo)
+  // Todos os relatórios com filtro temporal usam o seletor de datas (exceto epis-vencidos e contratos-vencendo)
+  const usaFiltroDatas = !['headcount-obra', 'headcount-funcao', 'epis-vencidos', 'contratos-vencendo', 'playbook-atividades'].includes(relatAtivo)
 
   return (
     <div className="flex h-full min-h-screen bg-[#f1f5f9]">
@@ -1213,53 +1217,43 @@ export default function Relatorios() {
               </FieldWrap>
             )}
 
-            {/* Filtro: Período range */}
-            {isPeriodoRange && (
+            {/* Filtro: Período por data (De / Até) — todos exceto epis/contratos/headcount/playbook */}
+            {usaFiltroDatas && (
               <>
                 <FieldWrap label="De">
-                  <div className="flex gap-1">
-                    <Select value={filtroMesIni} onValueChange={setFiltroMesIni}>
-                      <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>{MESES.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                    </Select>
-                    <Select value={filtroAnoIni} onValueChange={setFiltroAnoIni}>
-                      <SelectTrigger className="w-20 h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>{ANOS.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
+                  <Input
+                    type="date"
+                    value={filtroDataIni}
+                    onChange={e => setFiltroDataIni(e.target.value)}
+                    className="h-8 text-xs w-36"
+                  />
                 </FieldWrap>
                 <FieldWrap label="Até">
-                  <div className="flex gap-1">
-                    <Select value={filtroMesFim} onValueChange={setFiltroMesFim}>
-                      <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>{MESES.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                    </Select>
-                    <Select value={filtroAnoFim} onValueChange={setFiltroAnoFim}>
-                      <SelectTrigger className="w-20 h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>{ANOS.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}</SelectContent>
-                    </Select>
+                  <Input
+                    type="date"
+                    value={filtroDataFim}
+                    onChange={e => setFiltroDataFim(e.target.value)}
+                    className="h-8 text-xs w-36"
+                  />
+                </FieldWrap>
+                {/* Atalhos rápidos de período */}
+                <FieldWrap label="Atalho">
+                  <div className="flex gap-1 flex-wrap">
+                    {[
+                      { lbl: 'Hoje', fn: () => { setFiltroDataIni(hoje); setFiltroDataFim(hoje) } },
+                      { lbl: 'Semana', fn: () => { const d = new Date(); const ini = new Date(d); ini.setDate(d.getDate() - d.getDay() + 1); const fim = new Date(ini); fim.setDate(ini.getDate() + 6); setFiltroDataIni(ini.toISOString().split('T')[0]); setFiltroDataFim(fim.toISOString().split('T')[0]) } },
+                      { lbl: 'Quinzena', fn: () => { const d = new Date(); const dia = d.getDate(); const y = d.getFullYear(); const m = d.getMonth(); if (dia <= 15) { setFiltroDataIni(`${y}-${String(m+1).padStart(2,'0')}-01`); setFiltroDataFim(`${y}-${String(m+1).padStart(2,'0')}-15`) } else { const fim = new Date(y, m+1, 0); setFiltroDataIni(`${y}-${String(m+1).padStart(2,'0')}-16`); setFiltroDataFim(fim.toISOString().split('T')[0]) } } },
+                      { lbl: 'Mês', fn: () => { const d = new Date(); const y = d.getFullYear(); const m = d.getMonth(); const fim = new Date(y, m+1, 0); setFiltroDataIni(`${y}-${String(m+1).padStart(2,'0')}-01`); setFiltroDataFim(fim.toISOString().split('T')[0]) } },
+                      { lbl: 'Trimestre', fn: () => { const d = new Date(); const m = d.getMonth(); const q = Math.floor(m/3); const y = d.getFullYear(); const mIni = q*3; const mFim = q*3+2; const fim = new Date(y, mFim+1, 0); setFiltroDataIni(`${y}-${String(mIni+1).padStart(2,'0')}-01`); setFiltroDataFim(fim.toISOString().split('T')[0]) } },
+                      { lbl: 'Ano', fn: () => { const y = new Date().getFullYear(); setFiltroDataIni(`${y}-01-01`); setFiltroDataFim(`${y}-12-31`) } },
+                    ].map(({ lbl, fn }) => (
+                      <button key={lbl} onClick={fn}
+                        className="px-2 py-0.5 text-[10px] font-semibold rounded border border-slate-200 bg-slate-50 hover:bg-[#1e3a5f] hover:text-white hover:border-[#1e3a5f] transition-colors">
+                        {lbl}
+                      </button>
+                    ))}
                   </div>
                 </FieldWrap>
-              </>
-            )}
-
-            {/* Filtro: Mês único */}
-            {(isPeriodoMes || isMesSomente) && (
-              <>
-                <FieldWrap label="Mês">
-                  <Select value={filtroMes} onValueChange={setFiltroMes}>
-                    <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>{MESES.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                </FieldWrap>
-                {!isMesSomente && (
-                  <FieldWrap label="Ano">
-                    <Select value={filtroAno} onValueChange={setFiltroAno}>
-                      <SelectTrigger className="w-20 h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>{ANOS.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </FieldWrap>
-                )}
               </>
             )}
 

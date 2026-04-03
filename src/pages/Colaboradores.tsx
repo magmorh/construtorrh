@@ -2619,6 +2619,8 @@ ${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><t
                   </Grid>
                 </Sec>
 
+              </div>
+            )}
 
             {/* ── SEÇÃO FUNÇÃO & CONTRATO ────────────────────────────────── */}
             {section === 'funcao' && (

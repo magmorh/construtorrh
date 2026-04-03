@@ -1014,23 +1014,21 @@ export default function Colaboradores() {
   useEffect(() => { fetchData() }, [fetchData])
 
   // ── filtros ───────────────────────────────────────────────────────────────
-  const [filtered, setFiltered] = useState<ColaboradorRow[]>([])
-  useEffect(() => {
-    const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    const q = norm(busca)
-    setFiltered(rows.filter(c => {
-      const matchQ = !q
-        || norm(c.nome).includes(q)
-        || norm(c.chapa ?? '').includes(q)
-        || (c.cpf ?? '').replace(/\D/g,'').includes(q.replace(/\D/g,''))
-        || norm((c as any).funcoes?.nome ?? '').includes(q)
-        || norm((c as any).obras?.nome ?? '').includes(q)
-      const matchS = filterStatus === 'todos' || c.status === filterStatus
-      const matchF = filterFuncao === 'todas' || (c as any).funcao_id === filterFuncao
-      const matchC = filterContrato === 'todos' || (c.tipo_contrato ?? '').toLowerCase() === filterContrato
-      return matchQ && matchS && matchF && matchC
-    }))
-  }, [rows, busca, filterStatus, filterFuncao, filterContrato])
+  // Filtro calculado direto no render — sem useState/useMemo, garante reatividade total
+  const _normColab = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const _q = _normColab(busca)
+  const filtered = rows.filter(c => {
+    const matchQ = !_q
+      || _normColab(c.nome).includes(_q)
+      || _normColab(c.chapa ?? '').includes(_q)
+      || (c.cpf ?? '').replace(/\D/g,'').includes(_q.replace(/\D/g,''))
+      || _normColab((c as any).funcoes?.nome ?? '').includes(_q)
+      || _normColab((c as any).obras?.nome ?? '').includes(_q)
+    const matchS = filterStatus === 'todos' || c.status === filterStatus
+    const matchF = filterFuncao === 'todas' || (c as any).funcao_id === filterFuncao
+    const matchC = filterContrato === 'todos' || (c.tipo_contrato ?? '').toLowerCase() === filterContrato
+    return matchQ && matchS && matchF && matchC
+  })
 
   // ── helpers form ──────────────────────────────────────────────────────────
   const set = (k: keyof FormData, v: string | boolean) => setForm(p => ({ ...p, [k]: v }))

@@ -1842,97 +1842,16 @@ export default function Colaboradores() {
 
         {/* ── PAINEL DIREITO — ficha ou tela vazia ── */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <>
 
-          {/* Painel direito — ficha do colaborador ou tela de boas-vindas */}
-          {!colabFicha ? (
+        {/* Tela de boas-vindas quando nenhum colaborador selecionado */}
+        {!colabFicha && (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: 'var(--muted-foreground)', padding: 40 }}>
               <Users size={48} strokeWidth={1.2} />
               <div style={{ fontSize: 16, fontWeight: 600 }}>Selecione um colaborador</div>
               <div style={{ fontSize: 13, textAlign: 'center' }}>Clique em qualquer colaborador na lista à esquerda para ver sua ficha completa.</div>
               <Button onClick={openNew} size="sm" style={{ marginTop: 8 }}><Plus size={13} /> Novo Colaborador</Button>
             </div>
-          ) : null}
-          {false && loading ? <LoadingSkeleton rows={5} /> : false ? (
-            <EmptyState icon={<Users size={32} />} title="Nenhum colaborador encontrado" description="Cadastre o primeiro colaborador ou ajuste os filtros." action={<Button onClick={openNew} size="sm"><Plus size={13} /> Novo Colaborador</Button>} />
-          ) : (
-            <div style={{ display: 'none' }}>
-              <Table>
-                <TableHeader>
-                  <TableRow style={{ background: 'var(--muted)' }}>
-                    <TableHead style={{ width: 130 }}>Chapa</TableHead>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>Função</TableHead>
-                    <TableHead style={{ width: 90 }}>Tipo</TableHead>
-                    <TableHead>Obra</TableHead>
-                    <TableHead style={{ width: 90 }}>Status</TableHead>
-                    <TableHead style={{ width: 100, textAlign: 'right' }}>Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map(c => (
-                    <TableRow key={c.id} style={{ cursor: 'default' }}>
-                      <TableCell>
-                        <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: 'var(--primary)', background: 'rgba(59,130,246,0.08)', padding: '2px 8px', borderRadius: 4 }}>
-                          {c.chapa ?? '—'}
-                        </span>
-                      </TableCell>
-                      <TableCell style={{ fontWeight: 500 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <button onClick={() => setColabFicha(colabFicha?.id === c.id ? null : c)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500, fontSize: 14, color: 'hsl(var(--primary))', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3, padding: 0, textAlign: 'left' }}>
-                            {c.nome}
-                          </button>
-                          {(c as any).vinculo_anterior_id && (
-                            <span title="Recontratado — possui vínculo anterior" style={{ fontSize: 9, padding: '2px 6px', borderRadius: 99, background: '#ede9fe', color: '#7c3aed', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                              ↩ RECONTRATADO
-                            </span>
-                          )}
-                          {/* Verifica se existe outro cadastro com mesmo CPF (tem vínculo posterior) */}
-                          {c.cpf && rows.some(r => r.id !== c.id && r.cpf === c.cpf && (r as any).vinculo_anterior_id === c.id) && (
-                            <span title="Existe um novo vínculo ativo para este colaborador" style={{ fontSize: 9, padding: '2px 6px', borderRadius: 99, background: '#fef3c7', color: '#d97706', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                              🔄 NOVO VÍNCULO
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell style={{ fontSize: 13 }}>{(c.funcoes as any)?.nome ?? '—'}</TableCell>
-                      <TableCell style={{ fontSize: 12, textTransform: 'capitalize' }}>{c.tipo_contrato?.replace(/_/g, ' ') ?? '—'}</TableCell>
-                      <TableCell style={{ fontSize: 13 }}>{(c.obras as any)?.nome ?? '—'}</TableCell>
-                      <TableCell><BadgeStatus status={c.status} /></TableCell>
-                      <TableCell style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
-                          <Button variant="ghost" size="icon" style={{ width: 30, height: 30 }} title="Histórico de chapas" onClick={() => openHist(c.id)}><History size={13} /></Button>
-                          <Button variant="ghost" size="icon" style={{ width: 30, height: 30 }} onClick={() => openEdit(c)}><Pencil size={13} /></Button>
-                          {c.status !== 'inativo' && (
-                            <Button variant="ghost" size="icon" title="Inativar colaborador"
-                              style={{ width: 30, height: 30, color: '#dc2626' }}
-                              onClick={() => abrirModalInativar(c.id, c.nome, c.status ?? 'ativo')}>
-                              <XCircle size={13} />
-                            </Button>
-                          )}
-                          {colabsComPonto.has(c.id) ? (
-                            <Button variant="ghost" size="icon" title="Não é possível excluir: colaborador possui ponto(s) lançado(s)"
-                              style={{ width: 30, height: 30, color: '#d1d5db', cursor: 'not-allowed' }} disabled>
-                              <Trash2 size={13} />
-                            </Button>
-                          ) : (
-                            <Button variant="ghost" size="icon" title="Excluir colaborador"
-                              style={{ width: 30, height: 30, color: 'var(--destructive)' }}
-                              onClick={() => setDeleteId(c.id)}>
-                              <Trash2 size={13} />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
           )}
-        </>
-        </div>
 
         {/* ── PAINEL DIREITO — ficha do colaborador ── */}
         {colabFicha && (() => {
@@ -2024,7 +1943,9 @@ export default function Colaboradores() {
             </div>
           )
         })()}
-      </div>
+
+        </div>{/* fim painel direito */}
+      </div>{/* fim layout colaboradores */}
 
       {/* ═══════════ CONFIRMAR ATUALIZAÇÃO DE EPIs ════════════════════════ */}
       <AlertDialog open={confirmarAtualizEpis} onOpenChange={setConfirmarAtualizEpis}>

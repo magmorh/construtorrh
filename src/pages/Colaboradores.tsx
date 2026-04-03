@@ -25,7 +25,7 @@ import {
 import {
   Users, Plus, Search, Pencil, Trash2, HardHat, History,
   Briefcase, Tag, Clock, AlertTriangle, CheckCircle2,
-  ShieldAlert, Loader2, XCircle,
+  ShieldAlert, Loader2, XCircle, Printer,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
@@ -958,6 +958,116 @@ export default function Colaboradores() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   // ficha lateral (painel direito estilo Ponto)
   const [colabFicha, setColabFicha] = useState<ColaboradorRow | null>(null)
+  const [gerandoPDF, setGerandoPDF] = useState(false)
+
+  // ── Gera PDF da Ficha de Registro do colaborador selecionado ──────────────
+  async function gerarFichaRegistroPDF(c: ColaboradorRow) {
+    setGerandoPDF(true)
+    try {
+      const emp = await fetchEmpresaData()
+      const fn  = (c.funcoes as any)?.nome ?? '—'
+      const ob  = (c.obras  as any)?.nome  ?? '—'
+      const fmt = (v: any) => v || '—'
+      const fmtDate = (v: string | null | undefined) => {
+        if (!v) return '—'
+        try { return new Date(v + 'T12:00:00').toLocaleDateString('pt-BR') } catch { return v }
+      }
+      const contr: Record<string,string> = { clt:'CLT', autonomo:'Autônomo', pj:'PJ', temporario:'Temporário', aprendiz:'Menor Aprendiz', estagiario:'Estagiário' }
+      const civil: Record<string,string> = { solteiro:'Solteiro(a)', casado:'Casado(a)', divorciado:'Divorciado(a)', viuvo:'Viúvo(a)', uniao_estavel:'União Estável' }
+      const genero: Record<string,string> = { masculino:'Masculino', feminino:'Feminino', outro:'Outro' }
+      const tconta: Record<string,string> = { corrente:'Corrente', poupanca:'Poupança', salario:'Conta Salário' }
+      const pixTipo: Record<string,string> = { cpf:'CPF', telefone:'Telefone', email:'E-mail', chave_aleatoria:'Chave Aleatória' }
+
+      const row2 = (a: string, av: string, b: string, bv: string) =>
+        `<tr><td class="lb">${a}</td><td>${av}</td><td class="lb">${b}</td><td>${bv}</td></tr>`
+      const row1 = (a: string, av: string) =>
+        `<tr><td class="lb">${a}</td><td colspan="3">${av}</td></tr>`
+
+      const vtDados = (c.vt_dados ?? {}) as any
+      const vtModalidade = vtDados.modalidade ?? (c.vale_transporte ? 'transporte' : 'nenhum')
+      const vtLabel: Record<string,string> = { nenhum:'Não recebe', gasolina:'Aux. Gasolina', transporte:'Transporte Público' }
+
+      const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<title>Ficha de Registro — ${c.nome}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;font-size:11px;color:#111;padding:20px 28px}
+  ${CABECALHO_CSS}
+  .sec{margin-bottom:10px}
+  .sec-title{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
+    color:#fff;background:#1e3a5f;padding:4px 8px;border-radius:3px 3px 0 0}
+  table{width:100%;border-collapse:collapse}
+  td{border:1px solid #d1d5db;padding:5px 8px;vertical-align:top;min-width:80px;font-size:11px}
+  td.lb{font-weight:700;color:#374151;background:#f9fafb;width:22%;white-space:nowrap}
+  .assinatura{margin-top:28px;display:grid;grid-template-columns:1fr 1fr;gap:40px}
+  .assinatura div{border-top:1.5px solid #374151;padding-top:5px;text-align:center;font-size:10px;color:#555}
+  .rodape{margin-top:16px;font-size:9px;color:#9ca3af;text-align:right}
+  @media print{body{padding:10px 14px}}
+</style></head><body>
+${gerarCabecalhoHTML(emp, {
+  titulo: 'Ficha de Registro de Colaborador',
+  subtitulo: `Chapa: ${c.chapa ?? '—'} · Status: ${c.status?.toUpperCase() ?? '—'}`,
+  periodo: `Emitida em ${new Date().toLocaleDateString('pt-BR')}`,
+})}
+<div class="sec">
+  <div class="sec-title">Identificação</div>
+  <table>
+    ${row1('Nome Completo', `<strong>${fmt(c.nome)}</strong>`)}
+    ${row2('CPF', fmt(c.cpf), 'RG', fmt(c.rg))}
+    ${row2('PIS / NIT', fmt(c.pis_nit), 'Data de Nascimento', fmtDate(c.data_nascimento))}
+    ${row2('Gênero', genero[c.genero ?? ''] ?? fmt(c.genero), 'Estado Civil', civil[c.estado_civil ?? ''] ?? fmt(c.estado_civil))}
+    ${row2('Telefone', fmt(c.telefone), 'E-mail', fmt(c.email))}
+    ${row2('CTPS Nº', fmt(c.ctps_numero), 'Série CTPS', fmt(c.ctps_serie))}
+  </table>
+</div>
+<div class="sec">
+  <div class="sec-title">Endereço</div>
+  <table>
+    ${row1('Endereço', fmt(c.endereco))}
+    ${row2('Cidade', fmt(c.cidade), 'UF', fmt(c.estado))}
+    ${row1('CEP', fmt(c.cep))}
+  </table>
+</div>
+<div class="sec">
+  <div class="sec-title">Contrato & Obra</div>
+  <table>
+    ${row2('Função', fn, 'Tipo de Contrato', contr[c.tipo_contrato ?? ''] ?? fmt(c.tipo_contrato))}
+    ${row2('Data de Admissão', fmtDate(c.data_admissao), 'Obra', ob)}
+    ${row2('Salário Base', c.salario ? `R$ ${Number(c.salario).toLocaleString('pt-BR',{minimumFractionDigits:2})}` : '—', 'Chapa', fmt(c.chapa))}
+  </table>
+</div>
+<div class="sec">
+  <div class="sec-title">Dados Bancários</div>
+  <table>
+    ${row2('Banco', fmt(c.banco), 'Tipo de Conta', tconta[c.tipo_conta ?? ''] ?? fmt(c.tipo_conta))}
+    ${row2('Agência', fmt(c.agencia), 'Conta', fmt(c.conta))}
+    ${row2('Tipo de PIX', pixTipo[c.pix_tipo ?? ''] ?? fmt(c.pix_tipo), 'Chave PIX', fmt(c.pix_chave))}
+  </table>
+</div>
+<div class="sec">
+  <div class="sec-title">Vale Transporte</div>
+  <table>
+    ${row1('Modalidade', vtLabel[vtModalidade] ?? fmt(vtModalidade))}
+    ${vtModalidade === 'gasolina' ? row1('Valor diário', vtDados.gasolina_valor_dia ? `R$ ${parseFloat(vtDados.gasolina_valor_dia).toFixed(2)}` : '—') : ''}
+    ${vtModalidade === 'transporte' ? row2('Empresa/Cartão', fmt(vtDados.cartao_tipo), 'Nº Cartão', fmt(vtDados.cartao_numero)) : ''}
+  </table>
+</div>
+${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><table>${row1('Obs.', fmt(c.observacoes))}</table></div>` : ''}
+<div class="assinatura">
+  <div>Assinatura do Colaborador</div>
+  <div>Responsável RH / Carimbo</div>
+</div>
+<div class="rodape">Gerado pelo ConstrutorRH em ${new Date().toLocaleString('pt-BR')}</div>
+<script>window.onload=()=>{window.print()}<\/script>
+</body></html>`
+
+      const win = window.open('', '_blank', 'width=960,height=720')
+      if (win) { win.document.write(html); win.document.close() }
+      else toast.error('Bloqueio de pop-up detectado. Permita pop-ups para este site.')
+    } finally {
+      setGerandoPDF(false)
+    }
+  }
   // mapa: colaborador_id → tem ponto lançado? (bloqueia exclusão visualmente)
   const [colabsComPonto, setColabsComPonto] = useState<Set<string>>(new Set())
 
@@ -1843,8 +1953,8 @@ export default function Colaboradores() {
         {/* ── PAINEL DIREITO — ficha ou tela vazia ── */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-        {/* Tela de boas-vindas quando nenhum colaborador selecionado */}
-        {!colabFicha && (
+          {/* Tela de boas-vindas */}
+          {!colabFicha && (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: 'var(--muted-foreground)', padding: 40 }}>
               <Users size={48} strokeWidth={1.2} />
               <div style={{ fontSize: 16, fontWeight: 600 }}>Selecione um colaborador</div>
@@ -1853,96 +1963,158 @@ export default function Colaboradores() {
             </div>
           )}
 
-        {/* ── PAINEL DIREITO — ficha do colaborador ── */}
-        {colabFicha && (() => {
-          const c = colabFicha
-          const fn  = (c.funcoes as any)?.nome ?? '—'
-          const ob  = (c.obras  as any)?.nome ?? '—'
-          const statusColor = c.status === 'ativo' ? '#16a34a' : c.status === 'inativo' ? '#dc2626' : '#d97706'
-          const statusBg    = c.status === 'ativo' ? '#f0fdf4' : c.status === 'inativo' ? '#fff1f2' : '#fffbeb'
-          return (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--card)' }}>
-              {/* Header da ficha */}
-              <div style={{ padding: '16px 18px 12px', background: '#1e3a5f', color: '#fff', position: 'relative' }}>
-                <button onClick={() => setColabFicha(null)} style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(255,255,255,.15)', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '4px 8px', fontSize: 12 }}>✕ Fechar</button>
-                <div style={{ fontSize: 11, color: '#93c5fd', fontWeight: 600, marginBottom: 2 }}>{c.chapa ?? '—'}</div>
-                <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>{c.nome}</div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ background: 'rgba(255,255,255,.15)', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 600 }}>🏷️ {fn}</span>
-                  <span style={{ background: statusBg, color: statusColor, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>{c.status?.toUpperCase()}</span>
-                  <span style={{ background: 'rgba(255,255,255,.10)', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 600 }}>{c.tipo_contrato?.toUpperCase() ?? '—'}</span>
-                </div>
+          {/* ── Ficha do colaborador ── */}
+          {colabFicha && (() => {
+            const c = colabFicha
+            const fn = (c.funcoes as any)?.nome ?? '—'
+            const ob = (c.obras  as any)?.nome  ?? '—'
+            const statusColor = c.status === 'ativo' ? '#16a34a' : c.status === 'inativo' ? '#dc2626' : '#d97706'
+            const statusBg    = c.status === 'ativo' ? '#f0fdf4' : c.status === 'inativo' ? '#fff1f2' : '#fffbeb'
+            const fmtDate = (v: string | null | undefined) => v ? new Date(v + 'T12:00:00').toLocaleDateString('pt-BR') : '—'
+            const contr: Record<string,string> = { clt:'CLT', autonomo:'Autônomo', pj:'PJ', temporario:'Temporário', aprendiz:'Menor Aprendiz', estagiario:'Estagiário' }
+            const civil: Record<string,string> = { solteiro:'Solteiro(a)', casado:'Casado(a)', divorciado:'Divorciado(a)', viuvo:'Viúvo(a)', uniao_estavel:'União Estável' }
+            const genero: Record<string,string> = { masculino:'Masculino', feminino:'Feminino', outro:'Outro' }
+            const tconta: Record<string,string> = { corrente:'Corrente', poupanca:'Poupança', salario:'Conta Salário' }
+            const pixTipo: Record<string,string> = { cpf:'CPF', telefone:'Telefone', email:'E-mail', chave_aleatoria:'Chave Aleatória' }
+            const vtDados = (c.vt_dados ?? {}) as any
+            const vtMod = vtDados.modalidade ?? (c.vale_transporte ? 'transporte' : 'nenhum')
+            const vtLabel: Record<string,string> = { nenhum:'Não recebe', gasolina:'Aux. Gasolina', transporte:'Transporte Público' }
+
+            // helper linha de dado
+            const Campo = ({ label, value, wide }: { label: string; value: string; wide?: boolean }) => (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '6px 0', borderBottom: '1px solid var(--border)', gap: 8, gridColumn: wide ? 'span 2' : undefined }}>
+                <span style={{ fontSize: 12, color: 'var(--muted-foreground)', fontWeight: 500, flexShrink: 0 }}>{label}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, textAlign: 'right', wordBreak: 'break-word', maxWidth: '65%' }}>{value || '—'}</span>
               </div>
+            )
 
-              {/* Conteúdo da ficha */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            const Secao = ({ titulo, children }: { titulo: string; children: React.ReactNode }) => (
+              <div style={{ background: 'var(--background)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+                <div style={{ padding: '7px 14px', background: '#1e3a5f', color: '#fff', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {titulo}
+                </div>
+                <div style={{ padding: '4px 14px 8px' }}>{children}</div>
+              </div>
+            )
 
-                {/* Dados principais */}
-                <div style={{ background: 'var(--background)', border: '1px solid var(--border)', borderRadius: 10, padding: 14 }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted-foreground)', textTransform: 'uppercase', marginBottom: 10, letterSpacing: '0.05em' }}>📋 Dados Cadastrais</div>
-                  {[
-                    ['Obra',        ob],
-                    ['CPF',         c.cpf ?? '—'],
-                    ['RG',          c.rg ?? '—'],
-                    ['PIS/NIT',     c.pis_nit ?? '—'],
-                    ['Nascimento',  c.data_nascimento ? new Date(c.data_nascimento + 'T12:00:00').toLocaleDateString('pt-BR') : '—'],
-                    ['Admissão',    c.data_admissao  ? new Date(c.data_admissao  + 'T12:00:00').toLocaleDateString('pt-BR') : '—'],
-                    ['Telefone',    c.telefone ?? '—'],
-                    ['E-mail',      c.email ?? '—'],
-                  ].map(([k, v]) => (
-                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                      <span style={{ color: 'var(--muted-foreground)', fontWeight: 500 }}>{k}</span>
-                      <span style={{ fontWeight: 600, textAlign: 'right', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</span>
+            return (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--card)' }}>
+
+                {/* ── Header ── */}
+                <div style={{ padding: '14px 18px 12px', background: '#1e3a5f', color: '#fff', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 10, color: '#93c5fd', fontWeight: 700, marginBottom: 2, letterSpacing: '0.05em' }}>{c.chapa ?? '—'}</div>
+                      <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 6, lineHeight: 1.2 }}>{c.nome}</div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ background: 'rgba(255,255,255,.15)', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 600 }}>🏷️ {fn}</span>
+                        <span style={{ background: statusBg, color: statusColor, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>{c.status?.toUpperCase()}</span>
+                        <span style={{ background: 'rgba(255,255,255,.10)', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 600 }}>{contr[c.tipo_contrato ?? ''] ?? c.tipo_contrato?.toUpperCase() ?? '—'}</span>
+                      </div>
                     </div>
-                  ))}
+                    <button onClick={() => setColabFicha(null)} style={{ background: 'rgba(255,255,255,.15)', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '5px 10px', fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }}>✕ Fechar</button>
+                  </div>
                 </div>
 
-                {/* Dados bancários */}
-                {(c.banco || c.agencia || c.conta) && (
-                  <div style={{ background: 'var(--background)', border: '1px solid var(--border)', borderRadius: 10, padding: 14 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted-foreground)', textTransform: 'uppercase', marginBottom: 10, letterSpacing: '0.05em' }}>🏦 Dados Bancários</div>
-                    {[
-                      ['Banco',    c.banco ?? '—'],
-                      ['Agência',  c.agencia ?? '—'],
-                      ['Conta',    c.conta ?? '—'],
-                      ['PIX',      c.pix_key ?? c.cpf ?? '—'],
-                    ].map(([k, v]) => (
-                      <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
-                        <span style={{ color: 'var(--muted-foreground)', fontWeight: 500 }}>{k}</span>
-                        <span style={{ fontWeight: 600 }}>{v}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Ações rápidas */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {/* ── Botões de ação ── */}
+                <div style={{ display: 'flex', gap: 6, padding: '10px 14px', borderBottom: '1px solid var(--border)', background: '#f8fafc', flexWrap: 'wrap', flexShrink: 0 }}>
                   <button onClick={() => { openEdit(c); setColabFicha(null) }}
-                    style={{ flex: 1, minWidth: 120, padding: '8px 12px', borderRadius: 8, border: '1px solid hsl(var(--primary))', background: 'hsl(var(--primary)/.08)', color: 'hsl(var(--primary))', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
-                    ✏️ Editar Cadastro
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: '1px solid hsl(var(--primary))', background: 'hsl(var(--primary)/.08)', color: 'hsl(var(--primary))', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+                    <Pencil size={12} /> Editar
                   </button>
-                  <button onClick={() => { openHist(c.id) }}
-                    style={{ flex: 1, minWidth: 120, padding: '8px 12px', borderRadius: 8, border: '1px solid #7c3aed', background: '#faf5ff', color: '#7c3aed', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
-                    📋 Histórico Chapa
+                  <button onClick={() => openHist(c.id)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: '1px solid #7c3aed', background: '#faf5ff', color: '#7c3aed', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+                    <History size={12} /> Histórico
+                  </button>
+                  <button onClick={() => gerarFichaRegistroPDF(c)} disabled={gerandoPDF}
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: '1px solid #0ea5e9', background: '#f0f9ff', color: '#0284c7', fontWeight: 700, fontSize: 12, cursor: gerandoPDF ? 'not-allowed' : 'pointer', opacity: gerandoPDF ? 0.7 : 1 }}>
+                    <Printer size={12} /> {gerandoPDF ? 'Gerando…' : 'Ficha PDF'}
                   </button>
                   {c.status !== 'inativo' && (
                     <button onClick={() => { abrirModalInativar(c.id, c.nome, c.status ?? 'ativo'); setColabFicha(null) }}
-                      style={{ flex: 1, minWidth: 120, padding: '8px 12px', borderRadius: 8, border: '1px solid #dc2626', background: '#fff1f2', color: '#dc2626', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
-                      🚫 Inativar
+                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: '1px solid #dc2626', background: '#fff1f2', color: '#dc2626', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+                      <XCircle size={12} /> Inativar
                     </button>
                   )}
                   {c.status === 'inativo' && (
                     <button onClick={() => { setRecontColabId(c.id); setModalRecontratar(true); setColabFicha(null) }}
-                      style={{ flex: 1, minWidth: 120, padding: '8px 12px', borderRadius: 8, border: '1px solid #16a34a', background: '#f0fdf4', color: '#16a34a', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: '1px solid #16a34a', background: '#f0fdf4', color: '#16a34a', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
                       🔄 Recontratar
                     </button>
                   )}
                 </div>
 
+                {/* ── Conteúdo scrollável ── */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+                  {/* Grid 2 colunas para as seções */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+
+                    {/* Identificação */}
+                    <Secao titulo="👤 Identificação">
+                      <Campo label="CPF"            value={c.cpf ?? ''} />
+                      <Campo label="RG"             value={c.rg ?? ''} />
+                      <Campo label="PIS / NIT"      value={c.pis_nit ?? ''} />
+                      <Campo label="Nascimento"     value={fmtDate(c.data_nascimento)} />
+                      <Campo label="Gênero"         value={genero[c.genero ?? ''] ?? c.genero ?? ''} />
+                      <Campo label="Estado Civil"   value={civil[c.estado_civil ?? ''] ?? c.estado_civil ?? ''} />
+                      <Campo label="Telefone"       value={c.telefone ?? ''} />
+                      <Campo label="E-mail"         value={c.email ?? ''} />
+                    </Secao>
+
+                    {/* Contrato */}
+                    <Secao titulo="📋 Contrato & Obra">
+                      <Campo label="Obra"            value={ob} />
+                      <Campo label="Função"          value={fn} />
+                      <Campo label="Tipo Contrato"   value={contr[c.tipo_contrato ?? ''] ?? c.tipo_contrato ?? ''} />
+                      <Campo label="Admissão"        value={fmtDate(c.data_admissao)} />
+                      <Campo label="Salário Base"    value={c.salario ? `R$ ${Number(c.salario).toLocaleString('pt-BR',{minimumFractionDigits:2})}` : ''} />
+                      <Campo label="CTPS Nº"         value={c.ctps_numero ?? ''} />
+                      <Campo label="Série CTPS"      value={c.ctps_serie ?? ''} />
+                      {c.status === 'inativo' && <Campo label="Desligamento" value={fmtDate(c.data_demissao ?? c.data_encerramento ?? '')} />}
+                    </Secao>
+
+                    {/* Endereço */}
+                    <Secao titulo="🏠 Endereço">
+                      <Campo label="Endereço"   value={c.endereco ?? ''} />
+                      <Campo label="Cidade"     value={c.cidade ?? ''} />
+                      <Campo label="UF"         value={c.estado ?? ''} />
+                      <Campo label="CEP"        value={c.cep ?? ''} />
+                    </Secao>
+
+                    {/* Bancário */}
+                    <Secao titulo="🏦 Dados Bancários">
+                      <Campo label="Banco"        value={c.banco ?? ''} />
+                      <Campo label="Agência"      value={c.agencia ?? ''} />
+                      <Campo label="Conta"        value={c.conta ?? ''} />
+                      <Campo label="Tipo Conta"   value={tconta[c.tipo_conta ?? ''] ?? c.tipo_conta ?? ''} />
+                      <Campo label="Tipo PIX"     value={pixTipo[c.pix_tipo ?? ''] ?? c.pix_tipo ?? ''} />
+                      <Campo label="Chave PIX"    value={c.pix_chave ?? ''} />
+                    </Secao>
+
+                  </div>
+
+                  {/* Vale Transporte — largura total */}
+                  <Secao titulo="🚌 Vale Transporte">
+                    <Campo label="Modalidade" value={vtLabel[vtMod] ?? vtMod} />
+                    {vtMod === 'gasolina' && <Campo label="Valor Diário" value={vtDados.gasolina_valor_dia ? `R$ ${parseFloat(vtDados.gasolina_valor_dia).toFixed(2)}` : '—'} />}
+                    {vtMod === 'transporte' && <>
+                      <Campo label="Empresa/Cartão" value={vtDados.cartao_tipo ?? ''} />
+                      <Campo label="Nº Cartão"      value={vtDados.cartao_numero ?? ''} />
+                    </>}
+                  </Secao>
+
+                  {/* Observações — se houver */}
+                  {c.observacoes && (
+                    <Secao titulo="📝 Observações">
+                      <div style={{ fontSize: 12, padding: '8px 0', lineHeight: 1.6, color: 'var(--foreground)' }}>{c.observacoes}</div>
+                    </Secao>
+                  )}
+
+                </div>
               </div>
-            </div>
-          )
-        })()}
+            )
+          })()}
 
         </div>{/* fim painel direito */}
       </div>{/* fim layout colaboradores */}

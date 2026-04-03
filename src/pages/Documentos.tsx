@@ -159,7 +159,7 @@ export default function Documentos() {
     if (!form.data) return toast.error('Data obrigatória')
     setSaving(true)
     const { error } = await supabase.from('documentos_avulsos').insert({
-      colaborador_id: form.colaborador_id, tipo: form.tipo, descricao: form.descricao || null,
+      colaborador_id: form.colaborador_id, tipo: form.tipo, data: form.data || new Date().toISOString().slice(0,10), descricao: form.descricao || null,
       documento_url: form.documento_url || null, documento_nome: form.documento_nome || null,
     })
     setSaving(false)

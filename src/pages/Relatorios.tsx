@@ -1,1223 +1,2241 @@
+// Relatorios.tsx — Página completa de relatórios do ConstrutorRH
+// 28 categorias de relatórios | Sidebar + Painel | Print/PDF profissional
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { formatCurrency } from '@/lib/utils'
-import { PageHeader } from '@/components/Shared'
+import { fetchEmpresaData, gerarCabecalhoHTML, CABECALHO_CSS } from '@/lib/relatorioHeader'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Building2, Users, DollarSign, TrendingUp,
-  Printer, Loader2, RefreshCw, Calculator, PiggyBank,
+  BarChart3, Users, Building2, Shield, AlertTriangle, DollarSign,
+  Clock, TrendingUp, FileText, Award, Truck, Calculator, Package,
+  Heart, Printer, Loader2, Filter, ChevronRight, Activity, Star,
+  HardHat, Wrench, Target, Calendar, Search, Download, ChevronDown,
 } from 'lucide-react'
-import { toast } from 'sonner'
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const MESES = [
-  { value: '01', label: 'Janeiro' },
-  { value: '02', label: 'Fevereiro' },
-  { value: '03', label: 'Março' },
-  { value: '04', label: 'Abril' },
-  { value: '05', label: 'Maio' },
-  { value: '06', label: 'Junho' },
-  { value: '07', label: 'Julho' },
-  { value: '08', label: 'Agosto' },
-  { value: '09', label: 'Setembro' },
-  { value: '10', label: 'Outubro' },
-  { value: '11', label: 'Novembro' },
-  { value: '12', label: 'Dezembro' },
+  { value: '01', label: 'Janeiro' },   { value: '02', label: 'Fevereiro' },
+  { value: '03', label: 'Março' },     { value: '04', label: 'Abril' },
+  { value: '05', label: 'Maio' },      { value: '06', label: 'Junho' },
+  { value: '07', label: 'Julho' },     { value: '08', label: 'Agosto' },
+  { value: '09', label: 'Setembro' },  { value: '10', label: 'Outubro' },
+  { value: '11', label: 'Novembro' },  { value: '12', label: 'Dezembro' },
 ]
 
 const ANOS = Array.from({ length: 6 }, (_, i) => {
-  const y = 2026 - i
+  const y = new Date().getFullYear() - i
   return { value: String(y), label: String(y) }
 })
 
-function mesLabel(mesRef: string): string {
-  // mesRef = '2026-03'
-  const [ano, mes] = mesRef.split('-')
-  const m = MESES.find(x => x.value === mes)
-  return m ? `${m.label}/${ano}` : mesRef
+const fmtDate = (d: string | null | undefined) =>
+  d ? new Date(d + (d.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('pt-BR') : '—'
+
+const fmtCur = (v: number | null | undefined) =>
+  v != null ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'
+
+const fmtMes = (ym: string | null | undefined) => {
+  if (!ym) return '—'
+  const [y, m] = ym.split('-')
+  const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+  return `${meses[+m - 1]}/${y}`
 }
 
-function formatNum(v: number | null | undefined): string {
-  if (v == null) return '—'
-  return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmtNum = (v: number | null | undefined) =>
+  v != null ? v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
+
+const anoAtual = String(new Date().getFullYear())
+const mesAtual = String(new Date().getMonth() + 1).padStart(2, '0')
+
+async function abrirPDF(titulo: string, htmlBody: string, subtitulo?: string, periodo?: string) {
+  try {
+    const emp = await fetchEmpresaData()
+    const cabHTML = gerarCabecalhoHTML(emp, { titulo, subtitulo, periodo })
+    const html = `<!DOCTYPE html><html lang="pt-BR">
+<head><meta charset="utf-8"><title>${titulo}</title>
+<style>
+${CABECALHO_CSS}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+body{font-family:Arial,sans-serif;font-size:11px;color:#111;background:#fff;padding:16px}
+h2{font-size:13px;font-weight:700;color:#1e3a5f;margin:14px 0 6px;border-bottom:1px solid #e2e8f0;padding-bottom:4px}
+table{width:100%;border-collapse:collapse;font-size:10px;margin-top:6px;margin-bottom:14px}
+th{background:#1e3a5f!important;color:#fff!important;padding:6px 8px;text-align:left;font-size:9.5px;-webkit-print-color-adjust:exact}
+td{padding:5px 8px;border-bottom:1px solid #e2e8f0;vertical-align:top}
+tr:nth-child(even) td{background:#f8fafc!important}
+tfoot td{background:#e8f0fe!important;font-weight:700;border-top:2px solid #1e3a5f}
+.badge-ok{background:#dcfce7;color:#166534;padding:2px 6px;border-radius:9999px;font-size:9px}
+.badge-warn{background:#fef9c3;color:#854d0e;padding:2px 6px;border-radius:9999px;font-size:9px}
+.badge-danger{background:#fee2e2;color:#991b1b;padding:2px 6px;border-radius:9999px;font-size:9px}
+.badge-info{background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:9999px;font-size:9px}
+.kpi-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.kpi{flex:1;min-width:120px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;text-align:center}
+.kpi-val{font-size:18px;font-weight:800;color:#1e3a5f}
+.kpi-lbl{font-size:9px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.5px}
+@media print{body{padding:8px}.no-print{display:none}}
+</style></head><body>
+${cabHTML}
+${htmlBody}
+<script>window.onload=()=>setTimeout(()=>window.print(),500)<\/script>
+</body></html>`
+    const win = window.open('', '_blank', 'width=1200,height=900')
+    if (win) { win.document.write(html); win.document.close() }
+    else toast.error('Pop-up bloqueado. Permita pop-ups para este site.')
+  } catch {
+    toast.error('Erro ao gerar PDF.')
+  }
 }
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-interface ObraOption {
-  id: string
-  nome: string
-}
+interface Obra { id: string; nome: string; codigo?: string; status?: string }
+interface Colaborador { id: string; nome: string; chapa?: string }
+interface Funcao { id: string; nome: string; categoria?: string }
 
-interface ConfigMap {
-  empresa_nome?: string
-  empresa_cnpj?: string
-  empresa_endereco?: string
-  empresa_cidade?: string
-  empresa_cep?: string
-  empresa_telefone?: string
-  empresa_logo_url?: string
-  empresa_razao_social?: string
-}
+// ─── Menu de relatórios ───────────────────────────────────────────────────────
 
-// Aba 1
-interface ObraFuncaoRow {
-  obraId: string
-  obraNome: string
-  funcaoId: string
-  funcaoNome: string
-  qtdColab: number
-  hNormais: number
-  hExtras: number
-  valorHoras: number
-  dsr: number
-  producao: number
-  premio: number
-  bruto: number
-  inss: number
-  ir: number
-  descontoVt: number
-  descontoAd: number
-  liquido: number
-}
+interface RelatItem { id: string; label: string; icon: React.ReactNode; desc: string }
+interface RelatGroup { id: string; label: string; icon: React.ReactNode; color: string; items: RelatItem[] }
 
-// Aba 2
-interface EncargosRow {
-  obraId: string
-  obraNome: string
-  mes: string
-  baseSalarial: number
-  fgts: number
-  inssEmpresa: number
-  seguro: number
-  sesiSenai: number
-  totalEncargos: number
-}
+const GRUPOS: RelatGroup[] = [
+  {
+    id: 'obra', label: 'Por Obra', icon: <Building2 size={16}/>, color: '#1e3a5f',
+    items: [
+      { id: 'headcount-obra', label: 'Headcount por Obra', icon: <Users size={14}/>, desc: 'Colaboradores ativos, inativos e afastados por obra' },
+      { id: 'custo-obra', label: 'Custo Total por Obra', icon: <DollarSign size={14}/>, desc: 'Folha + adiantamentos + VT + prêmios por obra/mês' },
+      { id: 'producao-obra', label: 'Produtividade por Obra', icon: <BarChart3 size={14}/>, desc: 'Produção por item do playbook com custo/unidade' },
+      { id: 'faltas-obra', label: 'Faltas por Obra', icon: <Clock size={14}/>, desc: 'Total de faltas e % de ausência por obra/mês' },
+      { id: 'acidentes-obra', label: 'Acidentes por Obra', icon: <AlertTriangle size={14}/>, desc: 'Total de acidentes, gravidade e CAT emitida' },
+    ]
+  },
+  {
+    id: 'colaborador', label: 'Por Colaborador', icon: <Users size={16}/>, color: '#0f766e',
+    items: [
+      { id: 'ficha-financeira', label: 'Ficha Financeira Individual', icon: <DollarSign size={14}/>, desc: 'Pagamentos, adiantamentos, VT e prêmios de 1 colaborador' },
+      { id: 'historico-ponto', label: 'Histórico de Ponto', icon: <Clock size={14}/>, desc: 'Espelho de ponto completo mês a mês' },
+      { id: 'producao-individual', label: 'Produção Individual', icon: <BarChart3 size={14}/>, desc: 'Quantidade produzida por item/playbook' },
+      { id: 'ocorrencias-colab', label: 'Ocorrências do Colaborador', icon: <FileText size={14}/>, desc: 'Advertências, atestados, acidentes e ocorrências' },
+      { id: 'custo-colab', label: 'Custo Total do Colaborador', icon: <Calculator size={14}/>, desc: 'Tudo que a empresa gastou com 1 colaborador' },
+    ]
+  },
+  {
+    id: 'funcao', label: 'Por Função', icon: <Wrench size={16}/>, color: '#7c3aed',
+    items: [
+      { id: 'headcount-funcao', label: 'Headcount por Função', icon: <Users size={14}/>, desc: 'Colaboradores por função com salário médio' },
+      { id: 'custo-funcao', label: 'Custo por Função', icon: <DollarSign size={14}/>, desc: 'Folha total agrupado por função' },
+      { id: 'producao-funcao', label: 'Produtividade por Função', icon: <TrendingUp size={14}/>, desc: 'Produção média por função e categoria' },
+    ]
+  },
+  {
+    id: 'desempenho', label: 'Desempenho', icon: <TrendingUp size={16}/>, color: '#b45309',
+    items: [
+      { id: 'ranking-producao', label: 'Ranking de Produção', icon: <Star size={14}/>, desc: 'Top colaboradores por quantidade produzida' },
+      { id: 'producao-playbook', label: 'Produção por Item Playbook', icon: <Package size={14}/>, desc: 'Produção por atividade do playbook' },
+      { id: 'meta-realizado', label: 'Meta vs Realizado', icon: <Target size={14}/>, desc: 'Horas contratadas vs trabalhadas vs extras' },
+      { id: 'evolucao-horas', label: 'Evolução de Horas', icon: <Activity size={14}/>, desc: 'Horas trabalhadas, extras e faltas mês a mês' },
+    ]
+  },
+  {
+    id: 'seguranca', label: 'Segurança & Saúde', icon: <Shield size={16}/>, color: '#dc2626',
+    items: [
+      { id: 'painel-acidentes', label: 'Painel de Acidentes', icon: <AlertTriangle size={14}/>, desc: 'Frequência, gravidade e CAT emitidas' },
+      { id: 'painel-atestados', label: 'Painel de Atestados', icon: <Heart size={14}/>, desc: 'Dias perdidos por CID, mês e tipo' },
+      { id: 'epis-vencidos', label: 'EPIs Vencidos/a Vencer', icon: <HardHat size={14}/>, desc: 'EPIs vencidos ou com vencimento próximo' },
+    ]
+  },
+  {
+    id: 'financeiro', label: 'Financeiro', icon: <DollarSign size={16}/>, color: '#166534',
+    items: [
+      { id: 'resumo-folha', label: 'Resumo de Folha', icon: <FileText size={14}/>, desc: 'Bruto, descontos e líquido por mês/obra' },
+      { id: 'provisoes', label: 'Provisões Acumuladas', icon: <Calculator size={14}/>, desc: 'FGTS + Férias + 13º provisionados' },
+      { id: 'adiantamentos-aberto', label: 'Adiantamentos em Aberto', icon: <DollarSign size={14}/>, desc: 'Adiantamentos sem quitação por colaborador' },
+      { id: 'custo-hora', label: 'Custo Hora Médio', icon: <Clock size={14}/>, desc: 'Custo por hora por função, obra e período' },
+    ]
+  },
+  {
+    id: 'operacional', label: 'Operacional', icon: <FileText size={16}/>, color: '#0369a1',
+    items: [
+      { id: 'aniversariantes', label: 'Aniversariantes do Mês', icon: <Calendar size={14}/>, desc: 'Colaboradores aniversariantes no mês selecionado' },
+      { id: 'contratos-vencendo', label: 'Contratos Vencendo', icon: <AlertTriangle size={14}/>, desc: 'Contratos próximos do vencimento' },
+      { id: 'playbook-atividades', label: 'Playbook de Atividades', icon: <Package size={14}/>, desc: 'Atividades cadastradas por obra com preço e unidade' },
+      { id: 'historico-advertencias', label: 'Histórico de Advertências', icon: <FileText size={14}/>, desc: 'Advertências com filtro tipo, assinatura e período' },
+    ]
+  },
+]
 
-// Aba 3
-interface ProvisaoRow {
-  funcaoId: string
-  funcaoNome: string
-  mes: string
-  base: number
-  fgts: number
-  ferias: number
-  decimoTerceiro: number
-  totalProvisao: number
-}
+// ─── Componentes auxiliares ───────────────────────────────────────────────────
 
-// ─── Componente de filtros de período ────────────────────────────────────────
-
-interface PeriodoFiltros {
-  mesInicio: string
-  anoInicio: string
-  mesFim: string
-  anoFim: string
-}
-
-function PeriodoSelector({
-  value,
-  onChange,
-}: {
-  value: PeriodoFiltros
-  onChange: (v: PeriodoFiltros) => void
-}) {
+function EmptyState({ msg = 'Nenhum resultado encontrado.' }: { msg?: string }) {
   return (
-    <div className="flex flex-wrap gap-3 items-end">
-      <div className="flex flex-col gap-1">
-        <Label className="text-xs">Mês Início</Label>
-        <Select
-          value={value.mesInicio}
-          onValueChange={v => onChange({ ...value, mesInicio: v })}
-        >
-          <SelectTrigger className="w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {MESES.map(m => (
-              <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label className="text-xs">Ano Início</Label>
-        <Select
-          value={value.anoInicio}
-          onValueChange={v => onChange({ ...value, anoInicio: v })}
-        >
-          <SelectTrigger className="w-24">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ANOS.map(a => (
-              <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <span className="text-muted-foreground text-sm pb-2">até</span>
-      <div className="flex flex-col gap-1">
-        <Label className="text-xs">Mês Fim</Label>
-        <Select
-          value={value.mesFim}
-          onValueChange={v => onChange({ ...value, mesFim: v })}
-        >
-          <SelectTrigger className="w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {MESES.map(m => (
-              <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label className="text-xs">Ano Fim</Label>
-        <Select
-          value={value.anoFim}
-          onValueChange={v => onChange({ ...value, anoFim: v })}
-        >
-          <SelectTrigger className="w-24">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ANOS.map(a => (
-              <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+    <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
+      <Search size={40} className="opacity-30" />
+      <p className="text-sm">{msg}</p>
     </div>
   )
 }
 
-// ─── Função de impressão ─────────────────────────────────────────────────────
-
-function abrirJanelaImpressao(
-  titulo: string,
-  periodo: string,
-  conteudoHtml: string,
-  config: ConfigMap,
-) {
-  const logoHtml = config.empresa_logo_url
-    ? `<img src="${config.empresa_logo_url}" alt="Logo" style="height:60px;object-fit:contain;" />`
-    : `<div style="width:60px;height:60px;background:#1e3a5f;border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:20px;font-weight:bold;">${(config.empresa_nome ?? 'E')[0]}</div>`
-
-  const agora = new Date().toLocaleString('pt-BR')
-
-  const html = `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8"/>
-<title>${titulo}</title>
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; padding: 20px 28px; }
-  .header { display:flex; align-items:flex-start; gap:18px; margin-bottom:8px; }
-  .header-info { flex:1; }
-  .header-info .empresa { font-size:15px; font-weight:bold; color:#1e3a5f; margin-bottom:2px; }
-  .header-info .linha { font-size:11px; color:#333; }
-  hr.topo { border:none; border-top:2px solid #1e3a5f; margin:8px 0 6px; }
-  hr.meio { border:none; border-top:1px solid #ccc; margin:6px 0; }
-  .meta { margin-bottom:6px; }
-  .meta .titulo-relatorio { font-size:13px; font-weight:bold; color:#1e3a5f; }
-  .meta .subtitulo { font-size:11px; color:#555; margin-top:2px; }
-  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:10px; }
-  thead tr th { background:#1e3a5f; color:white; padding:5px 4px; text-align:right; font-weight:600; }
-  thead tr th:first-child, thead tr th:nth-child(2) { text-align:left; }
-  tbody tr:nth-child(even) { background:#f4f7fc; }
-  tbody tr td { padding:4px 4px; text-align:right; border-bottom:1px solid #e5e7eb; }
-  tbody tr td:first-child, tbody tr td:nth-child(2) { text-align:left; }
-  tfoot tr td { padding:5px 4px; font-weight:bold; text-align:right; background:#e8f0fe; border-top:2px solid #1e3a5f; }
-  tfoot tr td:first-child, tfoot tr td:nth-child(2) { text-align:left; }
-  .assinatura { margin-top:28px; }
-  .assinatura .linha-ass { border-top:1px solid #555; width:260px; margin-top:28px; padding-top:4px; font-size:10px; color:#555; }
-  @media print {
-    body { padding:10px 14px; }
-    .no-print { display:none; }
-  }
-</style>
-</head>
-<body>
-<div class="header">
-  ${logoHtml}
-  <div class="header-info">
-    <div class="empresa">${config.empresa_nome ?? ''}</div>
-    ${config.empresa_razao_social ? `<div class="linha">${config.empresa_razao_social}</div>` : ''}
-    ${config.empresa_cnpj ? `<div class="linha">CNPJ: ${config.empresa_cnpj}</div>` : ''}
-    ${config.empresa_endereco ? `<div class="linha">${config.empresa_endereco}${config.empresa_cidade ? ' — ' + config.empresa_cidade : ''}${config.empresa_cep ? ' — CEP ' + config.empresa_cep : ''}</div>` : ''}
-    ${config.empresa_telefone ? `<div class="linha">Telefone: ${config.empresa_telefone}</div>` : ''}
-  </div>
-</div>
-<hr class="topo"/>
-<div class="meta">
-  <div class="titulo-relatorio">RELATÓRIO: ${titulo}</div>
-  <div class="subtitulo">Período: ${periodo} &nbsp;|&nbsp; Gerado em: ${agora}</div>
-</div>
-<hr class="meio"/>
-${conteudoHtml}
-<hr class="meio" style="margin-top:16px;"/>
-<div class="assinatura">
-  <div class="linha-ass">Assinatura: _________________________</div>
-</div>
-<script>window.onload = function(){ window.print(); }</script>
-</body>
-</html>`
-
-  const win = window.open('', '_blank', 'width=1000,height=700')
-  if (win) {
-    win.document.write(html)
-    win.document.close()
-  } else {
-    toast.error('Pop-up bloqueado. Permita pop-ups para este site.')
-  }
-}
-
-// ─── ABA 1: Por Obra e Função ─────────────────────────────────────────────────
-
-interface Aba1Props {
-  obras: ObraOption[]
-  config: ConfigMap
-}
-
-function Aba1ObraFuncao({ obras, config }: Aba1Props) {
-  const now = new Date()
-  const mesAtual = String(now.getMonth() + 1).padStart(2, '0')
-  const anoAtual = String(now.getFullYear())
-
-  const [periodo, setPeriodo] = useState<PeriodoFiltros>({
-    mesInicio: mesAtual,
-    anoInicio: anoAtual,
-    mesFim: mesAtual,
-    anoFim: anoAtual,
-  })
-  const [obraFiltro, setObraFiltro] = useState<string>('todos')
-  const [tipoContrato, setTipoContrato] = useState<string>('todos')
-  const [rows, setRows] = useState<ObraFuncaoRow[]>([])
-  const [loading, setLoading] = useState(false)
-
-  const periodoInicio = `${periodo.anoInicio}-${periodo.mesInicio}`
-  const periodoFim = `${periodo.anoFim}-${periodo.mesFim}`
-
-  const buscar = useCallback(async () => {
-    setLoading(true)
-    try {
-      let q = supabase
-        .from('ponto_lancamentos')
-        .select(`
-          obra_id,
-          mes_referencia,
-          snap_valor_horas,
-          snap_valor_dsr,
-          snap_valor_producao,
-          snap_valor_premio,
-          snap_inss,
-          snap_ir,
-          snap_desconto_vt,
-          snap_desconto_adiant,
-          snap_liquido,
-          snap_horas_normais,
-          snap_horas_extras,
-          colaboradores!inner(id, tipo_contrato, funcao_id, funcoes!inner(id, nome)),
-          obras!inner(id, nome)
-        `)
-        .in('status', ['liberado', 'pago'])
-        .gte('mes_referencia', periodoInicio)
-        .lte('mes_referencia', periodoFim)
-
-      if (obraFiltro !== 'todos') q = q.eq('obra_id', obraFiltro)
-      if (tipoContrato !== 'todos') q = q.eq('colaboradores.tipo_contrato', tipoContrato)
-
-      const { data, error } = await q
-      if (error) throw error
-
-      // Agrupar por obra + função
-      const map = new Map<string, ObraFuncaoRow>()
-      const colabMap = new Map<string, Set<string>>() // key -> set of colabIds
-
-      for (const r of (data ?? []) as any[]) {
-        const obraId: string = r.obra_id
-        const obraNome: string = r.obras?.nome ?? '—'
-        const funcaoId: string = r.colaboradores?.funcao_id ?? ''
-        const funcaoNome: string = r.colaboradores?.funcoes?.nome ?? '—'
-        const colabId: string = r.colaboradores?.id ?? r.colaborador_id
-
-        if (tipoContrato !== 'todos' && r.colaboradores?.tipo_contrato !== tipoContrato) continue
-
-        const key = `${obraId}__${funcaoId}`
-        if (!map.has(key)) {
-          map.set(key, {
-            obraId, obraNome, funcaoId, funcaoNome,
-            qtdColab: 0, hNormais: 0, hExtras: 0, valorHoras: 0, dsr: 0,
-            producao: 0, premio: 0, bruto: 0, inss: 0, ir: 0,
-            descontoVt: 0, descontoAd: 0, liquido: 0,
-          })
-          colabMap.set(key, new Set())
-        }
-        const row = map.get(key)!
-        const cs = colabMap.get(key)!
-        if (colabId) cs.add(colabId)
-
-        row.hNormais += Number(r.snap_horas_normais ?? 0)
-        row.hExtras += Number(r.snap_horas_extras ?? 0)
-        row.valorHoras += Number(r.snap_valor_horas ?? 0)
-        row.dsr += Number(r.snap_valor_dsr ?? 0)
-        row.producao += Number(r.snap_valor_producao ?? 0)
-        row.premio += Number(r.snap_valor_premio ?? 0)
-        row.inss += Number(r.snap_inss ?? 0)
-        row.ir += Number(r.snap_ir ?? 0)
-        row.descontoVt += Number(r.snap_desconto_vt ?? 0)
-        row.descontoAd += Number(r.snap_desconto_adiant ?? 0)
-        row.liquido += Number(r.snap_liquido ?? 0)
-      }
-
-      // Calcular bruto e qtdColab
-      map.forEach((row, key) => {
-        row.bruto = row.valorHoras + row.dsr + row.producao + row.premio
-        row.qtdColab = colabMap.get(key)?.size ?? 0
-      })
-
-      // Ordenar por obra > função
-      const sorted = Array.from(map.values()).sort((a, b) => {
-        const oc = a.obraNome.localeCompare(b.obraNome, 'pt-BR')
-        if (oc !== 0) return oc
-        return a.funcaoNome.localeCompare(b.funcaoNome, 'pt-BR')
-      })
-
-      setRows(sorted)
-    } catch (e: any) {
-      toast.error('Erro ao buscar dados: ' + (e?.message ?? e))
-    } finally {
-      setLoading(false)
-    }
-  }, [periodoInicio, periodoFim, obraFiltro, tipoContrato])
-
-  // Totais
-  const totais = rows.reduce(
-    (acc, r) => ({
-      qtdColab: acc.qtdColab + r.qtdColab,
-      hNormais: acc.hNormais + r.hNormais,
-      hExtras: acc.hExtras + r.hExtras,
-      valorHoras: acc.valorHoras + r.valorHoras,
-      dsr: acc.dsr + r.dsr,
-      producao: acc.producao + r.producao,
-      premio: acc.premio + r.premio,
-      bruto: acc.bruto + r.bruto,
-      inss: acc.inss + r.inss,
-      ir: acc.ir + r.ir,
-      descontoVt: acc.descontoVt + r.descontoVt,
-      descontoAd: acc.descontoAd + r.descontoAd,
-      liquido: acc.liquido + r.liquido,
-    }),
-    {
-      qtdColab: 0, hNormais: 0, hExtras: 0, valorHoras: 0, dsr: 0,
-      producao: 0, premio: 0, bruto: 0, inss: 0, ir: 0,
-      descontoVt: 0, descontoAd: 0, liquido: 0,
-    },
-  )
-
-  // Agrupa obras distintas para span
-  const obrasDistintas = [...new Set(rows.map(r => r.obraId))]
-
-  function imprimir() {
-    const cabecalho = `<thead><tr>
-      <th>Obra</th><th>Função</th><th>Qtd</th><th>H.Norm</th><th>H.Ext</th>
-      <th>Vl.Horas</th><th>DSR</th><th>Produção</th><th>Prêmio</th>
-      <th>Bruto</th><th>INSS</th><th>IR</th><th>-VT</th><th>-Adian</th><th>Líquido</th>
-    </tr></thead>`
-
-    const corpo = rows.map(r => `<tr>
-      <td>${r.obraNome}</td><td>${r.funcaoNome}</td><td style="text-align:center">${r.qtdColab}</td>
-      <td>${formatNum(r.hNormais)}</td><td>${formatNum(r.hExtras)}</td>
-      <td>${formatCurrency(r.valorHoras)}</td><td>${formatCurrency(r.dsr)}</td>
-      <td>${formatCurrency(r.producao)}</td><td>${formatCurrency(r.premio)}</td>
-      <td>${formatCurrency(r.bruto)}</td>
-      <td style="color:#b91c1c">${formatCurrency(r.inss)}</td>
-      <td style="color:#b91c1c">${formatCurrency(r.ir)}</td>
-      <td style="color:#b91c1c">${formatCurrency(r.descontoVt)}</td>
-      <td style="color:#b91c1c">${formatCurrency(r.descontoAd)}</td>
-      <td style="color:#15803d;font-weight:600">${formatCurrency(r.liquido)}</td>
-    </tr>`).join('')
-
-    const rodape = `<tfoot><tr>
-      <td colspan="2">TOTAL GERAL</td>
-      <td style="text-align:center">${totais.qtdColab}</td>
-      <td>${formatNum(totais.hNormais)}</td><td>${formatNum(totais.hExtras)}</td>
-      <td>${formatCurrency(totais.valorHoras)}</td><td>${formatCurrency(totais.dsr)}</td>
-      <td>${formatCurrency(totais.producao)}</td><td>${formatCurrency(totais.premio)}</td>
-      <td>${formatCurrency(totais.bruto)}</td>
-      <td>${formatCurrency(totais.inss)}</td><td>${formatCurrency(totais.ir)}</td>
-      <td>${formatCurrency(totais.descontoVt)}</td><td>${formatCurrency(totais.descontoAd)}</td>
-      <td>${formatCurrency(totais.liquido)}</td>
-    </tr></tfoot>`
-
-    abrirJanelaImpressao(
-      'Folha por Obra e Função',
-      `${periodoInicio} a ${periodoFim}`,
-      `<table>${cabecalho}<tbody>${corpo}</tbody>${rodape}</table>`,
-      config,
-    )
-  }
-
+function LoadingState() {
   return (
-    <div className="space-y-4">
-      {/* Filtros */}
-      <Card>
-        <CardContent className="pt-5 pb-4">
-          <div className="flex flex-wrap gap-4 items-end">
-            <PeriodoSelector value={periodo} onChange={setPeriodo} />
-            <div className="flex flex-col gap-1">
-              <Label className="text-xs">Obra</Label>
-              <Select value={obraFiltro} onValueChange={setObraFiltro}>
-                <SelectTrigger className="w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todas as obras</SelectItem>
-                  {obras.map(o => (
-                    <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label className="text-xs">Tipo Contrato</Label>
-              <Select value={tipoContrato} onValueChange={setTipoContrato}>
-                <SelectTrigger className="w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
-                  <SelectItem value="CLT">CLT</SelectItem>
-                  <SelectItem value="Autonomo">Autônomo</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <Button onClick={buscar} disabled={loading} className="bg-blue-900 hover:bg-blue-800">
-              {loading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <RefreshCw className="w-4 h-4 mr-1" />}
-              Gerar
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Cards de resumo */}
-      {rows.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Card className="border-l-4 border-l-blue-700">
-            <CardContent className="pt-4 pb-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Colaboradores</p>
-              <p className="text-2xl font-bold text-blue-900">{obrasDistintas.length > 1 ? `${rows.reduce((s, r) => s + r.qtdColab, 0)}` : totais.qtdColab}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{obrasDistintas.length} obra(s)</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-indigo-500">
-            <CardContent className="pt-4 pb-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Bruto</p>
-              <p className="text-xl font-bold text-indigo-800">{formatCurrency(totais.bruto)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-red-500">
-            <CardContent className="pt-4 pb-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Descontos</p>
-              <p className="text-xl font-bold text-red-700">{formatCurrency(totais.inss + totais.ir + totais.descontoVt + totais.descontoAd)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-emerald-500">
-            <CardContent className="pt-4 pb-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Líquido</p>
-              <p className="text-xl font-bold text-emerald-700">{formatCurrency(totais.liquido)}</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Tabela */}
-      {rows.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2 flex flex-row items-center justify-between">
-            <CardTitle className="text-base text-blue-900">Resultado por Obra › Função</CardTitle>
-            <Button variant="outline" size="sm" onClick={imprimir} className="gap-1">
-              <Printer className="w-4 h-4" />
-              Imprimir / PDF
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-blue-900 hover:bg-blue-900">
-                    <TableHead className="text-white font-semibold text-xs">Obra</TableHead>
-                    <TableHead className="text-white font-semibold text-xs">Função</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-center">Qtd</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">H.Norm</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">H.Ext</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">Vl.Horas</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">DSR</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">Produção</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">Prêmio</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">Bruto</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">INSS</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">IR</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">-VT</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">-Adian.</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">Líquido</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r, i) => (
-                    <TableRow key={`${r.obraId}-${r.funcaoId}`} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                      <TableCell className="text-xs font-medium text-blue-900">{r.obraNome}</TableCell>
-                      <TableCell className="text-xs">{r.funcaoNome}</TableCell>
-                      <TableCell className="text-xs text-center">{r.qtdColab}</TableCell>
-                      <TableCell className="text-xs text-right">{formatNum(r.hNormais)}</TableCell>
-                      <TableCell className="text-xs text-right">{formatNum(r.hExtras)}</TableCell>
-                      <TableCell className="text-xs text-right text-green-700">{formatCurrency(r.valorHoras)}</TableCell>
-                      <TableCell className="text-xs text-right text-green-700">{formatCurrency(r.dsr)}</TableCell>
-                      <TableCell className="text-xs text-right text-green-700">{formatCurrency(r.producao)}</TableCell>
-                      <TableCell className="text-xs text-right text-green-700">{formatCurrency(r.premio)}</TableCell>
-                      <TableCell className="text-xs text-right font-semibold">{formatCurrency(r.bruto)}</TableCell>
-                      <TableCell className="text-xs text-right text-red-600">{formatCurrency(r.inss)}</TableCell>
-                      <TableCell className="text-xs text-right text-red-600">{formatCurrency(r.ir)}</TableCell>
-                      <TableCell className="text-xs text-right text-red-600">{formatCurrency(r.descontoVt)}</TableCell>
-                      <TableCell className="text-xs text-right text-red-600">{formatCurrency(r.descontoAd)}</TableCell>
-                      <TableCell className="text-xs text-right font-bold text-emerald-700">{formatCurrency(r.liquido)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-                <tfoot>
-                  <tr className="bg-blue-50 font-bold border-t-2 border-blue-900">
-                    <td className="px-4 py-2 text-xs font-bold text-blue-900" colSpan={2}>TOTAL GERAL</td>
-                    <td className="px-4 py-2 text-xs text-center">{totais.qtdColab}</td>
-                    <td className="px-4 py-2 text-xs text-right">{formatNum(totais.hNormais)}</td>
-                    <td className="px-4 py-2 text-xs text-right">{formatNum(totais.hExtras)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-green-700">{formatCurrency(totais.valorHoras)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-green-700">{formatCurrency(totais.dsr)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-green-700">{formatCurrency(totais.producao)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-green-700">{formatCurrency(totais.premio)}</td>
-                    <td className="px-4 py-2 text-xs text-right font-bold">{formatCurrency(totais.bruto)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-red-600">{formatCurrency(totais.inss)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-red-600">{formatCurrency(totais.ir)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-red-600">{formatCurrency(totais.descontoVt)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-red-600">{formatCurrency(totais.descontoAd)}</td>
-                    <td className="px-4 py-2 text-xs text-right font-bold text-emerald-700">{formatCurrency(totais.liquido)}</td>
-                  </tr>
-                </tfoot>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {!loading && rows.length === 0 && (
-        <div className="text-center py-16 text-muted-foreground text-sm">
-          <Building2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
-          Clique em <strong>Gerar</strong> para carregar os dados.
-        </div>
-      )}
+    <div className="flex items-center justify-center py-16 text-[#1e3a5f] gap-2">
+      <Loader2 size={24} className="animate-spin" />
+      <span className="text-sm font-medium">Carregando dados...</span>
     </div>
   )
 }
 
-// ─── ABA 2: Encargos Empresa ─────────────────────────────────────────────────
-
-interface Aba2Props {
-  obras: ObraOption[]
-  config: ConfigMap
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="text-sm font-semibold text-[#1e3a5f] border-b border-slate-200 pb-2 mb-3 flex items-center gap-2">
+      <Filter size={13} /> {children}
+    </h3>
+  )
 }
 
-function Aba2Encargos({ obras, config }: Aba2Props) {
-  const now = new Date()
-  const mesAtual = String(now.getMonth() + 1).padStart(2, '0')
-  const anoAtual = String(now.getFullYear())
+function FilterRow({ children }: { children: React.ReactNode }) {
+  return <div className="flex flex-wrap gap-4 items-end mb-4">{children}</div>
+}
 
-  const [periodo, setPeriodo] = useState<PeriodoFiltros>({
-    mesInicio: mesAtual,
-    anoInicio: anoAtual,
-    mesFim: mesAtual,
-    anoFim: anoAtual,
-  })
-  const [obraFiltro, setObraFiltro] = useState<string>('todos')
-  const [rows, setRows] = useState<EncargosRow[]>([])
-  const [loading, setLoading] = useState(false)
-
-  const periodoInicio = `${periodo.anoInicio}-${periodo.mesInicio}`
-  const periodoFim = `${periodo.anoFim}-${periodo.mesFim}`
-
-  const buscar = useCallback(async () => {
-    setLoading(true)
-    try {
-      let q = supabase
-        .from('ponto_lancamentos')
-        .select(`
-          obra_id,
-          mes_referencia,
-          snap_valor_horas,
-          snap_valor_dsr,
-          colaboradores!inner(tipo_contrato),
-          obras!inner(id, nome)
-        `)
-        .in('status', ['liberado', 'pago'])
-        .eq('colaboradores.tipo_contrato', 'CLT')
-        .gte('mes_referencia', periodoInicio)
-        .lte('mes_referencia', periodoFim)
-
-      if (obraFiltro !== 'todos') q = q.eq('obra_id', obraFiltro)
-
-      const { data, error } = await q
-      if (error) throw error
-
-      const map = new Map<string, EncargosRow>()
-
-      for (const r of (data ?? []) as any[]) {
-        if (r.colaboradores?.tipo_contrato !== 'CLT') continue
-        const obraId: string = r.obra_id
-        const obraNome: string = r.obras?.nome ?? '—'
-        const mes: string = r.mes_referencia
-
-        const key = `${obraId}__${mes}`
-        if (!map.has(key)) {
-          map.set(key, {
-            obraId, obraNome, mes,
-            baseSalarial: 0, fgts: 0, inssEmpresa: 0, seguro: 0, sesiSenai: 0, totalEncargos: 0,
-          })
-        }
-        const row = map.get(key)!
-        row.baseSalarial += Number(r.snap_valor_horas ?? 0) + Number(r.snap_valor_dsr ?? 0)
-      }
-
-      // Calcular encargos
-      map.forEach(row => {
-        row.fgts = row.baseSalarial * 0.08
-        row.inssEmpresa = row.baseSalarial * 0.20
-        row.seguro = row.baseSalarial * 0.03
-        row.sesiSenai = row.baseSalarial * 0.025
-        row.totalEncargos = row.baseSalarial * 0.335
-      })
-
-      const sorted = Array.from(map.values()).sort((a, b) => {
-        const oc = a.obraNome.localeCompare(b.obraNome, 'pt-BR')
-        if (oc !== 0) return oc
-        return a.mes.localeCompare(b.mes)
-      })
-      setRows(sorted)
-    } catch (e: any) {
-      toast.error('Erro ao buscar dados: ' + (e?.message ?? e))
-    } finally {
-      setLoading(false)
-    }
-  }, [periodoInicio, periodoFim, obraFiltro])
-
-  const totais = rows.reduce(
-    (acc, r) => ({
-      baseSalarial: acc.baseSalarial + r.baseSalarial,
-      fgts: acc.fgts + r.fgts,
-      inssEmpresa: acc.inssEmpresa + r.inssEmpresa,
-      seguro: acc.seguro + r.seguro,
-      sesiSenai: acc.sesiSenai + r.sesiSenai,
-      totalEncargos: acc.totalEncargos + r.totalEncargos,
-    }),
-    { baseSalarial: 0, fgts: 0, inssEmpresa: 0, seguro: 0, sesiSenai: 0, totalEncargos: 0 },
-  )
-
-  function imprimir() {
-    const cab = `<thead><tr>
-      <th>Obra</th><th>Mês</th><th>Base Salarial</th>
-      <th>FGTS 8%</th><th>INSS Emp. 20%</th><th>Seg.Acid. 3%</th>
-      <th>SESI/SENAI 2.5%</th><th>Total Encargos</th>
-    </tr></thead>`
-    const corpo = rows.map(r => `<tr>
-      <td>${r.obraNome}</td><td>${mesLabel(r.mes)}</td>
-      <td>${formatCurrency(r.baseSalarial)}</td>
-      <td>${formatCurrency(r.fgts)}</td>
-      <td>${formatCurrency(r.inssEmpresa)}</td>
-      <td>${formatCurrency(r.seguro)}</td>
-      <td>${formatCurrency(r.sesiSenai)}</td>
-      <td style="font-weight:bold;color:#1e3a5f">${formatCurrency(r.totalEncargos)}</td>
-    </tr>`).join('')
-    const rodape = `<tfoot><tr>
-      <td colspan="2">TOTAL GERAL</td>
-      <td>${formatCurrency(totais.baseSalarial)}</td>
-      <td>${formatCurrency(totais.fgts)}</td>
-      <td>${formatCurrency(totais.inssEmpresa)}</td>
-      <td>${formatCurrency(totais.seguro)}</td>
-      <td>${formatCurrency(totais.sesiSenai)}</td>
-      <td>${formatCurrency(totais.totalEncargos)}</td>
-    </tr></tfoot>`
-    abrirJanelaImpressao(
-      'Encargos Empresa (CLT)',
-      `${periodoInicio} a ${periodoFim}`,
-      `<table>${cab}<tbody>${corpo}</tbody>${rodape}</table>`,
-      config,
-    )
-  }
-
+function FieldWrap({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardContent className="pt-5 pb-4">
-          <div className="flex flex-wrap gap-4 items-end">
-            <PeriodoSelector value={periodo} onChange={setPeriodo} />
-            <div className="flex flex-col gap-1">
-              <Label className="text-xs">Obra</Label>
-              <Select value={obraFiltro} onValueChange={setObraFiltro}>
-                <SelectTrigger className="w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todas as obras</SelectItem>
-                  {obras.map(o => (
-                    <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button onClick={buscar} disabled={loading} className="bg-blue-900 hover:bg-blue-800">
-              {loading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <RefreshCw className="w-4 h-4 mr-1" />}
-              Gerar
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {rows.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          <Card className="border-l-4 border-l-blue-700">
-            <CardContent className="pt-4 pb-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Base Salarial CLT</p>
-              <p className="text-xl font-bold text-blue-900">{formatCurrency(totais.baseSalarial)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-amber-500">
-            <CardContent className="pt-4 pb-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Encargos (33.5%)</p>
-              <p className="text-xl font-bold text-amber-700">{formatCurrency(totais.totalEncargos)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-orange-500">
-            <CardContent className="pt-4 pb-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Custo Total (Base+Enc.)</p>
-              <p className="text-xl font-bold text-orange-700">{formatCurrency(totais.baseSalarial + totais.totalEncargos)}</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {rows.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2 flex flex-row items-center justify-between">
-            <CardTitle className="text-base text-blue-900">Encargos por Obra › Mês</CardTitle>
-            <Button variant="outline" size="sm" onClick={imprimir} className="gap-1">
-              <Printer className="w-4 h-4" />
-              Imprimir / PDF
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-blue-900 hover:bg-blue-900">
-                    <TableHead className="text-white font-semibold text-xs">Obra</TableHead>
-                    <TableHead className="text-white font-semibold text-xs">Mês</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">Base Salarial</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">FGTS 8%</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">INSS Emp. 20%</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">Seg.Acid. 3%</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">SESI/SENAI 2.5%</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">Total Encargos</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r, i) => (
-                    <TableRow key={`${r.obraId}-${r.mes}`} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                      <TableCell className="text-xs font-medium text-blue-900">{r.obraNome}</TableCell>
-                      <TableCell className="text-xs">{mesLabel(r.mes)}</TableCell>
-                      <TableCell className="text-xs text-right">{formatCurrency(r.baseSalarial)}</TableCell>
-                      <TableCell className="text-xs text-right text-amber-700">{formatCurrency(r.fgts)}</TableCell>
-                      <TableCell className="text-xs text-right text-amber-700">{formatCurrency(r.inssEmpresa)}</TableCell>
-                      <TableCell className="text-xs text-right text-amber-700">{formatCurrency(r.seguro)}</TableCell>
-                      <TableCell className="text-xs text-right text-amber-700">{formatCurrency(r.sesiSenai)}</TableCell>
-                      <TableCell className="text-xs text-right font-bold text-orange-700">{formatCurrency(r.totalEncargos)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-                <tfoot>
-                  <tr className="bg-blue-50 font-bold border-t-2 border-blue-900">
-                    <td className="px-4 py-2 text-xs font-bold text-blue-900" colSpan={2}>TOTAL GERAL</td>
-                    <td className="px-4 py-2 text-xs text-right">{formatCurrency(totais.baseSalarial)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-amber-700">{formatCurrency(totais.fgts)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-amber-700">{formatCurrency(totais.inssEmpresa)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-amber-700">{formatCurrency(totais.seguro)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-amber-700">{formatCurrency(totais.sesiSenai)}</td>
-                    <td className="px-4 py-2 text-xs text-right font-bold text-orange-700">{formatCurrency(totais.totalEncargos)}</td>
-                  </tr>
-                </tfoot>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {!loading && rows.length === 0 && (
-        <div className="text-center py-16 text-muted-foreground text-sm">
-          <Calculator className="w-10 h-10 mx-auto mb-3 opacity-30" />
-          Clique em <strong>Gerar</strong> para carregar os dados.
-        </div>
-      )}
+    <div className="flex flex-col gap-1 min-w-[160px]">
+      <Label className="text-xs text-gray-500 font-medium">{label}</Label>
+      {children}
     </div>
   )
 }
 
-// ─── ABA 3: Total Provisionado ────────────────────────────────────────────────
-
-interface Aba3Props {
-  obras: ObraOption[]
-  config: ConfigMap
-}
-
-function Aba3Provisao({ obras, config }: Aba3Props) {
-  const now = new Date()
-  const mesAtual = String(now.getMonth() + 1).padStart(2, '0')
-  const anoAtual = String(now.getFullYear())
-
-  const [periodo, setPeriodo] = useState<PeriodoFiltros>({
-    mesInicio: mesAtual,
-    anoInicio: anoAtual,
-    mesFim: mesAtual,
-    anoFim: anoAtual,
-  })
-  const [obraFiltro, setObraFiltro] = useState<string>('todos')
-  const [rows, setRows] = useState<ProvisaoRow[]>([])
-  const [loading, setLoading] = useState(false)
-
-  const periodoInicio = `${periodo.anoInicio}-${periodo.mesInicio}`
-  const periodoFim = `${periodo.anoFim}-${periodo.mesFim}`
-
-  const buscar = useCallback(async () => {
-    setLoading(true)
-    try {
-      let q = supabase
-        .from('ponto_lancamentos')
-        .select(`
-          obra_id,
-          mes_referencia,
-          snap_valor_horas,
-          snap_valor_dsr,
-          colaboradores!inner(tipo_contrato, funcao_id, funcoes!inner(id, nome))
-        `)
-        .in('status', ['liberado', 'pago'])
-        .eq('colaboradores.tipo_contrato', 'CLT')
-        .gte('mes_referencia', periodoInicio)
-        .lte('mes_referencia', periodoFim)
-
-      if (obraFiltro !== 'todos') q = q.eq('obra_id', obraFiltro)
-
-      const { data, error } = await q
-      if (error) throw error
-
-      const map = new Map<string, ProvisaoRow>()
-
-      for (const r of (data ?? []) as any[]) {
-        if (r.colaboradores?.tipo_contrato !== 'CLT') continue
-        const funcaoId: string = r.colaboradores?.funcao_id ?? ''
-        const funcaoNome: string = r.colaboradores?.funcoes?.nome ?? '—'
-        const mes: string = r.mes_referencia
-
-        const key = `${funcaoId}__${mes}`
-        if (!map.has(key)) {
-          map.set(key, {
-            funcaoId, funcaoNome, mes,
-            base: 0, fgts: 0, ferias: 0, decimoTerceiro: 0, totalProvisao: 0,
-          })
-        }
-        const row = map.get(key)!
-        row.base += Number(r.snap_valor_horas ?? 0) + Number(r.snap_valor_dsr ?? 0)
-      }
-
-      // Calcular provisões
-      map.forEach(row => {
-        row.fgts = row.base * 0.08
-        row.ferias = row.base * 0.1111
-        row.decimoTerceiro = row.base * 0.0833
-        row.totalProvisao = row.base * (0.08 + 0.1111 + 0.0833)
-      })
-
-      const sorted = Array.from(map.values()).sort((a, b) => {
-        const fc = a.funcaoNome.localeCompare(b.funcaoNome, 'pt-BR')
-        if (fc !== 0) return fc
-        return a.mes.localeCompare(b.mes)
-      })
-      setRows(sorted)
-    } catch (e: any) {
-      toast.error('Erro ao buscar dados: ' + (e?.message ?? e))
-    } finally {
-      setLoading(false)
-    }
-  }, [periodoInicio, periodoFim, obraFiltro])
-
-  const totais = rows.reduce(
-    (acc, r) => ({
-      base: acc.base + r.base,
-      fgts: acc.fgts + r.fgts,
-      ferias: acc.ferias + r.ferias,
-      decimoTerceiro: acc.decimoTerceiro + r.decimoTerceiro,
-      totalProvisao: acc.totalProvisao + r.totalProvisao,
-    }),
-    { base: 0, fgts: 0, ferias: 0, decimoTerceiro: 0, totalProvisao: 0 },
-  )
-
-  function imprimir() {
-    const cab = `<thead><tr>
-      <th>Função</th><th>Mês</th><th>Base</th>
-      <th>FGTS 8%</th><th>Férias 11.11%</th><th>13º 8.33%</th><th>Total Provisão</th>
-    </tr></thead>`
-    const corpo = rows.map(r => `<tr>
-      <td>${r.funcaoNome}</td><td>${mesLabel(r.mes)}</td>
-      <td>${formatCurrency(r.base)}</td>
-      <td>${formatCurrency(r.fgts)}</td>
-      <td>${formatCurrency(r.ferias)}</td>
-      <td>${formatCurrency(r.decimoTerceiro)}</td>
-      <td style="font-weight:bold;color:#15803d">${formatCurrency(r.totalProvisao)}</td>
-    </tr>`).join('')
-    const rodape = `<tfoot><tr>
-      <td colspan="2">TOTAL GERAL</td>
-      <td>${formatCurrency(totais.base)}</td>
-      <td>${formatCurrency(totais.fgts)}</td>
-      <td>${formatCurrency(totais.ferias)}</td>
-      <td>${formatCurrency(totais.decimoTerceiro)}</td>
-      <td>${formatCurrency(totais.totalProvisao)}</td>
-    </tr></tfoot>`
-    abrirJanelaImpressao(
-      'Total Provisionado (CLT)',
-      `${periodoInicio} a ${periodoFim}`,
-      `<table>${cab}<tbody>${corpo}</tbody>${rodape}</table>`,
-      config,
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-      <Card>
-        <CardContent className="pt-5 pb-4">
-          <div className="flex flex-wrap gap-4 items-end">
-            <PeriodoSelector value={periodo} onChange={setPeriodo} />
-            <div className="flex flex-col gap-1">
-              <Label className="text-xs">Obra</Label>
-              <Select value={obraFiltro} onValueChange={setObraFiltro}>
-                <SelectTrigger className="w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todas as obras</SelectItem>
-                  {obras.map(o => (
-                    <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button onClick={buscar} disabled={loading} className="bg-blue-900 hover:bg-blue-800">
-              {loading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <RefreshCw className="w-4 h-4 mr-1" />}
-              Gerar
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {rows.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Card className="border-l-4 border-l-blue-700">
-            <CardContent className="pt-4 pb-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Base CLT</p>
-              <p className="text-xl font-bold text-blue-900">{formatCurrency(totais.base)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-yellow-500">
-            <CardContent className="pt-4 pb-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">FGTS 8%</p>
-              <p className="text-xl font-bold text-yellow-700">{formatCurrency(totais.fgts)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-purple-500">
-            <CardContent className="pt-4 pb-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Férias + 13º</p>
-              <p className="text-xl font-bold text-purple-700">{formatCurrency(totais.ferias + totais.decimoTerceiro)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-l-4 border-l-emerald-500">
-            <CardContent className="pt-4 pb-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Provisão</p>
-              <p className="text-xl font-bold text-emerald-700">{formatCurrency(totais.totalProvisao)}</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {rows.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2 flex flex-row items-center justify-between">
-            <CardTitle className="text-base text-blue-900">Provisão por Função › Mês</CardTitle>
-            <Button variant="outline" size="sm" onClick={imprimir} className="gap-1">
-              <Printer className="w-4 h-4" />
-              Imprimir / PDF
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-blue-900 hover:bg-blue-900">
-                    <TableHead className="text-white font-semibold text-xs">Função</TableHead>
-                    <TableHead className="text-white font-semibold text-xs">Mês</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">Base</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">FGTS 8%</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">Férias 11.11%</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">13º 8.33%</TableHead>
-                    <TableHead className="text-white font-semibold text-xs text-right">Total Provisão</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r, i) => (
-                    <TableRow key={`${r.funcaoId}-${r.mes}`} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                      <TableCell className="text-xs font-medium text-blue-900">{r.funcaoNome}</TableCell>
-                      <TableCell className="text-xs">{mesLabel(r.mes)}</TableCell>
-                      <TableCell className="text-xs text-right">{formatCurrency(r.base)}</TableCell>
-                      <TableCell className="text-xs text-right text-yellow-700">{formatCurrency(r.fgts)}</TableCell>
-                      <TableCell className="text-xs text-right text-purple-700">{formatCurrency(r.ferias)}</TableCell>
-                      <TableCell className="text-xs text-right text-purple-700">{formatCurrency(r.decimoTerceiro)}</TableCell>
-                      <TableCell className="text-xs text-right font-bold text-emerald-700">{formatCurrency(r.totalProvisao)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-                <tfoot>
-                  <tr className="bg-blue-50 font-bold border-t-2 border-blue-900">
-                    <td className="px-4 py-2 text-xs font-bold text-blue-900" colSpan={2}>TOTAL GERAL</td>
-                    <td className="px-4 py-2 text-xs text-right">{formatCurrency(totais.base)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-yellow-700">{formatCurrency(totais.fgts)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-purple-700">{formatCurrency(totais.ferias)}</td>
-                    <td className="px-4 py-2 text-xs text-right text-purple-700">{formatCurrency(totais.decimoTerceiro)}</td>
-                    <td className="px-4 py-2 text-xs text-right font-bold text-emerald-700">{formatCurrency(totais.totalProvisao)}</td>
-                  </tr>
-                </tfoot>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {!loading && rows.length === 0 && (
-        <div className="text-center py-16 text-muted-foreground text-sm">
-          <PiggyBank className="w-10 h-10 mx-auto mb-3 opacity-30" />
-          Clique em <strong>Gerar</strong> para carregar os dados.
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Componente Principal ─────────────────────────────────────────────────────
+// ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function Relatorios() {
-  const [obras, setObras] = useState<ObraOption[]>([])
-  const [config, setConfig] = useState<ConfigMap>({})
-  const [loadingInit, setLoadingInit] = useState(true)
+  const [grupoAberto, setGrupoAberto] = useState<string>('obra')
+  const [relatAtivo, setRelatAtivo] = useState<string>('headcount-obra')
+  const [obras, setObras] = useState<Obra[]>([])
+  const [colaboradores, setColaboradores] = useState<Colaborador[]>([])
+  const [funcoes, setFuncoes] = useState<Funcao[]>([])
+
+  // Filtros globais compartilhados
+  const [filtroObra, setFiltroObra] = useState('todos')
+  const [filtroColaborador, setFiltroColaborador] = useState('todos')
+  const [filtroFuncao, setFiltroFuncao] = useState('todos')
+  const [filtroMes, setFiltroMes] = useState(mesAtual)
+  const [filtroAno, setFiltroAno] = useState(anoAtual)
+  const [filtroMesIni, setFiltroMesIni] = useState(mesAtual)
+  const [filtroAnoIni, setFiltroAnoIni] = useState(anoAtual)
+  const [filtroMesFim, setFiltroMesFim] = useState(mesAtual)
+  const [filtroAnoFim, setFiltroAnoFim] = useState(anoAtual)
+  const [diasVencimento, setDiasVencimento] = useState('30')
+
+  // Estado de dados
+  const [dados, setDados] = useState<Record<string, unknown>[]>([])
+  const [loading, setLoading] = useState(false)
+  const [gerado, setGerado] = useState(false)
 
   useEffect(() => {
-    async function init() {
-      try {
-        const [obrasRes, configRes] = await Promise.all([
-          supabase
-            .from('obras')
-            .select('id, nome')
-            .order('nome'),
-          supabase
-            .from('configuracoes')
-            .select('chave, valor'),
-        ])
-
-        if (obrasRes.data) {
-          setObras((obrasRes.data as any[]).map(o => ({ id: o.id, nome: o.nome })))
-        }
-        if (configRes.data) {
-          const map: ConfigMap = {}
-          for (const row of configRes.data as any[]) {
-            (map as any)[row.chave] = row.valor
-          }
-          setConfig(map)
-        }
-      } catch (e: any) {
-        toast.error('Erro ao carregar dados base: ' + (e?.message ?? e))
-      } finally {
-        setLoadingInit(false)
-      }
-    }
-    init()
+    Promise.all([
+      supabase.from('obras').select('id,nome,codigo,status').order('nome'),
+      supabase.from('colaboradores').select('id,nome,chapa').eq('status', 'ativo').order('nome'),
+      supabase.from('funcoes').select('id,nome,categoria').order('nome'),
+    ]).then(([obrasRes, colabRes, funcRes]) => {
+      setObras(obrasRes.data ?? [])
+      setColaboradores(colabRes.data ?? [])
+      setFuncoes(funcRes.data ?? [])
+    })
   }, [])
 
-  if (loadingInit) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-900" />
-        <span className="ml-3 text-muted-foreground">Carregando...</span>
-      </div>
-    )
-  }
+  // Reseta dados ao trocar relatório
+  useEffect(() => {
+    setDados([]); setGerado(false)
+  }, [relatAtivo])
+
+  const mesRef = `${filtroAno}-${filtroMes}`
+  const mesRefIni = `${filtroAnoIni}-${filtroMesIni}`
+  const mesRefFim = `${filtroAnoFim}-${filtroMesFim}`
+
+  // ── Gerar relatório ──────────────────────────────────────────────────────────
+
+  const gerarRelatorio = useCallback(async () => {
+    setLoading(true)
+    setGerado(false)
+    try {
+      let resultado: Record<string, unknown>[] = []
+
+      // ── 1. Headcount por Obra ──────────────────────────────────────────────
+      if (relatAtivo === 'headcount-obra') {
+        const { data } = await supabase
+          .from('colaboradores')
+          .select(`id, status, tipo_contrato, obra_id, obras(nome, codigo)`)
+          .order('status')
+        if (data) {
+          const map: Record<string, Record<string, unknown>> = {}
+          for (const c of data) {
+            const o = (c as Record<string, unknown>).obras as Record<string, unknown> | null
+            const obraId = String((c as Record<string, unknown>).obra_id ?? 'sem-obra')
+            const obraNome = o ? String(o.nome) : '(Sem Obra)'
+            if (!map[obraId]) map[obraId] = { obra: obraNome, ativo: 0, inativo: 0, afastado: 0, total: 0, tipos: {} as Record<string, number> }
+            const status = String((c as Record<string, unknown>).status ?? 'inativo')
+            if (status === 'ativo') (map[obraId].ativo as number)++
+            else if (status === 'afastado') (map[obraId].afastado as number)++
+            else (map[obraId].inativo as number)++
+            ;(map[obraId].total as number)++
+            const tipo = String((c as Record<string, unknown>).tipo_contrato ?? 'N/D')
+            const tipos = map[obraId].tipos as Record<string, number>
+            tipos[tipo] = (tipos[tipo] ?? 0) + 1
+          }
+          resultado = Object.values(map).sort((a, b) => (b.total as number) - (a.total as number))
+        }
+      }
+
+      // ── 2. Custo Total por Obra ────────────────────────────────────────────
+      else if (relatAtivo === 'custo-obra') {
+        const q = supabase.from('ponto_lancamentos')
+          .select(`obra_id, snap_bruto, snap_liquido, obras(nome)`)
+          .gte('mes_referencia', mesRefIni)
+          .lte('mes_referencia', mesRefFim)
+        const { data: pl } = await q
+        const { data: ad } = await supabase.from('adiantamentos')
+          .select(`colaborador_id, valor, colaboradores(obra_id)`)
+          .gte('competencia', mesRefIni).lte('competencia', mesRefFim).eq('status', 'aprovado')
+        const { data: vt } = await supabase.from('vale_transporte')
+          .select(`colaborador_id, valor_empresa, colaboradores(obra_id)`)
+          .gte('competencia', mesRefIni).lte('competencia', mesRefFim)
+        const { data: pr } = await supabase.from('premios')
+          .select(`colaborador_id, valor, colaboradores(obra_id)`)
+          .gte('competencia', mesRefIni).lte('competencia', mesRefFim).eq('status', 'aprovado')
+
+        const map: Record<string, Record<string, unknown>> = {}
+        const get = (oId: string, nome: string) => {
+          if (!map[oId]) map[oId] = { obra: nome, folha_bruto: 0, folha_liquido: 0, adiantamentos: 0, vt: 0, premios: 0, total: 0 }
+          return map[oId]
+        }
+        for (const p of pl ?? []) {
+          const o = (p as Record<string, unknown>).obras as Record<string, unknown> | null
+          const id = String((p as Record<string, unknown>).obra_id ?? 'sem')
+          const row = get(id, o ? String(o.nome) : '(Sem Obra)')
+          row.folha_bruto = (row.folha_bruto as number) + ((p as Record<string, unknown>).snap_bruto as number ?? 0)
+          row.folha_liquido = (row.folha_liquido as number) + ((p as Record<string, unknown>).snap_liquido as number ?? 0)
+        }
+        for (const a of ad ?? []) {
+          const c = (a as Record<string, unknown>).colaboradores as Record<string, unknown> | null
+          const id = String((c as Record<string, unknown>)?.obra_id ?? 'sem')
+          if (map[id]) map[id].adiantamentos = (map[id].adiantamentos as number) + ((a as Record<string, unknown>).valor as number ?? 0)
+        }
+        for (const v of vt ?? []) {
+          const c = (v as Record<string, unknown>).colaboradores as Record<string, unknown> | null
+          const id = String((c as Record<string, unknown>)?.obra_id ?? 'sem')
+          if (map[id]) map[id].vt = (map[id].vt as number) + ((v as Record<string, unknown>).valor_empresa as number ?? 0)
+        }
+        for (const p of pr ?? []) {
+          const c = (p as Record<string, unknown>).colaboradores as Record<string, unknown> | null
+          const id = String((c as Record<string, unknown>)?.obra_id ?? 'sem')
+          if (map[id]) map[id].premios = (map[id].premios as number) + ((p as Record<string, unknown>).valor as number ?? 0)
+        }
+        resultado = Object.values(map).map(r => ({
+          ...r,
+          total: (r.folha_bruto as number) + (r.adiantamentos as number) + (r.vt as number) + (r.premios as number)
+        })).sort((a, b) => (b.total as number) - (a.total as number))
+      }
+
+      // ── 3. Produtividade por Obra ─────────────────────────────────────────
+      else if (relatAtivo === 'producao-obra') {
+        const q = supabase.from('ponto_producao')
+          .select(`obra_id, quantidade, playbook_itens(descricao, unidade, preco_unitario), obras(nome)`)
+          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
+        if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
+        const { data } = await q
+        const map: Record<string, Record<string, unknown>> = {}
+        for (const d of data ?? []) {
+          const pb = (d as Record<string, unknown>).playbook_itens as Record<string, unknown> | null
+          const o = (d as Record<string, unknown>).obras as Record<string, unknown> | null
+          const key = `${(d as Record<string, unknown>).obra_id}-${pb?.descricao}`
+          if (!map[key]) map[key] = {
+            obra: o ? String(o.nome) : '—',
+            descricao: pb ? String(pb.descricao) : '—',
+            unidade: pb ? String(pb.unidade) : '—',
+            preco_unitario: pb ? Number(pb.preco_unitario ?? 0) : 0,
+            quantidade: 0, custo_total: 0,
+          }
+          map[key].quantidade = (map[key].quantidade as number) + Number((d as Record<string, unknown>).quantidade ?? 0)
+          map[key].custo_total = (map[key].custo_total as number) + (Number((d as Record<string, unknown>).quantidade ?? 0) * Number(pb?.preco_unitario ?? 0))
+        }
+        resultado = Object.values(map).sort((a, b) => (b.custo_total as number) - (a.custo_total as number))
+      }
+
+      // ── 4. Faltas por Obra ───────────────────────────────────────────────
+      else if (relatAtivo === 'faltas-obra') {
+        const q = supabase.from('ponto_lancamentos')
+          .select(`obra_id, snap_faltas, snap_horas, obras(nome)`)
+          .eq('mes_referencia', mesRef)
+        if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
+        const { data } = await q
+        const map: Record<string, Record<string, unknown>> = {}
+        for (const d of data ?? []) {
+          const o = (d as Record<string, unknown>).obras as Record<string, unknown> | null
+          const id = String((d as Record<string, unknown>).obra_id ?? 'sem')
+          if (!map[id]) map[id] = { obra: o ? String(o.nome) : '—', faltas: 0, horas: 0, colaboradores: 0 }
+          map[id].faltas = (map[id].faltas as number) + Number((d as Record<string, unknown>).snap_faltas ?? 0)
+          map[id].horas = (map[id].horas as number) + Number((d as Record<string, unknown>).snap_horas ?? 0)
+          ;(map[id].colaboradores as number)++
+        }
+        resultado = Object.values(map).map(r => ({
+          ...r,
+          pct_ausencia: r.horas ? (((r.faltas as number) * 8 / ((r.horas as number) + (r.faltas as number) * 8)) * 100).toFixed(1) : '0.0'
+        })).sort((a, b) => (b.faltas as number) - (a.faltas as number))
+      }
+
+      // ── 5. Acidentes por Obra ────────────────────────────────────────────
+      else if (relatAtivo === 'acidentes-obra') {
+        const q = supabase.from('acidentes')
+          .select(`obra_id, tipo, gravidade, cat_emitida, obras(nome)`)
+          .gte('data_ocorrencia', `${filtroAnoIni}-${filtroMesIni}-01`)
+          .lte('data_ocorrencia', `${filtroAnoFim}-${filtroMesFim}-31`)
+        if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
+        const { data } = await q
+        const map: Record<string, Record<string, unknown>> = {}
+        for (const d of data ?? []) {
+          const o = (d as Record<string, unknown>).obras as Record<string, unknown> | null
+          const id = String((d as Record<string, unknown>).obra_id ?? 'sem')
+          if (!map[id]) map[id] = { obra: o ? String(o.nome) : '—', total: 0, leve: 0, grave: 0, fatal: 0, cat: 0 }
+          map[id].total = (map[id].total as number) + 1
+          const grav = String((d as Record<string, unknown>).gravidade ?? '').toLowerCase()
+          if (grav === 'grave') map[id].grave = (map[id].grave as number) + 1
+          else if (grav === 'fatal') map[id].fatal = (map[id].fatal as number) + 1
+          else map[id].leve = (map[id].leve as number) + 1
+          if ((d as Record<string, unknown>).cat_emitida) map[id].cat = (map[id].cat as number) + 1
+        }
+        resultado = Object.values(map).sort((a, b) => (b.total as number) - (a.total as number))
+      }
+
+      // ── 6. Ficha Financeira Individual ───────────────────────────────────
+      else if (relatAtivo === 'ficha-financeira') {
+        if (filtroColaborador === 'todos') { toast.warning('Selecione um colaborador.'); setLoading(false); return }
+        const { data: pl } = await supabase.from('ponto_lancamentos')
+          .select('mes_referencia, snap_bruto, snap_liquido, snap_inss, snap_ir, snap_vt, snap_ad, snap_premio')
+          .eq('colaborador_id', filtroColaborador)
+          .gte('mes_referencia', mesRefIni).lte('mes_referencia', mesRefFim)
+          .order('mes_referencia')
+        const { data: ad } = await supabase.from('adiantamentos')
+          .select('competencia, tipo, valor, status')
+          .eq('colaborador_id', filtroColaborador)
+          .gte('competencia', mesRefIni).lte('competencia', mesRefFim)
+        const { data: vt } = await supabase.from('vale_transporte')
+          .select('competencia, tipo, valor, valor_empresa')
+          .eq('colaborador_id', filtroColaborador)
+          .gte('competencia', mesRefIni).lte('competencia', mesRefFim)
+        const { data: pr } = await supabase.from('premios')
+          .select('competencia, tipo, descricao, valor')
+          .eq('colaborador_id', filtroColaborador)
+          .gte('competencia', mesRefIni).lte('competencia', mesRefFim)
+
+        const meses: Record<string, Record<string, unknown>> = {}
+        const mk = (m: string) => { if (!meses[m]) meses[m] = { mes: m, bruto: 0, liquido: 0, inss: 0, ir: 0, vt_desc: 0, ad_desc: 0, premio: 0, adiantamentos: 0, vt_empresa: 0 }; return meses[m] }
+        for (const p of pl ?? []) { const r = mk(p.mes_referencia); r.bruto = Number(p.snap_bruto ?? 0); r.liquido = Number(p.snap_liquido ?? 0); r.inss = Number(p.snap_inss ?? 0); r.ir = Number(p.snap_ir ?? 0); r.vt_desc = Number(p.snap_vt ?? 0); r.ad_desc = Number(p.snap_ad ?? 0); r.premio = Number(p.snap_premio ?? 0) }
+        for (const a of ad ?? []) { const r = mk(a.competencia); r.adiantamentos = (r.adiantamentos as number) + Number(a.valor ?? 0) }
+        for (const v of vt ?? []) { const r = mk(v.competencia); r.vt_empresa = (r.vt_empresa as number) + Number(v.valor_empresa ?? 0) }
+        resultado = Object.values(meses).sort((a, b) => String(a.mes).localeCompare(String(b.mes)))
+      }
+
+      // ── 7. Histórico de Ponto ─────────────────────────────────────────────
+      else if (relatAtivo === 'historico-ponto') {
+        if (filtroColaborador === 'todos') { toast.warning('Selecione um colaborador.'); setLoading(false); return }
+        const { data } = await supabase.from('registro_ponto')
+          .select('data, presente, falta, hora_entrada, hora_saida, horas_trabalhadas, horas_extras, justificativa, status')
+          .eq('colaborador_id', filtroColaborador)
+          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
+          .lte('data', `${filtroAnoFim}-${filtroMesFim}-31`)
+          .order('data')
+        resultado = (data ?? []) as Record<string, unknown>[]
+      }
+
+      // ── 8. Produção Individual ────────────────────────────────────────────
+      else if (relatAtivo === 'producao-individual') {
+        if (filtroColaborador === 'todos') { toast.warning('Selecione um colaborador.'); setLoading(false); return }
+        const { data } = await supabase.from('ponto_producao')
+          .select('data, quantidade, obs, playbook_itens(descricao, unidade, preco_unitario), obras(nome)')
+          .eq('colaborador_id', filtroColaborador)
+          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
+          .lte('data', `${filtroAnoFim}-${filtroMesFim}-31`)
+          .order('data')
+        const map: Record<string, Record<string, unknown>> = {}
+        for (const d of data ?? []) {
+          const pb = (d as Record<string, unknown>).playbook_itens as Record<string, unknown> | null
+          const key = String(pb?.descricao ?? 'N/D')
+          if (!map[key]) map[key] = { descricao: key, unidade: pb?.unidade ?? '—', preco_unit: Number(pb?.preco_unitario ?? 0), quantidade: 0, total: 0 }
+          map[key].quantidade = (map[key].quantidade as number) + Number((d as Record<string, unknown>).quantidade ?? 0)
+          map[key].total = (map[key].total as number) + (Number((d as Record<string, unknown>).quantidade ?? 0) * Number(pb?.preco_unitario ?? 0))
+        }
+        resultado = Object.values(map).sort((a, b) => (b.total as number) - (a.total as number))
+      }
+
+      // ── 9. Ocorrências do Colaborador ────────────────────────────────────
+      else if (relatAtivo === 'ocorrencias-colab') {
+        if (filtroColaborador === 'todos') { toast.warning('Selecione um colaborador.'); setLoading(false); return }
+        const cid = filtroColaborador
+        const [oRes, adRes, atRes, acRes] = await Promise.all([
+          supabase.from('ocorrencias').select('data,tipo,descricao,gravidade,status').eq('colaborador_id', cid).order('data', { ascending: false }),
+          supabase.from('advertencias').select('data_advertencia,tipo,motivo,dias_suspensao,assinada').eq('colaborador_id', cid).order('data_advertencia', { ascending: false }),
+          supabase.from('atestados').select('data,tipo,dias_afastamento,cid,medico,status').eq('colaborador_id', cid).order('data', { ascending: false }),
+          supabase.from('acidentes').select('data_ocorrencia,tipo,gravidade,cat_emitida,status').eq('colaborador_id', cid).order('data_ocorrencia', { ascending: false }),
+        ])
+        const linha = (tipo: string, data: string | null, desc: string, extra: string, status: string) => ({ tipo, data: data ?? '—', descricao: desc, extra, status })
+        resultado = [
+          ...(oRes.data ?? []).map(r => linha('Ocorrência', r.data, r.descricao ?? '—', `Gravidade: ${r.gravidade ?? '—'}`, r.status ?? '—')),
+          ...(adRes.data ?? []).map(r => linha('Advertência', r.data_advertencia, r.motivo ?? '—', r.tipo ?? '—', r.assinada ? 'Assinada' : 'Não assinada')),
+          ...(atRes.data ?? []).map(r => linha('Atestado', r.data, `${r.dias_afastamento ?? 0} dia(s) — CID: ${r.cid ?? '—'}`, r.medico ?? '—', r.status ?? '—')),
+          ...(acRes.data ?? []).map(r => linha('Acidente', r.data_ocorrencia, r.tipo ?? '—', `Gravidade: ${r.gravidade ?? '—'} | CAT: ${r.cat_emitida ? 'Sim' : 'Não'}`, r.status ?? '—')),
+        ].sort((a, b) => String(b.data).localeCompare(String(a.data)))
+      }
+
+      // ── 10. Custo Total do Colaborador ────────────────────────────────────
+      else if (relatAtivo === 'custo-colab') {
+        if (filtroColaborador === 'todos') { toast.warning('Selecione um colaborador.'); setLoading(false); return }
+        const cid = filtroColaborador
+        const [pl, ad, vt, pr] = await Promise.all([
+          supabase.from('ponto_lancamentos').select('mes_referencia,snap_bruto,snap_inss,snap_vt,snap_ad,snap_premio').eq('colaborador_id', cid).gte('mes_referencia', mesRefIni).lte('mes_referencia', mesRefFim),
+          supabase.from('adiantamentos').select('competencia,valor').eq('colaborador_id', cid).gte('competencia', mesRefIni).lte('competencia', mesRefFim),
+          supabase.from('vale_transporte').select('competencia,valor_empresa').eq('colaborador_id', cid).gte('competencia', mesRefIni).lte('competencia', mesRefFim),
+          supabase.from('premios').select('competencia,valor').eq('colaborador_id', cid).gte('competencia', mesRefIni).lte('competencia', mesRefFim),
+        ])
+        const map: Record<string, Record<string, unknown>> = {}
+        const mk = (m: string) => { if (!map[m]) map[m] = { mes: m, folha_bruta: 0, adiantamentos: 0, vt_empresa: 0, premios: 0, total: 0 }; return map[m] }
+        for (const p of pl.data ?? []) { const r = mk(p.mes_referencia); r.folha_bruta = Number(p.snap_bruto ?? 0) }
+        for (const a of ad.data ?? []) { const r = mk(a.competencia); r.adiantamentos = (r.adiantamentos as number) + Number(a.valor ?? 0) }
+        for (const v of vt.data ?? []) { const r = mk(v.competencia); r.vt_empresa = (r.vt_empresa as number) + Number(v.valor_empresa ?? 0) }
+        for (const p of pr.data ?? []) { const r = mk(p.competencia); r.premios = (r.premios as number) + Number(p.valor ?? 0) }
+        resultado = Object.values(map).map(r => ({ ...r, total: (r.folha_bruta as number) + (r.adiantamentos as number) + (r.vt_empresa as number) + (r.premios as number) })).sort((a, b) => String(a.mes).localeCompare(String(b.mes)))
+      }
+
+      // ── 11. Headcount por Função ──────────────────────────────────────────
+      else if (relatAtivo === 'headcount-funcao') {
+        const { data } = await supabase.from('colaboradores')
+          .select('funcao_id, salario, tipo_contrato, status, funcoes(nome, categoria)')
+          .eq('status', 'ativo')
+        const map: Record<string, Record<string, unknown>> = {}
+        for (const c of data ?? []) {
+          const f = (c as Record<string, unknown>).funcoes as Record<string, unknown> | null
+          const id = String((c as Record<string, unknown>).funcao_id ?? 'sem')
+          const nome = f ? String(f.nome) : '(Sem Função)'
+          if (!map[id]) map[id] = { funcao: nome, categoria: f ? String(f.categoria ?? '—') : '—', total: 0, clt: 0, pj: 0, menor: 0, salario_total: 0, salario_medio: 0 }
+          map[id].total = (map[id].total as number) + 1
+          const tipo = String((c as Record<string, unknown>).tipo_contrato ?? '').toLowerCase()
+          if (tipo.includes('clt')) map[id].clt = (map[id].clt as number) + 1
+          else if (tipo.includes('pj')) map[id].pj = (map[id].pj as number) + 1
+          map[id].salario_total = (map[id].salario_total as number) + Number((c as Record<string, unknown>).salario ?? 0)
+        }
+        resultado = Object.values(map).map(r => ({
+          ...r, salario_medio: r.total ? (r.salario_total as number) / (r.total as number) : 0
+        })).sort((a, b) => (b.total as number) - (a.total as number))
+      }
+
+      // ── 12. Custo por Função ──────────────────────────────────────────────
+      else if (relatAtivo === 'custo-funcao') {
+        const { data } = await supabase.from('ponto_lancamentos')
+          .select('snap_bruto, snap_liquido, colaboradores(funcao_id, funcoes(nome))')
+          .eq('mes_referencia', mesRef)
+        const map: Record<string, Record<string, unknown>> = {}
+        for (const d of data ?? []) {
+          const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
+          const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
+          const nome = func ? String(func.nome) : '(Sem Função)'
+          if (!map[nome]) map[nome] = { funcao: nome, bruto: 0, liquido: 0, colaboradores: 0 }
+          map[nome].bruto = (map[nome].bruto as number) + Number((d as Record<string, unknown>).snap_bruto ?? 0)
+          map[nome].liquido = (map[nome].liquido as number) + Number((d as Record<string, unknown>).snap_liquido ?? 0)
+          map[nome].colaboradores = (map[nome].colaboradores as number) + 1
+        }
+        resultado = Object.values(map).sort((a, b) => (b.bruto as number) - (a.bruto as number))
+      }
+
+      // ── 13. Produtividade por Função ──────────────────────────────────────
+      else if (relatAtivo === 'producao-funcao') {
+        const { data } = await supabase.from('ponto_producao')
+          .select('quantidade, colaboradores(funcao_id, funcoes(nome, categoria))')
+          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
+          .lte('data', `${filtroAnoFim}-${filtroMesFim}-31`)
+        const map: Record<string, Record<string, unknown>> = {}
+        for (const d of data ?? []) {
+          const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
+          const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
+          const nome = func ? String(func.nome) : '(Sem Função)'
+          const cat = func ? String((func as Record<string, unknown>).categoria ?? '—') : '—'
+          if (!map[nome]) map[nome] = { funcao: nome, categoria: cat, total: 0, lancamentos: 0, media: 0 }
+          map[nome].total = (map[nome].total as number) + Number((d as Record<string, unknown>).quantidade ?? 0)
+          map[nome].lancamentos = (map[nome].lancamentos as number) + 1
+        }
+        resultado = Object.values(map).map(r => ({
+          ...r, media: r.lancamentos ? ((r.total as number) / (r.lancamentos as number)) : 0
+        })).sort((a, b) => (b.total as number) - (a.total as number))
+      }
+
+      // ── 14. Ranking de Produção ───────────────────────────────────────────
+      else if (relatAtivo === 'ranking-producao') {
+        const q = supabase.from('ponto_producao')
+          .select('colaborador_id, quantidade, playbook_itens(preco_unitario), colaboradores(nome, chapa, funcoes(nome))')
+          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
+          .lte('data', `${filtroAnoFim}-${filtroMesFim}-31`)
+        if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
+        const { data } = await q
+        const map: Record<string, Record<string, unknown>> = {}
+        for (const d of data ?? []) {
+          const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
+          const pb = (d as Record<string, unknown>).playbook_itens as Record<string, unknown> | null
+          const id = String((d as Record<string, unknown>).colaborador_id)
+          const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
+          if (!map[id]) map[id] = { colaborador: colab ? String(colab.nome) : '—', chapa: colab ? String(colab.chapa ?? '—') : '—', funcao: func ? String(func.nome) : '—', total_qtd: 0, total_valor: 0 }
+          map[id].total_qtd = (map[id].total_qtd as number) + Number((d as Record<string, unknown>).quantidade ?? 0)
+          map[id].total_valor = (map[id].total_valor as number) + (Number((d as Record<string, unknown>).quantidade ?? 0) * Number(pb?.preco_unitario ?? 0))
+        }
+        resultado = Object.values(map).sort((a, b) => (b.total_valor as number) - (a.total_valor as number)).map((r, i) => ({ posicao: i + 1, ...r }))
+      }
+
+      // ── 15. Produção por Item Playbook ────────────────────────────────────
+      else if (relatAtivo === 'producao-playbook') {
+        const q = supabase.from('ponto_producao')
+          .select('quantidade, playbook_itens(id, descricao, unidade, preco_unitario, categoria), obras(nome)')
+          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
+          .lte('data', `${filtroAnoFim}-${filtroMesFim}-31`)
+        if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
+        const { data } = await q
+        const map: Record<string, Record<string, unknown>> = {}
+        for (const d of data ?? []) {
+          const pb = (d as Record<string, unknown>).playbook_itens as Record<string, unknown> | null
+          const key = String(pb?.id ?? 'sem')
+          if (!map[key]) map[key] = { descricao: pb?.descricao ?? '—', unidade: pb?.unidade ?? '—', categoria: pb?.categoria ?? '—', preco: Number(pb?.preco_unitario ?? 0), qtd: 0, total: 0, lancamentos: 0 }
+          map[key].qtd = (map[key].qtd as number) + Number((d as Record<string, unknown>).quantidade ?? 0)
+          map[key].total = (map[key].total as number) + (Number((d as Record<string, unknown>).quantidade ?? 0) * Number(pb?.preco_unitario ?? 0))
+          map[key].lancamentos = (map[key].lancamentos as number) + 1
+        }
+        resultado = Object.values(map).sort((a, b) => (b.total as number) - (a.total as number))
+      }
+
+      // ── 16. Meta vs Realizado ─────────────────────────────────────────────
+      else if (relatAtivo === 'meta-realizado') {
+        const q = supabase.from('ponto_lancamentos')
+          .select('colaborador_id, snap_horas, colaboradores(nome, salario, funcoes(nome)), obras(nome)')
+          .eq('mes_referencia', mesRef)
+        if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
+        const { data } = await q
+        resultado = (data ?? []).map(d => {
+          const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
+          const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
+          const horas = Number((d as Record<string, unknown>).snap_horas ?? 0)
+          const salario = Number(colab?.salario ?? 0)
+          const metaHoras = 220
+          return {
+            colaborador: colab ? String(colab.nome) : '—',
+            funcao: func ? String(func.nome) : '—',
+            meta_horas: metaHoras,
+            horas_realizadas: horas,
+            diferenca: horas - metaHoras,
+            pct_atingido: metaHoras > 0 ? ((horas / metaHoras) * 100).toFixed(1) : '0.0',
+            custo_hora: salario > 0 && horas > 0 ? salario / horas : 0,
+          }
+        }).sort((a, b) => Number(a.pct_atingido) - Number(b.pct_atingido))
+      }
+
+      // ── 17. Evolução de Horas ─────────────────────────────────────────────
+      else if (relatAtivo === 'evolucao-horas') {
+        const q = supabase.from('ponto_lancamentos')
+          .select('mes_referencia, snap_horas, snap_faltas, obra_id')
+          .gte('mes_referencia', mesRefIni).lte('mes_referencia', mesRefFim)
+        if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
+        const { data } = await q
+        const map: Record<string, Record<string, unknown>> = {}
+        for (const d of data ?? []) {
+          const m = String((d as Record<string, unknown>).mes_referencia)
+          if (!map[m]) map[m] = { mes: m, horas: 0, faltas: 0, colaboradores: 0 }
+          map[m].horas = (map[m].horas as number) + Number((d as Record<string, unknown>).snap_horas ?? 0)
+          map[m].faltas = (map[m].faltas as number) + Number((d as Record<string, unknown>).snap_faltas ?? 0)
+          map[m].colaboradores = (map[m].colaboradores as number) + 1
+        }
+        resultado = Object.values(map).sort((a, b) => String(a.mes).localeCompare(String(b.mes)))
+      }
+
+      // ── 18. Painel de Acidentes ───────────────────────────────────────────
+      else if (relatAtivo === 'painel-acidentes') {
+        const q = supabase.from('acidentes')
+          .select('data_ocorrencia, tipo, gravidade, local_acidente, cat_emitida, descricao, status, colaboradores(nome), obras(nome)')
+          .gte('data_ocorrencia', `${filtroAnoIni}-${filtroMesIni}-01`)
+          .lte('data_ocorrencia', `${filtroAnoFim}-${filtroMesFim}-31`)
+        if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
+        const { data } = await q
+        resultado = (data ?? []).map(d => ({
+          data: fmtDate((d as Record<string, unknown>).data_ocorrencia as string),
+          colaborador: ((d as Record<string, unknown>).colaboradores as Record<string, unknown> | null)?.nome ?? '—',
+          obra: ((d as Record<string, unknown>).obras as Record<string, unknown> | null)?.nome ?? '—',
+          tipo: (d as Record<string, unknown>).tipo,
+          gravidade: (d as Record<string, unknown>).gravidade,
+          local: (d as Record<string, unknown>).local_acidente,
+          cat: (d as Record<string, unknown>).cat_emitida ? 'Sim' : 'Não',
+          status: (d as Record<string, unknown>).status,
+        })) as Record<string, unknown>[]
+      }
+
+      // ── 19. Painel de Atestados ───────────────────────────────────────────
+      else if (relatAtivo === 'painel-atestados') {
+        const q = supabase.from('atestados')
+          .select('data, tipo, dias_afastamento, cid, medico, com_afastamento, status, colaboradores(nome)')
+          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
+          .lte('data', `${filtroAnoFim}-${filtroMesFim}-31`)
+        if (filtroColaborador !== 'todos') q.eq('colaborador_id', filtroColaborador)
+        const { data } = await q
+        const byCid: Record<string, number> = {}
+        for (const d of data ?? []) byCid[String(d.cid ?? 'N/D')] = (byCid[String(d.cid ?? 'N/D')] ?? 0) + Number(d.dias_afastamento ?? 0)
+        resultado = (data ?? []).map(d => ({
+          data: fmtDate(d.data),
+          colaborador: ((d as Record<string, unknown>).colaboradores as Record<string, unknown> | null)?.nome ?? '—',
+          tipo: d.tipo,
+          dias: d.dias_afastamento ?? 0,
+          cid: d.cid ?? '—',
+          medico: d.medico ?? '—',
+          afastamento: d.com_afastamento ? 'Sim' : 'Não',
+          status: d.status,
+        })) as Record<string, unknown>[]
+      }
+
+      // ── 20. EPIs Vencidos/a Vencer ────────────────────────────────────────
+      else if (relatAtivo === 'epis-vencidos') {
+        const dias = parseInt(diasVencimento) || 30
+        const hoje = new Date()
+        const limite = new Date(hoje); limite.setDate(hoje.getDate() + dias)
+        const { data } = await supabase.from('colaborador_epi')
+          .select('data_validade, data_entrega, status, quantidade_entregue, colaboradores(nome, chapa), epi_catalogo(nome, categoria, numero_ca)')
+          .lte('data_validade', limite.toISOString().split('T')[0])
+          .order('data_validade')
+        resultado = (data ?? []).map(d => {
+          const val = d.data_validade ? new Date(d.data_validade) : null
+          const vencido = val ? val < hoje : true
+          const diasRestantes = val ? Math.ceil((val.getTime() - hoje.getTime()) / 86400000) : null
+          return {
+            colaborador: ((d as Record<string, unknown>).colaboradores as Record<string, unknown> | null)?.nome ?? '—',
+            chapa: ((d as Record<string, unknown>).colaboradores as Record<string, unknown> | null)?.chapa ?? '—',
+            epi: ((d as Record<string, unknown>).epi_catalogo as Record<string, unknown> | null)?.nome ?? '—',
+            ca: ((d as Record<string, unknown>).epi_catalogo as Record<string, unknown> | null)?.numero_ca ?? '—',
+            categoria: ((d as Record<string, unknown>).epi_catalogo as Record<string, unknown> | null)?.categoria ?? '—',
+            data_validade: fmtDate(d.data_validade),
+            dias_restantes: diasRestantes,
+            situacao: vencido ? 'VENCIDO' : diasRestantes !== null && diasRestantes <= 7 ? 'CRÍTICO' : 'A VENCER',
+          }
+        }) as Record<string, unknown>[]
+      }
+
+      // ── 21. Resumo de Folha ───────────────────────────────────────────────
+      else if (relatAtivo === 'resumo-folha') {
+        const q = supabase.from('ponto_lancamentos')
+          .select('snap_bruto, snap_liquido, snap_inss, snap_ir, snap_vt, snap_ad, snap_horas, snap_faltas, mes_referencia, obras(nome)')
+          .gte('mes_referencia', mesRefIni).lte('mes_referencia', mesRefFim)
+        if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
+        const { data } = await q
+        const map: Record<string, Record<string, unknown>> = {}
+        for (const d of data ?? []) {
+          const m = String((d as Record<string, unknown>).mes_referencia)
+          if (!map[m]) map[m] = { mes: m, bruto: 0, liquido: 0, inss: 0, ir: 0, vt: 0, ad: 0, horas: 0, faltas: 0, colaboradores: 0 }
+          map[m].bruto = (map[m].bruto as number) + Number((d as Record<string, unknown>).snap_bruto ?? 0)
+          map[m].liquido = (map[m].liquido as number) + Number((d as Record<string, unknown>).snap_liquido ?? 0)
+          map[m].inss = (map[m].inss as number) + Number((d as Record<string, unknown>).snap_inss ?? 0)
+          map[m].ir = (map[m].ir as number) + Number((d as Record<string, unknown>).snap_ir ?? 0)
+          map[m].vt = (map[m].vt as number) + Number((d as Record<string, unknown>).snap_vt ?? 0)
+          map[m].ad = (map[m].ad as number) + Number((d as Record<string, unknown>).snap_ad ?? 0)
+          map[m].horas = (map[m].horas as number) + Number((d as Record<string, unknown>).snap_horas ?? 0)
+          map[m].faltas = (map[m].faltas as number) + Number((d as Record<string, unknown>).snap_faltas ?? 0)
+          map[m].colaboradores = (map[m].colaboradores as number) + 1
+        }
+        resultado = Object.values(map).sort((a, b) => String(a.mes).localeCompare(String(b.mes)))
+      }
+
+      // ── 22. Provisões Acumuladas ──────────────────────────────────────────
+      else if (relatAtivo === 'provisoes') {
+        const q = supabase.from('provisoes_fgts')
+          .select('colaborador_id, competencia, fgts_mensal, ferias_provisionadas, decimo_terceiro, total_provisao, colaboradores(nome, funcoes(nome))')
+          .gte('competencia', mesRefIni).lte('competencia', mesRefFim)
+        if (filtroColaborador !== 'todos') q.eq('colaborador_id', filtroColaborador)
+        const { data } = await q
+        const map: Record<string, Record<string, unknown>> = {}
+        for (const d of data ?? []) {
+          const id = String((d as Record<string, unknown>).colaborador_id)
+          const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
+          const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
+          if (!map[id]) map[id] = { colaborador: colab?.nome ?? '—', funcao: func?.nome ?? '—', fgts: 0, ferias: 0, decimo: 0, total: 0 }
+          map[id].fgts = (map[id].fgts as number) + Number((d as Record<string, unknown>).fgts_mensal ?? 0)
+          map[id].ferias = (map[id].ferias as number) + Number((d as Record<string, unknown>).ferias_provisionadas ?? 0)
+          map[id].decimo = (map[id].decimo as number) + Number((d as Record<string, unknown>).decimo_terceiro ?? 0)
+          map[id].total = (map[id].total as number) + Number((d as Record<string, unknown>).total_provisao ?? 0)
+        }
+        resultado = Object.values(map).sort((a, b) => (b.total as number) - (a.total as number))
+      }
+
+      // ── 23. Adiantamentos em Aberto ───────────────────────────────────────
+      else if (relatAtivo === 'adiantamentos-aberto') {
+        const q = supabase.from('adiantamentos')
+          .select('competencia, tipo, valor, desconto_parcelas, desconto_parcela_atual, observacoes, colaboradores(nome, chapa, funcoes(nome))')
+          .neq('status', 'quitado')
+          .order('competencia', { ascending: false })
+        if (filtroColaborador !== 'todos') q.eq('colaborador_id', filtroColaborador)
+        const { data } = await q
+        resultado = (data ?? []).map(d => {
+          const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
+          const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
+          return {
+            colaborador: colab?.nome ?? '—',
+            chapa: colab?.chapa ?? '—',
+            funcao: func?.nome ?? '—',
+            competencia: fmtMes(d.competencia),
+            tipo: d.tipo ?? '—',
+            valor: d.valor,
+            parcelas: `${d.desconto_parcela_atual ?? 0}/${d.desconto_parcelas ?? 0}`,
+            restante: d.desconto_parcelas && d.desconto_parcela_atual ? Number(d.valor) * ((Number(d.desconto_parcelas) - Number(d.desconto_parcela_atual)) / Number(d.desconto_parcelas)) : d.valor,
+          }
+        }) as Record<string, unknown>[]
+      }
+
+      // ── 24. Custo Hora Médio ──────────────────────────────────────────────
+      else if (relatAtivo === 'custo-hora') {
+        const q = supabase.from('ponto_lancamentos')
+          .select('snap_bruto, snap_horas, colaboradores(funcao_id, funcoes(nome)), obra_id, obras(nome)')
+          .eq('mes_referencia', mesRef)
+        if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
+        const { data } = await q
+        const map: Record<string, Record<string, unknown>> = {}
+        for (const d of data ?? []) {
+          const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
+          const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
+          const nome = func ? String(func.nome) : '(Sem Função)'
+          if (!map[nome]) map[nome] = { funcao: nome, bruto_total: 0, horas_total: 0, colaboradores: 0 }
+          map[nome].bruto_total = (map[nome].bruto_total as number) + Number((d as Record<string, unknown>).snap_bruto ?? 0)
+          map[nome].horas_total = (map[nome].horas_total as number) + Number((d as Record<string, unknown>).snap_horas ?? 0)
+          map[nome].colaboradores = (map[nome].colaboradores as number) + 1
+        }
+        resultado = Object.values(map).map(r => ({
+          ...r,
+          custo_hora: r.horas_total ? ((r.bruto_total as number) / (r.horas_total as number)) : 0
+        })).sort((a, b) => (b.custo_hora as number) - (a.custo_hora as number))
+      }
+
+      // ── 25. Aniversariantes do Mês ────────────────────────────────────────
+      else if (relatAtivo === 'aniversariantes') {
+        const { data } = await supabase.from('colaboradores')
+          .select('nome, chapa, data_nascimento, funcoes(nome), obras(nome), telefone, email')
+          .eq('status', 'ativo')
+        const dia = filtroMes
+        resultado = (data ?? []).filter(c => {
+          const dn = c.data_nascimento ? c.data_nascimento.substring(5, 7) : null
+          return dn === dia
+        }).map(c => ({
+          nome: c.nome,
+          chapa: c.chapa ?? '—',
+          data_nascimento: fmtDate(c.data_nascimento),
+          idade: c.data_nascimento ? new Date().getFullYear() - parseInt(c.data_nascimento.substring(0, 4)) : '—',
+          funcao: ((c as Record<string, unknown>).funcoes as Record<string, unknown> | null)?.nome ?? '—',
+          obra: ((c as Record<string, unknown>).obras as Record<string, unknown> | null)?.nome ?? '—',
+          telefone: c.telefone ?? '—',
+          email: c.email ?? '—',
+        })).sort((a, b) => parseInt(String(a.data_nascimento).split('/')[0]) - parseInt(String(b.data_nascimento).split('/')[0])) as Record<string, unknown>[]
+      }
+
+      // ── 26. Contratos Vencendo ────────────────────────────────────────────
+      else if (relatAtivo === 'contratos-vencendo') {
+        const dias = parseInt(diasVencimento) || 30
+        const hoje = new Date()
+        const limite = new Date(hoje); limite.setDate(hoje.getDate() + dias)
+        const { data } = await supabase.from('colaboradores')
+          .select('nome, chapa, data_admissao, data_demissao, tipo_contrato, funcoes(nome), obras(nome)')
+          .eq('status', 'ativo')
+          .lte('data_demissao', limite.toISOString().split('T')[0])
+          .gte('data_demissao', hoje.toISOString().split('T')[0])
+          .order('data_demissao')
+        resultado = (data ?? []).map(c => {
+          const dem = c.data_demissao ? new Date(c.data_demissao) : null
+          const diasRest = dem ? Math.ceil((dem.getTime() - hoje.getTime()) / 86400000) : null
+          return {
+            nome: c.nome, chapa: c.chapa ?? '—',
+            data_admissao: fmtDate(c.data_admissao),
+            data_vencimento: fmtDate(c.data_demissao),
+            dias_restantes: diasRest,
+            tipo_contrato: c.tipo_contrato ?? '—',
+            funcao: ((c as Record<string, unknown>).funcoes as Record<string, unknown> | null)?.nome ?? '—',
+            obra: ((c as Record<string, unknown>).obras as Record<string, unknown> | null)?.nome ?? '—',
+          }
+        }) as Record<string, unknown>[]
+      }
+
+      // ── 27. Playbook de Atividades ────────────────────────────────────────
+      else if (relatAtivo === 'playbook-atividades') {
+        const q = supabase.from('playbook_itens')
+          .select('descricao, unidade, preco_unitario, categoria, ativo, obras(nome)')
+          .order('categoria').order('descricao')
+        if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
+        const { data } = await q
+        resultado = (data ?? []).map(d => ({
+          obra: ((d as Record<string, unknown>).obras as Record<string, unknown> | null)?.nome ?? '—',
+          categoria: d.categoria ?? '—',
+          descricao: d.descricao,
+          unidade: d.unidade ?? '—',
+          preco: d.preco_unitario,
+          ativo: d.ativo ? 'Sim' : 'Não',
+        })) as Record<string, unknown>[]
+      }
+
+      // ── 28. Histórico de Advertências ─────────────────────────────────────
+      else if (relatAtivo === 'historico-advertencias') {
+        const q = supabase.from('advertencias')
+          .select('data_advertencia, tipo, motivo, dias_suspensao, assinada, colaboradores(nome, chapa, funcoes(nome), obras(nome))')
+          .gte('data_advertencia', `${filtroAnoIni}-${filtroMesIni}-01`)
+          .lte('data_advertencia', `${filtroAnoFim}-${filtroMesFim}-31`)
+          .order('data_advertencia', { ascending: false })
+        if (filtroColaborador !== 'todos') q.eq('colaborador_id', filtroColaborador)
+        const { data } = await q
+        resultado = (data ?? []).map(d => {
+          const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
+          const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
+          const obra = colab ? (colab.obras as Record<string, unknown> | null) : null
+          return {
+            data: fmtDate(d.data_advertencia),
+            colaborador: colab?.nome ?? '—',
+            chapa: colab?.chapa ?? '—',
+            funcao: func?.nome ?? '—',
+            obra: obra?.nome ?? '—',
+            tipo: d.tipo ?? '—',
+            motivo: d.motivo ?? '—',
+            dias_suspensao: d.dias_suspensao ?? 0,
+            assinada: d.assinada ? 'Sim' : 'Não',
+          }
+        }) as Record<string, unknown>[]
+      }
+
+      setDados(resultado)
+      setGerado(true)
+      if (resultado.length === 0) toast.info('Nenhum dado encontrado para os filtros selecionados.')
+      else toast.success(`${resultado.length} registro(s) carregado(s).`)
+    } catch (err) {
+      console.error(err)
+      toast.error('Erro ao consultar dados. Verifique o console.')
+    } finally {
+      setLoading(false)
+    }
+  }, [relatAtivo, filtroObra, filtroColaborador, filtroFuncao, filtroMes, filtroAno, filtroMesIni, filtroAnoIni, filtroMesFim, filtroAnoFim, mesRef, mesRefIni, mesRefFim, diasVencimento])
+
+  // ── Imprimir PDF ────────────────────────────────────────────────────────────
+
+  const imprimirPDF = useCallback(async () => {
+    if (!dados.length) { toast.warning('Gere o relatório primeiro.'); return }
+    const relat = GRUPOS.flatMap(g => g.items).find(i => i.id === relatAtivo)
+    const titulo = relat?.label ?? 'Relatório'
+    const periodo = `${fmtMes(mesRefIni)} a ${fmtMes(mesRefFim)}`
+    let htmlBody = ''
+
+    const tabelaHTML = (headers: string[], rows: string[][], totais?: string[]) => `
+      <table>
+        <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody>
+        ${totais ? `<tfoot><tr>${totais.map(c => `<td>${c}</td>`).join('')}</tr></tfoot>` : ''}
+      </table>`
+
+    const kpiHTML = (items: { val: string; lbl: string }[]) =>
+      `<div class="kpi-row">${items.map(k => `<div class="kpi"><div class="kpi-val">${k.val}</div><div class="kpi-lbl">${k.lbl}</div></div>`).join('')}</div>`
+
+    const badgeHTML = (v: string) => {
+      const lower = String(v ?? '').toLowerCase()
+      if (['ativo', 'aprovado', 'sim', 'assinada', 'ok'].includes(lower)) return `<span class="badge-ok">${v}</span>`
+      if (['grave', 'vencido', 'crítico'].includes(lower)) return `<span class="badge-danger">${v}</span>`
+      if (['a vencer', 'pendente', 'não'].includes(lower)) return `<span class="badge-warn">${v}</span>`
+      return `<span class="badge-info">${v}</span>`
+    }
+
+    if (relatAtivo === 'headcount-obra') {
+      const totalGeral = dados.reduce((s, r) => s + (r.total as number), 0)
+      const totalAtivos = dados.reduce((s, r) => s + (r.ativo as number), 0)
+      htmlBody = kpiHTML([
+        { val: String(totalGeral), lbl: 'Total Colaboradores' },
+        { val: String(totalAtivos), lbl: 'Ativos' },
+        { val: String(dados.length), lbl: 'Obras' },
+      ]) + tabelaHTML(
+        ['Obra', 'Ativos', 'Inativos', 'Afastados', 'Total'],
+        dados.map(r => [String(r.obra), String(r.ativo), String(r.inativo), String(r.afastado), `<strong>${r.total}</strong>`]),
+        ['TOTAL', String(totalAtivos), '—', '—', `<strong>${totalGeral}</strong>`]
+      )
+    } else if (relatAtivo === 'custo-obra') {
+      const totalGeral = dados.reduce((s, r) => s + (r.total as number), 0)
+      htmlBody = kpiHTML([
+        { val: fmtCur(totalGeral), lbl: 'Custo Total' },
+        { val: fmtCur(dados.reduce((s, r) => s + (r.folha_bruto as number), 0)), lbl: 'Folha Bruta' },
+        { val: fmtCur(dados.reduce((s, r) => s + (r.adiantamentos as number), 0)), lbl: 'Adiantamentos' },
+        { val: fmtCur(dados.reduce((s, r) => s + (r.vt as number), 0)), lbl: 'Vale Transporte' },
+      ]) + tabelaHTML(
+        ['Obra', 'Folha Bruta', 'Adiantamentos', 'V. Transporte', 'Prêmios', 'Total'],
+        dados.map(r => [String(r.obra), fmtCur(r.folha_bruto as number), fmtCur(r.adiantamentos as number), fmtCur(r.vt as number), fmtCur(r.premios as number), `<strong>${fmtCur(r.total as number)}</strong>`])
+      )
+    } else if (relatAtivo === 'ficha-financeira') {
+      const colabNome = colaboradores.find(c => c.id === filtroColaborador)?.nome ?? '—'
+      htmlBody = `<h2>Colaborador: ${colabNome}</h2>` + tabelaHTML(
+        ['Mês', 'Bruto', 'INSS', 'IR', 'Desc. VT', 'Desc. AD', 'Prêmio', 'Líquido', 'Adiantamentos'],
+        dados.map(r => [fmtMes(r.mes as string), fmtCur(r.bruto as number), fmtCur(r.inss as number), fmtCur(r.ir as number), fmtCur(r.vt_desc as number), fmtCur(r.ad_desc as number), fmtCur(r.premio as number), fmtCur(r.liquido as number), fmtCur(r.adiantamentos as number)])
+      )
+    } else if (relatAtivo === 'historico-ponto') {
+      htmlBody = tabelaHTML(
+        ['Data', 'Entrada', 'Saída', 'Hs Trabalhadas', 'Hs Extras', 'Presente', 'Falta', 'Justificativa'],
+        dados.map(r => [fmtDate(r.data as string), String(r.hora_entrada ?? '—'), String(r.hora_saida ?? '—'), fmtNum(r.horas_trabalhadas as number), fmtNum(r.horas_extras as number), r.presente ? '✔' : '', r.falta ? '✘' : '', String(r.justificativa ?? '')])
+      )
+    } else if (relatAtivo === 'ranking-producao') {
+      htmlBody = kpiHTML([
+        { val: String(dados.length), lbl: 'Colaboradores' },
+        { val: fmtCur(dados.reduce((s, r) => s + (r.total_valor as number), 0)), lbl: 'Total Produzido' },
+      ]) + tabelaHTML(
+        ['#', 'Colaborador', 'Chapa', 'Função', 'Qtd Total', 'Valor Total'],
+        dados.map(r => [String(r.posicao), String(r.colaborador), String(r.chapa), String(r.funcao), fmtNum(r.total_qtd as number), fmtCur(r.total_valor as number)])
+      )
+    } else if (relatAtivo === 'resumo-folha') {
+      const tb = dados.reduce((s, r) => s + (r.bruto as number), 0)
+      const tl = dados.reduce((s, r) => s + (r.liquido as number), 0)
+      htmlBody = kpiHTML([
+        { val: fmtCur(tb), lbl: 'Total Bruto' },
+        { val: fmtCur(tl), lbl: 'Total Líquido' },
+        { val: fmtCur(dados.reduce((s, r) => s + (r.inss as number), 0)), lbl: 'Total INSS' },
+        { val: fmtCur(dados.reduce((s, r) => s + (r.ir as number), 0)), lbl: 'Total IR' },
+      ]) + tabelaHTML(
+        ['Mês', 'Colaboradores', 'Bruto', 'INSS', 'IR', 'Desc. VT', 'Desc. AD', 'Líquido', 'Horas', 'Faltas'],
+        dados.map(r => [fmtMes(r.mes as string), String(r.colaboradores), fmtCur(r.bruto as number), fmtCur(r.inss as number), fmtCur(r.ir as number), fmtCur(r.vt as number), fmtCur(r.ad as number), fmtCur(r.liquido as number), fmtNum(r.horas as number), String(r.faltas)])
+      )
+    } else if (relatAtivo === 'provisoes') {
+      htmlBody = kpiHTML([
+        { val: fmtCur(dados.reduce((s, r) => s + (r.total as number), 0)), lbl: 'Total Provisão' },
+        { val: fmtCur(dados.reduce((s, r) => s + (r.fgts as number), 0)), lbl: 'FGTS' },
+        { val: fmtCur(dados.reduce((s, r) => s + (r.ferias as number), 0)), lbl: 'Férias' },
+        { val: fmtCur(dados.reduce((s, r) => s + (r.decimo as number), 0)), lbl: '13º' },
+      ]) + tabelaHTML(
+        ['Colaborador', 'Função', 'FGTS', 'Férias', '13º Proporcional', 'Total'],
+        dados.map(r => [String(r.colaborador), String(r.funcao), fmtCur(r.fgts as number), fmtCur(r.ferias as number), fmtCur(r.decimo as number), `<strong>${fmtCur(r.total as number)}</strong>`])
+      )
+    } else if (relatAtivo === 'painel-acidentes') {
+      htmlBody = kpiHTML([
+        { val: String(dados.length), lbl: 'Total Acidentes' },
+        { val: String(dados.filter(r => r.gravidade === 'grave').length), lbl: 'Graves' },
+        { val: String(dados.filter(r => r.cat === 'Sim').length), lbl: 'CAT Emitidas' },
+      ]) + tabelaHTML(
+        ['Data', 'Colaborador', 'Obra', 'Tipo', 'Gravidade', 'CAT', 'Status'],
+        dados.map(r => [String(r.data), String(r.colaborador), String(r.obra), String(r.tipo ?? '—'), badgeHTML(String(r.gravidade ?? '—')), badgeHTML(String(r.cat)), String(r.status ?? '—')])
+      )
+    } else if (relatAtivo === 'epis-vencidos') {
+      htmlBody = kpiHTML([
+        { val: String(dados.filter(r => r.situacao === 'VENCIDO').length), lbl: 'Vencidos' },
+        { val: String(dados.filter(r => r.situacao === 'CRÍTICO').length), lbl: 'Críticos (≤7d)' },
+        { val: String(dados.filter(r => r.situacao === 'A VENCER').length), lbl: 'A Vencer' },
+      ]) + tabelaHTML(
+        ['Colaborador', 'Chapa', 'EPI', 'CA', 'Categoria', 'Validade', 'Dias Restantes', 'Situação'],
+        dados.map(r => [String(r.colaborador), String(r.chapa), String(r.epi), String(r.ca), String(r.categoria), String(r.data_validade), r.dias_restantes != null ? String(r.dias_restantes) : '—', badgeHTML(String(r.situacao))])
+      )
+    } else if (relatAtivo === 'aniversariantes') {
+      htmlBody = kpiHTML([{ val: String(dados.length), lbl: `Aniversariantes em ${MESES.find(m => m.value === filtroMes)?.label}` }]) +
+        tabelaHTML(
+          ['Nome', 'Chapa', 'Nascimento', 'Idade', 'Função', 'Obra', 'Telefone', 'E-mail'],
+          dados.map(r => [String(r.nome), String(r.chapa), String(r.data_nascimento), String(r.idade), String(r.funcao), String(r.obra), String(r.telefone), String(r.email)])
+        )
+    } else {
+      // Relatório genérico: usa todas as chaves do primeiro objeto
+      if (dados.length > 0) {
+        const keys = Object.keys(dados[0])
+        const headers = keys.map(k => k.replace(/_/g, ' ').toUpperCase())
+        htmlBody = tabelaHTML(
+          headers,
+          dados.map(r => keys.map(k => {
+            const v = r[k]
+            if (typeof v === 'number' && k.includes('valor') || k.includes('bruto') || k.includes('liquido') || k.includes('total') || k.includes('custo') || k.includes('salario')) return fmtCur(v as number)
+            if (typeof v === 'string' && v.match(/^\d{4}-\d{2}-\d{2}$/)) return fmtDate(v)
+            return String(v ?? '—')
+          }))
+        )
+      }
+    }
+
+    await abrirPDF(titulo, htmlBody, undefined, periodo)
+  }, [dados, relatAtivo, mesRefIni, mesRefFim, filtroColaborador, filtroMes, colaboradores])
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+
+  const grupoAtivo = GRUPOS.find(g => g.items.some(i => i.id === relatAtivo))
+  const itemAtivo = GRUPOS.flatMap(g => g.items).find(i => i.id === relatAtivo)
+
+  const isColabRequired = ['ficha-financeira', 'historico-ponto', 'producao-individual', 'ocorrencias-colab', 'custo-colab'].includes(relatAtivo)
+  const isPeriodoRange = ['custo-obra', 'producao-obra', 'acidentes-obra', 'producao-funcao', 'ranking-producao', 'producao-playbook', 'evolucao-horas', 'painel-acidentes', 'painel-atestados', 'ficha-financeira', 'historico-ponto', 'producao-individual', 'custo-colab', 'provisoes', 'resumo-folha', 'historico-advertencias'].includes(relatAtivo)
+  const isPeriodoMes = ['faltas-obra', 'custo-funcao', 'meta-realizado', 'custo-hora'].includes(relatAtivo)
+  const isMesSomente = ['aniversariantes'].includes(relatAtivo)
 
   return (
-    <div className="page-root">
-      <PageHeader
-        title="Relatórios"
-        subtitle="Folha por obra/função, encargos patronais e provisões CLT"
-      />
+    <div className="flex h-full min-h-screen bg-[#f1f5f9]">
 
-      <Tabs defaultValue="aba1" className="space-y-4">
-        <TabsList className="bg-blue-950 p-1 h-auto gap-1">
-          <TabsTrigger
-            value="aba1"
-            className="data-[state=active]:bg-white data-[state=active]:text-blue-900 text-blue-100 px-4 py-2 text-sm gap-2"
-          >
-            <Users className="w-4 h-4" />
-            Por Obra e Função
-          </TabsTrigger>
-          <TabsTrigger
-            value="aba2"
-            className="data-[state=active]:bg-white data-[state=active]:text-blue-900 text-blue-100 px-4 py-2 text-sm gap-2"
-          >
-            <DollarSign className="w-4 h-4" />
-            Encargos Empresa
-          </TabsTrigger>
-          <TabsTrigger
-            value="aba3"
-            className="data-[state=active]:bg-white data-[state=active]:text-blue-900 text-blue-100 px-4 py-2 text-sm gap-2"
-          >
-            <TrendingUp className="w-4 h-4" />
-            Total Provisionado
-          </TabsTrigger>
-        </TabsList>
+      {/* ── Sidebar ── */}
+      <aside className="w-72 bg-white border-r border-slate-200 flex flex-col overflow-y-auto shrink-0 shadow-sm">
+        <div className="px-5 py-4 border-b border-slate-200 bg-[#1e3a5f]">
+          <div className="flex items-center gap-2 text-white">
+            <BarChart3 size={20} />
+            <span className="text-base font-bold tracking-tight">Relatórios</span>
+          </div>
+          <p className="text-xs text-blue-200 mt-0.5">28 relatórios disponíveis</p>
+        </div>
 
-        <TabsContent value="aba1">
-          <Aba1ObraFuncao obras={obras} config={config} />
-        </TabsContent>
+        <nav className="flex-1 py-2">
+          {GRUPOS.map(grupo => (
+            <div key={grupo.id}>
+              <button
+                onClick={() => setGrupoAberto(g => g === grupo.id ? '' : grupo.id)}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500 hover:bg-slate-50 transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <span style={{ color: grupo.color }}>{grupo.icon}</span>
+                  {grupo.label}
+                </span>
+                <ChevronDown
+                  size={12}
+                  className={`transition-transform duration-200 ${grupoAberto === grupo.id ? 'rotate-180' : ''}`}
+                />
+              </button>
 
-        <TabsContent value="aba2">
-          <Aba2Encargos obras={obras} config={config} />
-        </TabsContent>
+              {grupoAberto === grupo.id && (
+                <div className="pb-1">
+                  {grupo.items.map(item => (
+                    <button
+                      key={item.id}
+                      onClick={() => setRelatAtivo(item.id)}
+                      className={`w-full flex items-center gap-2.5 px-5 py-2 text-sm transition-all text-left
+                        ${relatAtivo === item.id
+                          ? 'bg-blue-50 text-[#1e3a5f] font-semibold border-r-2 border-[#1e3a5f]'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                    >
+                      <span className={relatAtivo === item.id ? 'text-[#1e3a5f]' : 'text-slate-400'}>
+                        {item.icon}
+                      </span>
+                      <span className="leading-tight">{item.label}</span>
+                      {relatAtivo === item.id && <ChevronRight size={12} className="ml-auto text-[#1e3a5f]" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </nav>
+      </aside>
 
-        <TabsContent value="aba3">
-          <Aba3Provisao obras={obras} config={config} />
-        </TabsContent>
-      </Tabs>
+      {/* ── Painel principal ── */}
+      <main className="flex-1 flex flex-col overflow-auto">
+
+        {/* Header do relatório */}
+        <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
+              <span style={{ color: grupoAtivo?.color }}>{grupoAtivo?.icon}</span>
+              <span>{grupoAtivo?.label}</span>
+              <ChevronRight size={10} />
+              <span className="text-slate-600 font-medium">{itemAtivo?.label}</span>
+            </div>
+            <h1 className="text-xl font-bold text-[#1e3a5f]">{itemAtivo?.label}</h1>
+            <p className="text-xs text-slate-400 mt-0.5">{itemAtivo?.desc}</p>
+          </div>
+          {gerado && dados.length > 0 && (
+            <Button
+              onClick={imprimirPDF}
+              className="bg-[#1e3a5f] hover:bg-[#162d4a] text-white gap-2 shrink-0"
+              size="sm"
+            >
+              <Printer size={15} /> Imprimir / PDF
+            </Button>
+          )}
+        </div>
+
+        {/* Filtros */}
+        <div className="bg-white border-b border-slate-100 px-6 py-4">
+          <SectionTitle>Filtros</SectionTitle>
+          <FilterRow>
+
+            {/* Filtro: Obra */}
+            {['headcount-obra','custo-obra','producao-obra','faltas-obra','acidentes-obra','producao-playbook','ranking-producao','evolucao-horas','painel-acidentes','resumo-folha','meta-realizado','custo-hora','playbook-atividades'].includes(relatAtivo) && (
+              <FieldWrap label="Obra">
+                <Select value={filtroObra} onValueChange={setFiltroObra}>
+                  <SelectTrigger className="w-52 h-8 text-xs"><SelectValue placeholder="Todas as obras" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todas as obras</SelectItem>
+                    {obras.map(o => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </FieldWrap>
+            )}
+
+            {/* Filtro: Colaborador */}
+            {(isColabRequired || ['provisoes','adiantamentos-aberto','painel-atestados','historico-advertencias'].includes(relatAtivo)) && (
+              <FieldWrap label={`Colaborador ${isColabRequired ? '*' : ''}`}>
+                <Select value={filtroColaborador} onValueChange={setFiltroColaborador}>
+                  <SelectTrigger className="w-64 h-8 text-xs"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                  <SelectContent>
+                    {!isColabRequired && <SelectItem value="todos">Todos</SelectItem>}
+                    {colaboradores.map(c => <SelectItem key={c.id} value={c.id}>{c.nome}{c.chapa ? ` (${c.chapa})` : ''}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </FieldWrap>
+            )}
+
+            {/* Filtro: Período range */}
+            {isPeriodoRange && (
+              <>
+                <FieldWrap label="De">
+                  <div className="flex gap-1">
+                    <Select value={filtroMesIni} onValueChange={setFiltroMesIni}>
+                      <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{MESES.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Select value={filtroAnoIni} onValueChange={setFiltroAnoIni}>
+                      <SelectTrigger className="w-20 h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{ANOS.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </FieldWrap>
+                <FieldWrap label="Até">
+                  <div className="flex gap-1">
+                    <Select value={filtroMesFim} onValueChange={setFiltroMesFim}>
+                      <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{MESES.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Select value={filtroAnoFim} onValueChange={setFiltroAnoFim}>
+                      <SelectTrigger className="w-20 h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{ANOS.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </FieldWrap>
+              </>
+            )}
+
+            {/* Filtro: Mês único */}
+            {(isPeriodoMes || isMesSomente) && (
+              <>
+                <FieldWrap label="Mês">
+                  <Select value={filtroMes} onValueChange={setFiltroMes}>
+                    <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>{MESES.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                </FieldWrap>
+                {!isMesSomente && (
+                  <FieldWrap label="Ano">
+                    <Select value={filtroAno} onValueChange={setFiltroAno}>
+                      <SelectTrigger className="w-20 h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{ANOS.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </FieldWrap>
+                )}
+              </>
+            )}
+
+            {/* Filtro: Dias para vencimento */}
+            {['epis-vencidos', 'contratos-vencendo'].includes(relatAtivo) && (
+              <FieldWrap label="Vencimento nos próximos">
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={diasVencimento}
+                    onChange={e => setDiasVencimento(e.target.value)}
+                    className="w-20 h-8 text-xs"
+                  />
+                  <span className="text-xs text-slate-500">dias</span>
+                </div>
+              </FieldWrap>
+            )}
+
+            {/* Botão Gerar */}
+            <div className="flex items-end">
+              <Button
+                onClick={gerarRelatorio}
+                disabled={loading}
+                className="bg-[#1e3a5f] hover:bg-[#162d4a] text-white h-8 px-5 text-xs gap-1.5"
+              >
+                {loading ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
+                {loading ? 'Carregando...' : 'Gerar Relatório'}
+              </Button>
+            </div>
+          </FilterRow>
+        </div>
+
+        {/* Resultados */}
+        <div className="flex-1 px-6 py-5">
+          {loading && <LoadingState />}
+
+          {!loading && !gerado && (
+            <div className="flex flex-col items-center justify-center h-72 text-slate-300 gap-4">
+              <BarChart3 size={56} strokeWidth={1} />
+              <p className="text-base font-medium text-slate-400">Configure os filtros e clique em <strong className="text-[#1e3a5f]">Gerar Relatório</strong></p>
+              <p className="text-xs text-slate-400">{itemAtivo?.desc}</p>
+            </div>
+          )}
+
+          {!loading && gerado && dados.length === 0 && <EmptyState />}
+
+          {!loading && gerado && dados.length > 0 && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+
+              {/* Barra de resultados */}
+              <div className="flex items-center justify-between px-4 py-3 bg-[#f8fafc] border-b border-slate-200">
+                <span className="text-xs font-semibold text-[#1e3a5f]">
+                  {dados.length} registro(s) encontrado(s)
+                </span>
+                <Button variant="ghost" size="sm" onClick={imprimirPDF} className="gap-1.5 text-xs h-7 text-slate-500 hover:text-[#1e3a5f]">
+                  <Download size={13} /> Exportar PDF
+                </Button>
+              </div>
+
+              {/* ── Tabela: Headcount por Obra ── */}
+              {relatAtivo === 'headcount-obra' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left font-semibold">Obra</th>
+                      <th className="px-4 py-3 text-center">Ativos</th>
+                      <th className="px-4 py-3 text-center">Inativos</th>
+                      <th className="px-4 py-3 text-center">Afastados</th>
+                      <th className="px-4 py-3 text-center font-bold">Total</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium text-slate-700">{String(r.obra)}</td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full font-semibold">{String(r.ativo)}</span></td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full">{String(r.inativo)}</span></td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-yellow-100 text-yellow-800 text-xs px-2 py-0.5 rounded-full">{String(r.afastado)}</span></td>
+                          <td className="px-4 py-2.5 text-center font-bold text-[#1e3a5f]">{String(r.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[#e8f0fe] font-bold text-[#1e3a5f] text-sm">
+                        <td className="px-4 py-2.5">TOTAL</td>
+                        <td className="px-4 py-2.5 text-center">{dados.reduce((s, r) => s + (r.ativo as number), 0)}</td>
+                        <td className="px-4 py-2.5 text-center">{dados.reduce((s, r) => s + (r.inativo as number), 0)}</td>
+                        <td className="px-4 py-2.5 text-center">{dados.reduce((s, r) => s + (r.afastado as number), 0)}</td>
+                        <td className="px-4 py-2.5 text-center">{dados.reduce((s, r) => s + (r.total as number), 0)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Custo por Obra ── */}
+              {relatAtivo === 'custo-obra' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Obra</th>
+                      <th className="px-4 py-3 text-right">Folha Bruta</th>
+                      <th className="px-4 py-3 text-right">Adiantamentos</th>
+                      <th className="px-4 py-3 text-right">V. Transporte</th>
+                      <th className="px-4 py-3 text-right">Prêmios</th>
+                      <th className="px-4 py-3 text-right font-bold">Total</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">{String(r.obra)}</td>
+                          <td className="px-4 py-2.5 text-right text-slate-600">{fmtCur(r.folha_bruto as number)}</td>
+                          <td className="px-4 py-2.5 text-right text-slate-600">{fmtCur(r.adiantamentos as number)}</td>
+                          <td className="px-4 py-2.5 text-right text-slate-600">{fmtCur(r.vt as number)}</td>
+                          <td className="px-4 py-2.5 text-right text-slate-600">{fmtCur(r.premios as number)}</td>
+                          <td className="px-4 py-2.5 text-right font-bold text-[#1e3a5f]">{fmtCur(r.total as number)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[#e8f0fe] font-bold text-[#1e3a5f]">
+                        <td className="px-4 py-2.5">TOTAL</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.folha_bruto as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.adiantamentos as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.vt as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.premios as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.total as number), 0))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Produtividade por Obra ── */}
+              {relatAtivo === 'producao-obra' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Obra</th>
+                      <th className="px-4 py-3 text-left">Atividade</th>
+                      <th className="px-4 py-3 text-center">Unidade</th>
+                      <th className="px-4 py-3 text-right">Quantidade</th>
+                      <th className="px-4 py-3 text-right">Preço Unit.</th>
+                      <th className="px-4 py-3 text-right">Total</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">{String(r.obra)}</td>
+                          <td className="px-4 py-2.5">{String(r.descricao)}</td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded">{String(r.unidade)}</span></td>
+                          <td className="px-4 py-2.5 text-right">{fmtNum(r.quantidade as number)}</td>
+                          <td className="px-4 py-2.5 text-right text-slate-500">{fmtCur(r.preco_unitario as number)}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-[#1e3a5f]">{fmtCur(r.custo_total as number)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[#e8f0fe] font-bold text-[#1e3a5f]">
+                        <td colSpan={5} className="px-4 py-2.5">TOTAL</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.custo_total as number), 0))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Faltas por Obra ── */}
+              {relatAtivo === 'faltas-obra' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Obra</th>
+                      <th className="px-4 py-3 text-center">Colaboradores</th>
+                      <th className="px-4 py-3 text-center">Total Faltas</th>
+                      <th className="px-4 py-3 text-center">Horas Trabalhadas</th>
+                      <th className="px-4 py-3 text-center">% Ausência</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">{String(r.obra)}</td>
+                          <td className="px-4 py-2.5 text-center">{String(r.colaboradores)}</td>
+                          <td className="px-4 py-2.5 text-center font-semibold text-red-600">{String(r.faltas)}</td>
+                          <td className="px-4 py-2.5 text-center">{fmtNum(r.horas as number)}h</td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${Number(r.pct_ausencia) > 10 ? 'bg-red-100 text-red-700' : Number(r.pct_ausencia) > 5 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                              {String(r.pct_ausencia)}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Acidentes por Obra ── */}
+              {relatAtivo === 'acidentes-obra' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Obra</th>
+                      <th className="px-4 py-3 text-center">Total</th>
+                      <th className="px-4 py-3 text-center">Leves</th>
+                      <th className="px-4 py-3 text-center">Graves</th>
+                      <th className="px-4 py-3 text-center">Fatais</th>
+                      <th className="px-4 py-3 text-center">CAT Emitidas</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">{String(r.obra)}</td>
+                          <td className="px-4 py-2.5 text-center font-bold text-[#1e3a5f]">{String(r.total)}</td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-yellow-100 text-yellow-800 text-xs px-2 py-0.5 rounded-full">{String(r.leve)}</span></td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-orange-100 text-orange-800 text-xs px-2 py-0.5 rounded-full">{String(r.grave)}</span></td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded-full font-bold">{String(r.fatal)}</span></td>
+                          <td className="px-4 py-2.5 text-center">{String(r.cat)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Ficha Financeira ── */}
+              {relatAtivo === 'ficha-financeira' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Mês</th>
+                      <th className="px-4 py-3 text-right">Bruto</th>
+                      <th className="px-4 py-3 text-right">INSS</th>
+                      <th className="px-4 py-3 text-right">IR</th>
+                      <th className="px-4 py-3 text-right">Desc. VT</th>
+                      <th className="px-4 py-3 text-right">Desc. AD</th>
+                      <th className="px-4 py-3 text-right">Prêmio</th>
+                      <th className="px-4 py-3 text-right font-bold">Líquido</th>
+                      <th className="px-4 py-3 text-right">Adiantamentos</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">{fmtMes(r.mes as string)}</td>
+                          <td className="px-4 py-2.5 text-right">{fmtCur(r.bruto as number)}</td>
+                          <td className="px-4 py-2.5 text-right text-red-600">{fmtCur(r.inss as number)}</td>
+                          <td className="px-4 py-2.5 text-right text-red-600">{fmtCur(r.ir as number)}</td>
+                          <td className="px-4 py-2.5 text-right text-red-600">{fmtCur(r.vt_desc as number)}</td>
+                          <td className="px-4 py-2.5 text-right text-red-600">{fmtCur(r.ad_desc as number)}</td>
+                          <td className="px-4 py-2.5 text-right text-green-600">{fmtCur(r.premio as number)}</td>
+                          <td className="px-4 py-2.5 text-right font-bold text-[#1e3a5f]">{fmtCur(r.liquido as number)}</td>
+                          <td className="px-4 py-2.5 text-right text-amber-600">{fmtCur(r.adiantamentos as number)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[#e8f0fe] font-bold text-[#1e3a5f] text-xs">
+                        <td className="px-4 py-2.5">TOTAL</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.bruto as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.inss as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.ir as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.vt_desc as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.ad_desc as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.premio as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.liquido as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.adiantamentos as number), 0))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Histórico de Ponto ── */}
+              {relatAtivo === 'historico-ponto' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Data</th>
+                      <th className="px-4 py-3 text-center">Entrada</th>
+                      <th className="px-4 py-3 text-center">Saída Almoço</th>
+                      <th className="px-4 py-3 text-center">Retorno</th>
+                      <th className="px-4 py-3 text-center">Saída</th>
+                      <th className="px-4 py-3 text-center">Hs Trabalhadas</th>
+                      <th className="px-4 py-3 text-center">Hs Extras</th>
+                      <th className="px-4 py-3 text-center">Status</th>
+                      <th className="px-4 py-3 text-left">Justificativa</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={r.falta ? 'bg-red-50' : i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2 font-medium">{fmtDate(r.data as string)}</td>
+                          <td className="px-4 py-2 text-center text-slate-600">{String(r.hora_entrada ?? '—')}</td>
+                          <td className="px-4 py-2 text-center text-slate-600">{String(r.saida_almoco ?? '—')}</td>
+                          <td className="px-4 py-2 text-center text-slate-600">{String(r.retorno_almoco ?? '—')}</td>
+                          <td className="px-4 py-2 text-center text-slate-600">{String(r.hora_saida ?? '—')}</td>
+                          <td className="px-4 py-2 text-center font-semibold">{fmtNum(r.horas_trabalhadas as number)}h</td>
+                          <td className="px-4 py-2 text-center text-green-600 font-semibold">{fmtNum(r.horas_extras as number)}h</td>
+                          <td className="px-4 py-2 text-center">
+                            {r.falta
+                              ? <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full">Falta</span>
+                              : <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full">Presente</span>}
+                          </td>
+                          <td className="px-4 py-2 text-xs text-slate-500">{String(r.justificativa ?? '')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[#e8f0fe] font-bold text-[#1e3a5f] text-xs">
+                        <td className="px-4 py-2.5" colSpan={5}>TOTAIS</td>
+                        <td className="px-4 py-2.5 text-center">{fmtNum(dados.reduce((s, r) => s + (Number(r.horas_trabalhadas) || 0), 0))}h</td>
+                        <td className="px-4 py-2.5 text-center">{fmtNum(dados.reduce((s, r) => s + (Number(r.horas_extras) || 0), 0))}h</td>
+                        <td className="px-4 py-2.5 text-center">{dados.filter(r => r.falta).length} faltas</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Produção Individual ── */}
+              {relatAtivo === 'producao-individual' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Atividade</th>
+                      <th className="px-4 py-3 text-center">Unidade</th>
+                      <th className="px-4 py-3 text-right">Quantidade</th>
+                      <th className="px-4 py-3 text-right">Preço Unit.</th>
+                      <th className="px-4 py-3 text-right">Total</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5">{String(r.descricao)}</td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded">{String(r.unidade)}</span></td>
+                          <td className="px-4 py-2.5 text-right font-semibold">{fmtNum(r.quantidade as number)}</td>
+                          <td className="px-4 py-2.5 text-right text-slate-500">{fmtCur(r.preco_unit as number)}</td>
+                          <td className="px-4 py-2.5 text-right font-bold text-[#1e3a5f]">{fmtCur(r.total as number)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[#e8f0fe] font-bold text-[#1e3a5f]">
+                        <td colSpan={4} className="px-4 py-2.5">TOTAL</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.total as number), 0))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Ocorrências do Colaborador ── */}
+              {relatAtivo === 'ocorrencias-colab' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Data</th>
+                      <th className="px-4 py-3 text-left">Tipo</th>
+                      <th className="px-4 py-3 text-left">Descrição</th>
+                      <th className="px-4 py-3 text-left">Complemento</th>
+                      <th className="px-4 py-3 text-left">Status</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium whitespace-nowrap">{fmtDate(r.data as string)}</td>
+                          <td className="px-4 py-2.5">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                              r.tipo === 'Acidente' ? 'bg-red-100 text-red-700' :
+                              r.tipo === 'Advertência' ? 'bg-orange-100 text-orange-700' :
+                              r.tipo === 'Atestado' ? 'bg-blue-100 text-blue-700' :
+                              'bg-slate-100 text-slate-600'
+                            }`}>{String(r.tipo)}</span>
+                          </td>
+                          <td className="px-4 py-2.5 max-w-xs truncate">{String(r.descricao)}</td>
+                          <td className="px-4 py-2.5 text-slate-500 text-xs">{String(r.extra)}</td>
+                          <td className="px-4 py-2.5 text-xs">{String(r.status)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Custo Total do Colaborador ── */}
+              {relatAtivo === 'custo-colab' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Mês</th>
+                      <th className="px-4 py-3 text-right">Folha Bruta</th>
+                      <th className="px-4 py-3 text-right">Adiantamentos</th>
+                      <th className="px-4 py-3 text-right">VT Empresa</th>
+                      <th className="px-4 py-3 text-right">Prêmios</th>
+                      <th className="px-4 py-3 text-right font-bold">Total</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">{fmtMes(r.mes as string)}</td>
+                          <td className="px-4 py-2.5 text-right">{fmtCur(r.folha_bruta as number)}</td>
+                          <td className="px-4 py-2.5 text-right">{fmtCur(r.adiantamentos as number)}</td>
+                          <td className="px-4 py-2.5 text-right">{fmtCur(r.vt_empresa as number)}</td>
+                          <td className="px-4 py-2.5 text-right">{fmtCur(r.premios as number)}</td>
+                          <td className="px-4 py-2.5 text-right font-bold text-[#1e3a5f]">{fmtCur(r.total as number)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[#e8f0fe] font-bold text-[#1e3a5f]">
+                        <td className="px-4 py-2.5">TOTAL</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.folha_bruta as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.adiantamentos as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.vt_empresa as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.premios as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.total as number), 0))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Headcount por Função ── */}
+              {relatAtivo === 'headcount-funcao' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Função</th>
+                      <th className="px-4 py-3 text-left">Categoria</th>
+                      <th className="px-4 py-3 text-center">Total</th>
+                      <th className="px-4 py-3 text-center">CLT</th>
+                      <th className="px-4 py-3 text-center">PJ</th>
+                      <th className="px-4 py-3 text-right">Salário Médio</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">{String(r.funcao)}</td>
+                          <td className="px-4 py-2.5 text-slate-500">{String(r.categoria)}</td>
+                          <td className="px-4 py-2.5 text-center font-bold text-[#1e3a5f]">{String(r.total)}</td>
+                          <td className="px-4 py-2.5 text-center">{String(r.clt)}</td>
+                          <td className="px-4 py-2.5 text-center">{String(r.pj)}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold">{fmtCur(r.salario_medio as number)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Custo por Função ── */}
+              {relatAtivo === 'custo-funcao' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Função</th>
+                      <th className="px-4 py-3 text-center">Colaboradores</th>
+                      <th className="px-4 py-3 text-right">Folha Bruta</th>
+                      <th className="px-4 py-3 text-right">Folha Líquida</th>
+                      <th className="px-4 py-3 text-right">Média por Colaborador</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">{String(r.funcao)}</td>
+                          <td className="px-4 py-2.5 text-center">{String(r.colaboradores)}</td>
+                          <td className="px-4 py-2.5 text-right">{fmtCur(r.bruto as number)}</td>
+                          <td className="px-4 py-2.5 text-right">{fmtCur(r.liquido as number)}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-[#1e3a5f]">{fmtCur(r.colaboradores ? (r.bruto as number) / (r.colaboradores as number) : 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[#e8f0fe] font-bold text-[#1e3a5f]">
+                        <td className="px-4 py-2.5">TOTAL</td>
+                        <td className="px-4 py-2.5 text-center">{dados.reduce((s, r) => s + (r.colaboradores as number), 0)}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.bruto as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.liquido as number), 0))}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Ranking de Produção ── */}
+              {relatAtivo === 'ranking-producao' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-center w-12">#</th>
+                      <th className="px-4 py-3 text-left">Colaborador</th>
+                      <th className="px-4 py-3 text-center">Chapa</th>
+                      <th className="px-4 py-3 text-left">Função</th>
+                      <th className="px-4 py-3 text-right">Qtd Total</th>
+                      <th className="px-4 py-3 text-right">Valor Total</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${i === 0 ? 'bg-yellow-400 text-white' : i === 1 ? 'bg-slate-300 text-white' : i === 2 ? 'bg-amber-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{String(r.posicao)}</span>
+                          </td>
+                          <td className="px-4 py-2.5 font-medium">{String(r.colaborador)}</td>
+                          <td className="px-4 py-2.5 text-center text-slate-500">{String(r.chapa)}</td>
+                          <td className="px-4 py-2.5 text-slate-600">{String(r.funcao)}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold">{fmtNum(r.total_qtd as number)}</td>
+                          <td className="px-4 py-2.5 text-right font-bold text-[#1e3a5f]">{fmtCur(r.total_valor as number)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Resumo de Folha ── */}
+              {relatAtivo === 'resumo-folha' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Mês</th>
+                      <th className="px-4 py-3 text-center">Colabs</th>
+                      <th className="px-4 py-3 text-right">Bruto</th>
+                      <th className="px-4 py-3 text-right">INSS</th>
+                      <th className="px-4 py-3 text-right">IR</th>
+                      <th className="px-4 py-3 text-right">Desc. VT</th>
+                      <th className="px-4 py-3 text-right">Desc. AD</th>
+                      <th className="px-4 py-3 text-right font-bold">Líquido</th>
+                      <th className="px-4 py-3 text-right">Horas</th>
+                      <th className="px-4 py-3 text-right">Faltas</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2 font-medium">{fmtMes(r.mes as string)}</td>
+                          <td className="px-4 py-2 text-center">{String(r.colaboradores)}</td>
+                          <td className="px-4 py-2 text-right">{fmtCur(r.bruto as number)}</td>
+                          <td className="px-4 py-2 text-right text-red-500">{fmtCur(r.inss as number)}</td>
+                          <td className="px-4 py-2 text-right text-red-500">{fmtCur(r.ir as number)}</td>
+                          <td className="px-4 py-2 text-right text-red-500">{fmtCur(r.vt as number)}</td>
+                          <td className="px-4 py-2 text-right text-red-500">{fmtCur(r.ad as number)}</td>
+                          <td className="px-4 py-2 text-right font-bold text-[#1e3a5f]">{fmtCur(r.liquido as number)}</td>
+                          <td className="px-4 py-2 text-right">{fmtNum(r.horas as number)}h</td>
+                          <td className="px-4 py-2 text-right text-red-500">{String(r.faltas)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[#e8f0fe] font-bold text-[#1e3a5f] text-xs">
+                        <td className="px-4 py-2.5">TOTAL</td>
+                        <td className="px-4 py-2.5 text-center">{dados.reduce((s, r) => s + (r.colaboradores as number), 0)}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.bruto as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.inss as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.ir as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.vt as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.ad as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.liquido as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtNum(dados.reduce((s, r) => s + (r.horas as number), 0))}h</td>
+                        <td className="px-4 py-2.5 text-right">{dados.reduce((s, r) => s + (r.faltas as number), 0)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Provisões ── */}
+              {relatAtivo === 'provisoes' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Colaborador</th>
+                      <th className="px-4 py-3 text-left">Função</th>
+                      <th className="px-4 py-3 text-right">FGTS</th>
+                      <th className="px-4 py-3 text-right">Férias</th>
+                      <th className="px-4 py-3 text-right">13º</th>
+                      <th className="px-4 py-3 text-right font-bold">Total</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">{String(r.colaborador)}</td>
+                          <td className="px-4 py-2.5 text-slate-500">{String(r.funcao)}</td>
+                          <td className="px-4 py-2.5 text-right">{fmtCur(r.fgts as number)}</td>
+                          <td className="px-4 py-2.5 text-right">{fmtCur(r.ferias as number)}</td>
+                          <td className="px-4 py-2.5 text-right">{fmtCur(r.decimo as number)}</td>
+                          <td className="px-4 py-2.5 text-right font-bold text-[#1e3a5f]">{fmtCur(r.total as number)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[#e8f0fe] font-bold text-[#1e3a5f]">
+                        <td colSpan={2} className="px-4 py-2.5">TOTAL</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.fgts as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.ferias as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.decimo as number), 0))}</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + (r.total as number), 0))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Adiantamentos em Aberto ── */}
+              {relatAtivo === 'adiantamentos-aberto' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Colaborador</th>
+                      <th className="px-4 py-3 text-center">Chapa</th>
+                      <th className="px-4 py-3 text-left">Função</th>
+                      <th className="px-4 py-3 text-center">Competência</th>
+                      <th className="px-4 py-3 text-center">Tipo</th>
+                      <th className="px-4 py-3 text-right">Valor</th>
+                      <th className="px-4 py-3 text-center">Parcelas</th>
+                      <th className="px-4 py-3 text-right">Restante</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">{String(r.colaborador)}</td>
+                          <td className="px-4 py-2.5 text-center text-slate-500">{String(r.chapa)}</td>
+                          <td className="px-4 py-2.5 text-slate-600">{String(r.funcao)}</td>
+                          <td className="px-4 py-2.5 text-center">{String(r.competencia)}</td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full">{String(r.tipo)}</span></td>
+                          <td className="px-4 py-2.5 text-right">{fmtCur(r.valor as number)}</td>
+                          <td className="px-4 py-2.5 text-center text-slate-500">{String(r.parcelas)}</td>
+                          <td className="px-4 py-2.5 text-right font-bold text-amber-700">{fmtCur(r.restante as number)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[#e8f0fe] font-bold text-[#1e3a5f]">
+                        <td colSpan={5} className="px-4 py-2.5">TOTAL</td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + Number(r.valor ?? 0), 0))}</td>
+                        <td></td>
+                        <td className="px-4 py-2.5 text-right">{fmtCur(dados.reduce((s, r) => s + Number(r.restante ?? 0), 0))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Custo Hora Médio ── */}
+              {relatAtivo === 'custo-hora' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Função</th>
+                      <th className="px-4 py-3 text-center">Colaboradores</th>
+                      <th className="px-4 py-3 text-right">Total Horas</th>
+                      <th className="px-4 py-3 text-right">Custo Total</th>
+                      <th className="px-4 py-3 text-right font-bold">Custo/Hora</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">{String(r.funcao)}</td>
+                          <td className="px-4 py-2.5 text-center">{String(r.colaboradores)}</td>
+                          <td className="px-4 py-2.5 text-right">{fmtNum(r.horas_total as number)}h</td>
+                          <td className="px-4 py-2.5 text-right">{fmtCur(r.bruto_total as number)}</td>
+                          <td className="px-4 py-2.5 text-right font-bold text-[#1e3a5f]">{fmtCur(r.custo_hora as number)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Painel de Acidentes ── */}
+              {relatAtivo === 'painel-acidentes' && (
+                <div>
+                  <div className="flex gap-4 px-4 py-3 border-b border-slate-100">
+                    <div className="flex-1 text-center p-3 bg-slate-50 rounded-lg">
+                      <div className="text-2xl font-black text-[#1e3a5f]">{dados.length}</div>
+                      <div className="text-xs text-slate-500 mt-1">Total de Acidentes</div>
+                    </div>
+                    <div className="flex-1 text-center p-3 bg-orange-50 rounded-lg">
+                      <div className="text-2xl font-black text-orange-600">{dados.filter(r => String(r.gravidade).toLowerCase() === 'grave').length}</div>
+                      <div className="text-xs text-slate-500 mt-1">Graves</div>
+                    </div>
+                    <div className="flex-1 text-center p-3 bg-red-50 rounded-lg">
+                      <div className="text-2xl font-black text-red-600">{dados.filter(r => String(r.gravidade).toLowerCase() === 'fatal').length}</div>
+                      <div className="text-xs text-slate-500 mt-1">Fatais</div>
+                    </div>
+                    <div className="flex-1 text-center p-3 bg-blue-50 rounded-lg">
+                      <div className="text-2xl font-black text-blue-600">{dados.filter(r => r.cat === 'Sim').length}</div>
+                      <div className="text-xs text-slate-500 mt-1">CAT Emitidas</div>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                        <th className="px-4 py-3 text-left">Data</th>
+                        <th className="px-4 py-3 text-left">Colaborador</th>
+                        <th className="px-4 py-3 text-left">Obra</th>
+                        <th className="px-4 py-3 text-left">Tipo</th>
+                        <th className="px-4 py-3 text-center">Gravidade</th>
+                        <th className="px-4 py-3 text-center">CAT</th>
+                        <th className="px-4 py-3 text-center">Status</th>
+                      </tr></thead>
+                      <tbody>
+                        {dados.map((r, i) => (
+                          <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                            <td className="px-4 py-2.5">{String(r.data)}</td>
+                            <td className="px-4 py-2.5 font-medium">{String(r.colaborador)}</td>
+                            <td className="px-4 py-2.5 text-slate-600">{String(r.obra)}</td>
+                            <td className="px-4 py-2.5">{String(r.tipo ?? '—')}</td>
+                            <td className="px-4 py-2.5 text-center">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${String(r.gravidade).toLowerCase() === 'grave' ? 'bg-orange-100 text-orange-700' : String(r.gravidade).toLowerCase() === 'fatal' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{String(r.gravidade ?? '—')}</span>
+                            </td>
+                            <td className="px-4 py-2.5 text-center">
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${r.cat === 'Sim' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>{String(r.cat)}</span>
+                            </td>
+                            <td className="px-4 py-2.5 text-center text-slate-500 text-xs">{String(r.status ?? '—')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Tabela: Painel de Atestados ── */}
+              {relatAtivo === 'painel-atestados' && (
+                <div>
+                  <div className="flex gap-4 px-4 py-3 border-b border-slate-100">
+                    <div className="flex-1 text-center p-3 bg-slate-50 rounded-lg">
+                      <div className="text-2xl font-black text-[#1e3a5f]">{dados.length}</div>
+                      <div className="text-xs text-slate-500 mt-1">Total de Atestados</div>
+                    </div>
+                    <div className="flex-1 text-center p-3 bg-red-50 rounded-lg">
+                      <div className="text-2xl font-black text-red-600">{dados.reduce((s, r) => s + (Number(r.dias) || 0), 0)}</div>
+                      <div className="text-xs text-slate-500 mt-1">Dias Perdidos</div>
+                    </div>
+                    <div className="flex-1 text-center p-3 bg-orange-50 rounded-lg">
+                      <div className="text-2xl font-black text-orange-600">{dados.filter(r => r.afastamento === 'Sim').length}</div>
+                      <div className="text-xs text-slate-500 mt-1">Com Afastamento</div>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                        <th className="px-4 py-3 text-left">Data</th>
+                        <th className="px-4 py-3 text-left">Colaborador</th>
+                        <th className="px-4 py-3 text-center">Tipo</th>
+                        <th className="px-4 py-3 text-center">Dias</th>
+                        <th className="px-4 py-3 text-center">CID</th>
+                        <th className="px-4 py-3 text-left">Médico</th>
+                        <th className="px-4 py-3 text-center">Afastamento</th>
+                      </tr></thead>
+                      <tbody>
+                        {dados.map((r, i) => (
+                          <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                            <td className="px-4 py-2.5">{String(r.data)}</td>
+                            <td className="px-4 py-2.5 font-medium">{String(r.colaborador)}</td>
+                            <td className="px-4 py-2.5 text-center"><span className="bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded">{String(r.tipo ?? '—')}</span></td>
+                            <td className="px-4 py-2.5 text-center font-bold text-red-600">{String(r.dias)}</td>
+                            <td className="px-4 py-2.5 text-center font-mono text-slate-600">{String(r.cid)}</td>
+                            <td className="px-4 py-2.5 text-slate-500">{String(r.medico)}</td>
+                            <td className="px-4 py-2.5 text-center">
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${r.afastamento === 'Sim' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{String(r.afastamento)}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Tabela: EPIs Vencidos ── */}
+              {relatAtivo === 'epis-vencidos' && (
+                <div>
+                  <div className="flex gap-4 px-4 py-3 border-b border-slate-100">
+                    <div className="flex-1 text-center p-3 bg-red-50 rounded-lg">
+                      <div className="text-2xl font-black text-red-600">{dados.filter(r => r.situacao === 'VENCIDO').length}</div>
+                      <div className="text-xs text-slate-500 mt-1">Vencidos</div>
+                    </div>
+                    <div className="flex-1 text-center p-3 bg-orange-50 rounded-lg">
+                      <div className="text-2xl font-black text-orange-600">{dados.filter(r => r.situacao === 'CRÍTICO').length}</div>
+                      <div className="text-xs text-slate-500 mt-1">Críticos (≤7 dias)</div>
+                    </div>
+                    <div className="flex-1 text-center p-3 bg-yellow-50 rounded-lg">
+                      <div className="text-2xl font-black text-yellow-600">{dados.filter(r => r.situacao === 'A VENCER').length}</div>
+                      <div className="text-xs text-slate-500 mt-1">A Vencer</div>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                        <th className="px-4 py-3 text-left">Colaborador</th>
+                        <th className="px-4 py-3 text-center">Chapa</th>
+                        <th className="px-4 py-3 text-left">EPI</th>
+                        <th className="px-4 py-3 text-center">CA</th>
+                        <th className="px-4 py-3 text-center">Categoria</th>
+                        <th className="px-4 py-3 text-center">Validade</th>
+                        <th className="px-4 py-3 text-center">Dias Rest.</th>
+                        <th className="px-4 py-3 text-center">Situação</th>
+                      </tr></thead>
+                      <tbody>
+                        {dados.map((r, i) => (
+                          <tr key={i} className={r.situacao === 'VENCIDO' ? 'bg-red-50' : r.situacao === 'CRÍTICO' ? 'bg-orange-50' : i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                            <td className="px-4 py-2.5 font-medium">{String(r.colaborador)}</td>
+                            <td className="px-4 py-2.5 text-center text-slate-500">{String(r.chapa)}</td>
+                            <td className="px-4 py-2.5">{String(r.epi)}</td>
+                            <td className="px-4 py-2.5 text-center font-mono text-xs">{String(r.ca)}</td>
+                            <td className="px-4 py-2.5 text-center text-xs">{String(r.categoria)}</td>
+                            <td className="px-4 py-2.5 text-center">{String(r.data_validade)}</td>
+                            <td className="px-4 py-2.5 text-center font-semibold">{r.dias_restantes != null ? `${r.dias_restantes}d` : '—'}</td>
+                            <td className="px-4 py-2.5 text-center">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${r.situacao === 'VENCIDO' ? 'bg-red-200 text-red-800' : r.situacao === 'CRÍTICO' ? 'bg-orange-200 text-orange-800' : 'bg-yellow-100 text-yellow-800'}`}>{String(r.situacao)}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Tabela: Aniversariantes ── */}
+              {relatAtivo === 'aniversariantes' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Nome</th>
+                      <th className="px-4 py-3 text-center">Chapa</th>
+                      <th className="px-4 py-3 text-center">Nascimento</th>
+                      <th className="px-4 py-3 text-center">Idade</th>
+                      <th className="px-4 py-3 text-left">Função</th>
+                      <th className="px-4 py-3 text-left">Obra</th>
+                      <th className="px-4 py-3 text-left">Telefone</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">
+                            <span className="mr-1">🎂</span>{String(r.nome)}
+                          </td>
+                          <td className="px-4 py-2.5 text-center text-slate-500">{String(r.chapa)}</td>
+                          <td className="px-4 py-2.5 text-center">{String(r.data_nascimento)}</td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className="bg-pink-100 text-pink-700 text-xs px-2 py-0.5 rounded-full font-semibold">{String(r.idade)} anos</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-slate-600">{String(r.funcao)}</td>
+                          <td className="px-4 py-2.5 text-slate-600">{String(r.obra)}</td>
+                          <td className="px-4 py-2.5 text-slate-500">{String(r.telefone)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Contratos Vencendo ── */}
+              {relatAtivo === 'contratos-vencendo' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Nome</th>
+                      <th className="px-4 py-3 text-center">Chapa</th>
+                      <th className="px-4 py-3 text-center">Admissão</th>
+                      <th className="px-4 py-3 text-center">Vencimento</th>
+                      <th className="px-4 py-3 text-center">Dias Restantes</th>
+                      <th className="px-4 py-3 text-center">Tipo Contrato</th>
+                      <th className="px-4 py-3 text-left">Função</th>
+                      <th className="px-4 py-3 text-left">Obra</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={Number(r.dias_restantes) <= 7 ? 'bg-red-50' : i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">{String(r.nome)}</td>
+                          <td className="px-4 py-2.5 text-center text-slate-500">{String(r.chapa)}</td>
+                          <td className="px-4 py-2.5 text-center">{String(r.data_admissao)}</td>
+                          <td className="px-4 py-2.5 text-center font-semibold">{String(r.data_vencimento)}</td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${Number(r.dias_restantes) <= 7 ? 'bg-red-200 text-red-800' : Number(r.dias_restantes) <= 15 ? 'bg-orange-100 text-orange-700' : 'bg-yellow-100 text-yellow-700'}`}>{r.dias_restantes != null ? `${r.dias_restantes}d` : '—'}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-center text-xs">{String(r.tipo_contrato)}</td>
+                          <td className="px-4 py-2.5 text-slate-600">{String(r.funcao)}</td>
+                          <td className="px-4 py-2.5 text-slate-600">{String(r.obra)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Playbook de Atividades ── */}
+              {relatAtivo === 'playbook-atividades' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Obra</th>
+                      <th className="px-4 py-3 text-center">Categoria</th>
+                      <th className="px-4 py-3 text-left">Descrição</th>
+                      <th className="px-4 py-3 text-center">Unidade</th>
+                      <th className="px-4 py-3 text-right">Preço Unit.</th>
+                      <th className="px-4 py-3 text-center">Ativo</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 font-medium">{String(r.obra)}</td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-purple-50 text-purple-700 text-xs px-2 py-0.5 rounded">{String(r.categoria)}</span></td>
+                          <td className="px-4 py-2.5">{String(r.descricao)}</td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded font-mono">{String(r.unidade)}</span></td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-[#1e3a5f]">{fmtCur(r.preco as number)}</td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${r.ativo === 'Sim' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>{String(r.ativo)}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabela: Histórico de Advertências ── */}
+              {relatAtivo === 'historico-advertencias' && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                      <th className="px-4 py-3 text-left">Data</th>
+                      <th className="px-4 py-3 text-left">Colaborador</th>
+                      <th className="px-4 py-3 text-center">Chapa</th>
+                      <th className="px-4 py-3 text-left">Função</th>
+                      <th className="px-4 py-3 text-left">Obra</th>
+                      <th className="px-4 py-3 text-center">Tipo</th>
+                      <th className="px-4 py-3 text-left">Motivo</th>
+                      <th className="px-4 py-3 text-center">Susp. (dias)</th>
+                      <th className="px-4 py-3 text-center">Assinada</th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          <td className="px-4 py-2.5 whitespace-nowrap">{String(r.data)}</td>
+                          <td className="px-4 py-2.5 font-medium">{String(r.colaborador)}</td>
+                          <td className="px-4 py-2.5 text-center text-slate-500">{String(r.chapa)}</td>
+                          <td className="px-4 py-2.5 text-slate-600">{String(r.funcao)}</td>
+                          <td className="px-4 py-2.5 text-slate-600">{String(r.obra)}</td>
+                          <td className="px-4 py-2.5 text-center"><span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-full">{String(r.tipo)}</span></td>
+                          <td className="px-4 py-2.5 max-w-xs text-xs text-slate-600">{String(r.motivo)}</td>
+                          <td className="px-4 py-2.5 text-center">{Number(r.dias_suspensao) > 0 ? <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full">{String(r.dias_suspensao)}d</span> : '—'}</td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${r.assinada === 'Sim' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>{String(r.assinada)}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Tabelas genéricas (Meta vs Realizado, Evolução de Horas, Produtividade por Função, Produção Playbook) ── */}
+              {['meta-realizado', 'evolucao-horas', 'producao-funcao', 'producao-playbook'].includes(relatAtivo) && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-[#1e3a5f] text-white text-xs">
+                        {relatAtivo === 'meta-realizado' && ['Colaborador', 'Função', 'Meta (h)', 'Realizado (h)', 'Diferença (h)', '% Atingido', 'Custo/Hora'].map(h => <th key={h} className="px-4 py-3 text-left">{h}</th>)}
+                        {relatAtivo === 'evolucao-horas' && ['Mês', 'Colaboradores', 'Total Horas', 'Total Faltas', 'Média Horas/Colab'].map(h => <th key={h} className="px-4 py-3 text-left">{h}</th>)}
+                        {relatAtivo === 'producao-funcao' && ['Função', 'Categoria', 'Qtd Total', 'Lançamentos', 'Média por Lanç.'].map(h => <th key={h} className="px-4 py-3 text-left">{h}</th>)}
+                        {relatAtivo === 'producao-playbook' && ['Atividade', 'Unidade', 'Categoria', 'Preço Unit.', 'Qtd Total', 'Lançamentos', 'Total'].map(h => <th key={h} className="px-4 py-3 text-left">{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dados.map((r, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                          {relatAtivo === 'meta-realizado' && [
+                            <td key="c" className="px-4 py-2.5 font-medium">{String(r.colaborador)}</td>,
+                            <td key="f" className="px-4 py-2.5">{String(r.funcao)}</td>,
+                            <td key="m" className="px-4 py-2.5 text-right">{String(r.meta_horas)}h</td>,
+                            <td key="re" className="px-4 py-2.5 text-right">{fmtNum(r.horas_realizadas as number)}h</td>,
+                            <td key="d" className={`px-4 py-2.5 text-right font-semibold ${Number(r.diferenca) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{Number(r.diferenca) >= 0 ? '+' : ''}{fmtNum(r.diferenca as number)}h</td>,
+                            <td key="p" className="px-4 py-2.5 text-right">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${Number(r.pct_atingido) >= 95 ? 'bg-green-100 text-green-700' : Number(r.pct_atingido) >= 80 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{String(r.pct_atingido)}%</span>
+                            </td>,
+                            <td key="ch" className="px-4 py-2.5 text-right font-semibold text-[#1e3a5f]">{fmtCur(r.custo_hora as number)}</td>,
+                          ]}
+                          {relatAtivo === 'evolucao-horas' && [
+                            <td key="m" className="px-4 py-2.5 font-medium">{fmtMes(r.mes as string)}</td>,
+                            <td key="c" className="px-4 py-2.5">{String(r.colaboradores)}</td>,
+                            <td key="h" className="px-4 py-2.5 text-right font-semibold text-[#1e3a5f]">{fmtNum(r.horas as number)}h</td>,
+                            <td key="f" className="px-4 py-2.5 text-right text-red-600 font-semibold">{String(r.faltas)}</td>,
+                            <td key="avg" className="px-4 py-2.5 text-right">{r.colaboradores ? fmtNum((r.horas as number) / (r.colaboradores as number)) : '0.00'}h</td>,
+                          ]}
+                          {relatAtivo === 'producao-funcao' && [
+                            <td key="f" className="px-4 py-2.5 font-medium">{String(r.funcao)}</td>,
+                            <td key="c" className="px-4 py-2.5"><span className="bg-purple-50 text-purple-700 text-xs px-2 py-0.5 rounded">{String(r.categoria)}</span></td>,
+                            <td key="t" className="px-4 py-2.5 text-right font-bold text-[#1e3a5f]">{fmtNum(r.total as number)}</td>,
+                            <td key="l" className="px-4 py-2.5 text-right">{String(r.lancamentos)}</td>,
+                            <td key="avg" className="px-4 py-2.5 text-right">{fmtNum(r.media as number)}</td>,
+                          ]}
+                          {relatAtivo === 'producao-playbook' && [
+                            <td key="d" className="px-4 py-2.5 font-medium">{String(r.descricao)}</td>,
+                            <td key="u" className="px-4 py-2.5 text-center"><span className="bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded font-mono">{String(r.unidade)}</span></td>,
+                            <td key="c" className="px-4 py-2.5"><span className="bg-purple-50 text-purple-700 text-xs px-2 py-0.5 rounded">{String(r.categoria)}</span></td>,
+                            <td key="p" className="px-4 py-2.5 text-right">{fmtCur(r.preco as number)}</td>,
+                            <td key="q" className="px-4 py-2.5 text-right font-semibold">{fmtNum(r.qtd as number)}</td>,
+                            <td key="l" className="px-4 py-2.5 text-right text-slate-500">{String(r.lancamentos)}</td>,
+                            <td key="t" className="px-4 py-2.5 text-right font-bold text-[#1e3a5f]">{fmtCur(r.total as number)}</td>,
+                          ]}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   )
 }

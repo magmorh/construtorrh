@@ -69,7 +69,6 @@ const NAV_GROUPS = [
     items: [
       { to: '/solicitacoes', label: 'Solicitações', icon: Inbox,         color: '#f87171', badge: 'sol' as const },
       { to: '/mensagens',    label: 'Mensagens',    icon: MessageSquare, color: '#a78bfa', badge: 'msg' as const },
-      { to: '/relatorios',   label: 'Relatórios',   icon: BarChart3,     color: '#818cf8' },
     ],
   },
   {
@@ -127,6 +126,15 @@ const NAV_GROUPS = [
     icon:  Scale,
     items: [
       { to: '/juridico', label: 'Dossiê / Lista Negra', icon: Scale, color: '#a78bfa' },
+    ],
+  },
+  {
+    id:    'relatorios',
+    label: 'Relatórios',
+    short: 'Relat.',
+    icon:  BarChart3,
+    items: [
+      { to: '/relatorios', label: 'Relatórios', icon: BarChart3, color: '#818cf8' },
     ],
   },
   {
@@ -321,7 +329,7 @@ export function Layout({ children }: LayoutProps) {
 
             const visibleItems = group.items.filter((item: any) => {
               if (item.adminOnly && user?.email !== 'magmodrive@gmail.com') return false
-              const isFinanceiro = ['/ponto','/vt','/adiantamentos','/premios','/fechamento-ponto','/pagamentos','/encargos','/provisoes','/relatorios'].includes(item.to)
+              const isFinanceiro = ['/ponto','/vt','/adiantamentos','/premios','/fechamento-ponto','/pagamentos','/encargos','/provisoes'].includes(item.to)
               if (isFinanceiro && !roleMeta.canViewFinanceiro) return false
               return true
             })

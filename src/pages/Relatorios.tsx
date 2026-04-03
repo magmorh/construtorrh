@@ -291,20 +291,21 @@ export default function Relatorios() {
 
       // ── 2. Custo Total por Obra ────────────────────────────────────────────
       else if (relatAtivo === 'custo-obra') {
+        // snap_bruto não existe — usar snap_valor_total; adiantamentos status='pago' no banco
         const q = supabase.from('ponto_lancamentos')
-          .select(`obra_id, snap_bruto, snap_liquido, obras(nome)`)
+          .select(`obra_id, snap_valor_total, snap_liquido, obras(nome)`)
           .gte('mes_referencia', mesRefIni)
           .lte('mes_referencia', mesRefFim)
         const { data: pl } = await q
         const { data: ad } = await supabase.from('adiantamentos')
           .select(`colaborador_id, valor, colaboradores(obra_id)`)
-          .gte('competencia', mesRefIni).lte('competencia', mesRefFim).eq('status', 'aprovado')
+          .gte('competencia', mesRefIni).lte('competencia', mesRefFim).in('status', ['aprovado', 'pago'])
         const { data: vt } = await supabase.from('vale_transporte')
           .select(`colaborador_id, valor_empresa, colaboradores(obra_id)`)
           .gte('competencia', mesRefIni).lte('competencia', mesRefFim)
         const { data: pr } = await supabase.from('premios')
           .select(`colaborador_id, valor, colaboradores(obra_id)`)
-          .gte('competencia', mesRefIni).lte('competencia', mesRefFim).eq('status', 'aprovado')
+          .gte('competencia', mesRefIni).lte('competencia', mesRefFim).in('status', ['aprovado', 'pago'])
 
         const map: Record<string, Record<string, unknown>> = {}
         const get = (oId: string, nome: string) => {
@@ -315,7 +316,7 @@ export default function Relatorios() {
           const o = (p as Record<string, unknown>).obras as Record<string, unknown> | null
           const id = String((p as Record<string, unknown>).obra_id ?? 'sem')
           const row = get(id, o ? String(o.nome) : '(Sem Obra)')
-          row.folha_bruto = (row.folha_bruto as number) + ((p as Record<string, unknown>).snap_bruto as number ?? 0)
+          row.folha_bruto = (row.folha_bruto as number) + ((p as Record<string, unknown>).snap_valor_total as number ?? 0)
           row.folha_liquido = (row.folha_liquido as number) + ((p as Record<string, unknown>).snap_liquido as number ?? 0)
         }
         for (const a of ad ?? []) {
@@ -341,9 +342,11 @@ export default function Relatorios() {
 
       // ── 3. Produtividade por Obra ─────────────────────────────────────────
       else if (relatAtivo === 'producao-obra') {
+        // ponto_producao não tem coluna 'data' — filtrar por mes_referencia; FK é playbook_item_id
         const q = supabase.from('ponto_producao')
-          .select(`obra_id, quantidade, playbook_itens(descricao, unidade, preco_unitario), obras(nome)`)
-          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
+          .select(`obra_id, quantidade, playbook_itens!playbook_item_id(descricao, unidade, preco_unitario), obras(nome)`)
+          .gte('mes_referencia', mesRefIni)
+          .lte('mes_referencia', mesRefFim)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
         const map: Record<string, Record<string, unknown>> = {}
@@ -412,8 +415,9 @@ export default function Relatorios() {
       // ── 6. Ficha Financeira Individual ───────────────────────────────────
       else if (relatAtivo === 'ficha-financeira') {
         if (filtroColaborador === 'todos') { toast.warning('Selecione um colaborador.'); setLoading(false); return }
+        // snap_bruto→snap_valor_total; snap_vt→snap_desconto_vt; snap_ad→snap_desconto_adiant; snap_premio→snap_valor_premio
         const { data: pl } = await supabase.from('ponto_lancamentos')
-          .select('mes_referencia, snap_bruto, snap_liquido, snap_inss, snap_ir, snap_vt, snap_ad, snap_premio')
+          .select('mes_referencia, snap_valor_total, snap_liquido, snap_inss, snap_ir, snap_desconto_vt, snap_desconto_adiant, snap_valor_premio')
           .eq('colaborador_id', filtroColaborador)
           .gte('mes_referencia', mesRefIni).lte('mes_referencia', mesRefFim)
           .order('mes_referencia')
@@ -432,7 +436,7 @@ export default function Relatorios() {
 
         const meses: Record<string, Record<string, unknown>> = {}
         const mk = (m: string) => { if (!meses[m]) meses[m] = { mes: m, bruto: 0, liquido: 0, inss: 0, ir: 0, vt_desc: 0, ad_desc: 0, premio: 0, adiantamentos: 0, vt_empresa: 0 }; return meses[m] }
-        for (const p of pl ?? []) { const r = mk(p.mes_referencia); r.bruto = Number(p.snap_bruto ?? 0); r.liquido = Number(p.snap_liquido ?? 0); r.inss = Number(p.snap_inss ?? 0); r.ir = Number(p.snap_ir ?? 0); r.vt_desc = Number(p.snap_vt ?? 0); r.ad_desc = Number(p.snap_ad ?? 0); r.premio = Number(p.snap_premio ?? 0) }
+        for (const p of pl ?? []) { const r = mk(p.mes_referencia); r.bruto = Number(p.snap_valor_total ?? 0); r.liquido = Number(p.snap_liquido ?? 0); r.inss = Number(p.snap_inss ?? 0); r.ir = Number(p.snap_ir ?? 0); r.vt_desc = Number(p.snap_desconto_vt ?? 0); r.ad_desc = Number(p.snap_desconto_adiant ?? 0); r.premio = Number(p.snap_valor_premio ?? 0) }
         for (const a of ad ?? []) { const r = mk(a.competencia); r.adiantamentos = (r.adiantamentos as number) + Number(a.valor ?? 0) }
         for (const v of vt ?? []) { const r = mk(v.competencia); r.vt_empresa = (r.vt_empresa as number) + Number(v.valor_empresa ?? 0) }
         resultado = Object.values(meses).sort((a, b) => String(a.mes).localeCompare(String(b.mes)))
@@ -453,12 +457,13 @@ export default function Relatorios() {
       // ── 8. Produção Individual ────────────────────────────────────────────
       else if (relatAtivo === 'producao-individual') {
         if (filtroColaborador === 'todos') { toast.warning('Selecione um colaborador.'); setLoading(false); return }
+        // ponto_producao: sem coluna 'data', filtrar por mes_referencia; FK playbook_item_id
         const { data } = await supabase.from('ponto_producao')
-          .select('data, quantidade, obs, playbook_itens(descricao, unidade, preco_unitario), obras(nome)')
+          .select('mes_referencia, quantidade, observacoes, playbook_itens!playbook_item_id(descricao, unidade, preco_unitario), obras(nome)')
           .eq('colaborador_id', filtroColaborador)
-          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
-          .lte('data', `${filtroAnoFim}-${filtroMesFim}-31`)
-          .order('data')
+          .gte('mes_referencia', mesRefIni)
+          .lte('mes_referencia', mesRefFim)
+          .order('mes_referencia')
         const map: Record<string, Record<string, unknown>> = {}
         for (const d of data ?? []) {
           const pb = (d as Record<string, unknown>).playbook_itens as Record<string, unknown> | null
@@ -493,15 +498,16 @@ export default function Relatorios() {
       else if (relatAtivo === 'custo-colab') {
         if (filtroColaborador === 'todos') { toast.warning('Selecione um colaborador.'); setLoading(false); return }
         const cid = filtroColaborador
+        // snap_bruto→snap_valor_total
         const [pl, ad, vt, pr] = await Promise.all([
-          supabase.from('ponto_lancamentos').select('mes_referencia,snap_bruto,snap_inss,snap_vt,snap_ad,snap_premio').eq('colaborador_id', cid).gte('mes_referencia', mesRefIni).lte('mes_referencia', mesRefFim),
+          supabase.from('ponto_lancamentos').select('mes_referencia,snap_valor_total').eq('colaborador_id', cid).gte('mes_referencia', mesRefIni).lte('mes_referencia', mesRefFim),
           supabase.from('adiantamentos').select('competencia,valor').eq('colaborador_id', cid).gte('competencia', mesRefIni).lte('competencia', mesRefFim),
           supabase.from('vale_transporte').select('competencia,valor_empresa').eq('colaborador_id', cid).gte('competencia', mesRefIni).lte('competencia', mesRefFim),
           supabase.from('premios').select('competencia,valor').eq('colaborador_id', cid).gte('competencia', mesRefIni).lte('competencia', mesRefFim),
         ])
         const map: Record<string, Record<string, unknown>> = {}
         const mk = (m: string) => { if (!map[m]) map[m] = { mes: m, folha_bruta: 0, adiantamentos: 0, vt_empresa: 0, premios: 0, total: 0 }; return map[m] }
-        for (const p of pl.data ?? []) { const r = mk(p.mes_referencia); r.folha_bruta = Number(p.snap_bruto ?? 0) }
+        for (const p of pl.data ?? []) { const r = mk(p.mes_referencia); r.folha_bruta = Number(p.snap_valor_total ?? 0) }
         for (const a of ad.data ?? []) { const r = mk(a.competencia); r.adiantamentos = (r.adiantamentos as number) + Number(a.valor ?? 0) }
         for (const v of vt.data ?? []) { const r = mk(v.competencia); r.vt_empresa = (r.vt_empresa as number) + Number(v.valor_empresa ?? 0) }
         for (const p of pr.data ?? []) { const r = mk(p.competencia); r.premios = (r.premios as number) + Number(p.valor ?? 0) }
@@ -532,8 +538,9 @@ export default function Relatorios() {
 
       // ── 12. Custo por Função ──────────────────────────────────────────────
       else if (relatAtivo === 'custo-funcao') {
+        // snap_bruto→snap_valor_total
         const { data } = await supabase.from('ponto_lancamentos')
-          .select('snap_bruto, snap_liquido, colaboradores(funcao_id, funcoes(nome))')
+          .select('snap_valor_total, snap_liquido, colaboradores(funcao_id, funcoes(nome))')
           .eq('mes_referencia', mesRef)
         const map: Record<string, Record<string, unknown>> = {}
         for (const d of data ?? []) {
@@ -541,7 +548,7 @@ export default function Relatorios() {
           const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
           const nome = func ? String(func.nome) : '(Sem Função)'
           if (!map[nome]) map[nome] = { funcao: nome, bruto: 0, liquido: 0, colaboradores: 0 }
-          map[nome].bruto = (map[nome].bruto as number) + Number((d as Record<string, unknown>).snap_bruto ?? 0)
+          map[nome].bruto = (map[nome].bruto as number) + Number((d as Record<string, unknown>).snap_valor_total ?? 0)
           map[nome].liquido = (map[nome].liquido as number) + Number((d as Record<string, unknown>).snap_liquido ?? 0)
           map[nome].colaboradores = (map[nome].colaboradores as number) + 1
         }
@@ -550,10 +557,11 @@ export default function Relatorios() {
 
       // ── 13. Produtividade por Função ──────────────────────────────────────
       else if (relatAtivo === 'producao-funcao') {
+        // ponto_producao: filtrar por mes_referencia (sem coluna 'data')
         const { data } = await supabase.from('ponto_producao')
           .select('quantidade, colaboradores(funcao_id, funcoes(nome, categoria))')
-          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
-          .lte('data', `${filtroAnoFim}-${filtroMesFim}-31`)
+          .gte('mes_referencia', mesRefIni)
+          .lte('mes_referencia', mesRefFim)
         const map: Record<string, Record<string, unknown>> = {}
         for (const d of data ?? []) {
           const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
@@ -571,10 +579,11 @@ export default function Relatorios() {
 
       // ── 14. Ranking de Produção ───────────────────────────────────────────
       else if (relatAtivo === 'ranking-producao') {
+        // ponto_producao: filtrar por mes_referencia; FK playbook_item_id
         const q = supabase.from('ponto_producao')
-          .select('colaborador_id, quantidade, playbook_itens(preco_unitario), colaboradores(nome, chapa, funcoes(nome))')
-          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
-          .lte('data', `${filtroAnoFim}-${filtroMesFim}-31`)
+          .select('colaborador_id, quantidade, playbook_itens!playbook_item_id(preco_unitario), colaboradores(nome, chapa, funcoes(nome))')
+          .gte('mes_referencia', mesRefIni)
+          .lte('mes_referencia', mesRefFim)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
         const map: Record<string, Record<string, unknown>> = {}
@@ -592,10 +601,11 @@ export default function Relatorios() {
 
       // ── 15. Produção por Item Playbook ────────────────────────────────────
       else if (relatAtivo === 'producao-playbook') {
+        // ponto_producao: filtrar por mes_referencia; FK playbook_item_id
         const q = supabase.from('ponto_producao')
-          .select('quantidade, playbook_itens(id, descricao, unidade, preco_unitario, categoria), obras(nome)')
-          .gte('data', `${filtroAnoIni}-${filtroMesIni}-01`)
-          .lte('data', `${filtroAnoFim}-${filtroMesFim}-31`)
+          .select('quantidade, playbook_itens!playbook_item_id(id, descricao, unidade, preco_unitario, categoria), obras(nome)')
+          .gte('mes_referencia', mesRefIni)
+          .lte('mes_referencia', mesRefFim)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
         const map: Record<string, Record<string, unknown>> = {}
@@ -612,15 +622,16 @@ export default function Relatorios() {
 
       // ── 16. Meta vs Realizado ─────────────────────────────────────────────
       else if (relatAtivo === 'meta-realizado') {
+        // snap_horas→snap_horas_normais
         const q = supabase.from('ponto_lancamentos')
-          .select('colaborador_id, snap_horas, colaboradores(nome, salario, funcoes(nome)), obras(nome)')
+          .select('colaborador_id, snap_horas_normais, colaboradores(nome, salario, funcoes(nome)), obras(nome)')
           .eq('mes_referencia', mesRef)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
         resultado = (data ?? []).map(d => {
           const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
           const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
-          const horas = Number((d as Record<string, unknown>).snap_horas ?? 0)
+          const horas = Number((d as Record<string, unknown>).snap_horas_normais ?? 0)
           const salario = Number(colab?.salario ?? 0)
           const metaHoras = 220
           return {
@@ -637,8 +648,9 @@ export default function Relatorios() {
 
       // ── 17. Evolução de Horas ─────────────────────────────────────────────
       else if (relatAtivo === 'evolucao-horas') {
+        // snap_horas→snap_horas_normais
         const q = supabase.from('ponto_lancamentos')
-          .select('mes_referencia, snap_horas, snap_faltas, obra_id')
+          .select('mes_referencia, snap_horas_normais, snap_faltas, obra_id')
           .gte('mes_referencia', mesRefIni).lte('mes_referencia', mesRefFim)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
@@ -646,7 +658,7 @@ export default function Relatorios() {
         for (const d of data ?? []) {
           const m = String((d as Record<string, unknown>).mes_referencia)
           if (!map[m]) map[m] = { mes: m, horas: 0, faltas: 0, colaboradores: 0 }
-          map[m].horas = (map[m].horas as number) + Number((d as Record<string, unknown>).snap_horas ?? 0)
+          map[m].horas = (map[m].horas as number) + Number((d as Record<string, unknown>).snap_horas_normais ?? 0)
           map[m].faltas = (map[m].faltas as number) + Number((d as Record<string, unknown>).snap_faltas ?? 0)
           map[m].colaboradores = (map[m].colaboradores as number) + 1
         }
@@ -700,8 +712,9 @@ export default function Relatorios() {
         const dias = parseInt(diasVencimento) || 30
         const hoje = new Date()
         const limite = new Date(hoje); limite.setDate(hoje.getDate() + dias)
+        // FK de colaborador_epi para epi_catalogo é epi_id
         const { data } = await supabase.from('colaborador_epi')
-          .select('data_validade, data_entrega, status, quantidade_entregue, colaboradores(nome, chapa), epi_catalogo(nome, categoria, numero_ca)')
+          .select('data_validade, data_entrega, status, quantidade_entregue, colaboradores(nome, chapa), epi_catalogo!epi_id(nome, categoria, numero_ca)')
           .lte('data_validade', limite.toISOString().split('T')[0])
           .order('data_validade')
         resultado = (data ?? []).map(d => {
@@ -723,8 +736,9 @@ export default function Relatorios() {
 
       // ── 21. Resumo de Folha ───────────────────────────────────────────────
       else if (relatAtivo === 'resumo-folha') {
+        // snap_bruto→snap_valor_total; snap_vt→snap_desconto_vt; snap_ad→snap_desconto_adiant; snap_horas→snap_horas_normais
         const q = supabase.from('ponto_lancamentos')
-          .select('snap_bruto, snap_liquido, snap_inss, snap_ir, snap_vt, snap_ad, snap_horas, snap_faltas, mes_referencia, obras(nome)')
+          .select('snap_valor_total, snap_liquido, snap_inss, snap_ir, snap_desconto_vt, snap_desconto_adiant, snap_horas_normais, snap_faltas, mes_referencia, obras(nome)')
           .gte('mes_referencia', mesRefIni).lte('mes_referencia', mesRefFim)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
@@ -732,13 +746,13 @@ export default function Relatorios() {
         for (const d of data ?? []) {
           const m = String((d as Record<string, unknown>).mes_referencia)
           if (!map[m]) map[m] = { mes: m, bruto: 0, liquido: 0, inss: 0, ir: 0, vt: 0, ad: 0, horas: 0, faltas: 0, colaboradores: 0 }
-          map[m].bruto = (map[m].bruto as number) + Number((d as Record<string, unknown>).snap_bruto ?? 0)
+          map[m].bruto = (map[m].bruto as number) + Number((d as Record<string, unknown>).snap_valor_total ?? 0)
           map[m].liquido = (map[m].liquido as number) + Number((d as Record<string, unknown>).snap_liquido ?? 0)
           map[m].inss = (map[m].inss as number) + Number((d as Record<string, unknown>).snap_inss ?? 0)
           map[m].ir = (map[m].ir as number) + Number((d as Record<string, unknown>).snap_ir ?? 0)
-          map[m].vt = (map[m].vt as number) + Number((d as Record<string, unknown>).snap_vt ?? 0)
-          map[m].ad = (map[m].ad as number) + Number((d as Record<string, unknown>).snap_ad ?? 0)
-          map[m].horas = (map[m].horas as number) + Number((d as Record<string, unknown>).snap_horas ?? 0)
+          map[m].vt = (map[m].vt as number) + Number((d as Record<string, unknown>).snap_desconto_vt ?? 0)
+          map[m].ad = (map[m].ad as number) + Number((d as Record<string, unknown>).snap_desconto_adiant ?? 0)
+          map[m].horas = (map[m].horas as number) + Number((d as Record<string, unknown>).snap_horas_normais ?? 0)
           map[m].faltas = (map[m].faltas as number) + Number((d as Record<string, unknown>).snap_faltas ?? 0)
           map[m].colaboradores = (map[m].colaboradores as number) + 1
         }
@@ -768,9 +782,10 @@ export default function Relatorios() {
 
       // ── 23. Adiantamentos em Aberto ───────────────────────────────────────
       else if (relatAtivo === 'adiantamentos-aberto') {
+        // No banco não existe 'quitado' — excluir 'cancelado'; incluir 'pendente' e 'aprovado'
         const q = supabase.from('adiantamentos')
           .select('competencia, tipo, valor, desconto_parcelas, desconto_parcela_atual, observacoes, colaboradores(nome, chapa, funcoes(nome))')
-          .neq('status', 'quitado')
+          .in('status', ['pendente', 'aprovado'])
           .order('competencia', { ascending: false })
         if (filtroColaborador !== 'todos') q.eq('colaborador_id', filtroColaborador)
         const { data } = await q
@@ -792,8 +807,9 @@ export default function Relatorios() {
 
       // ── 24. Custo Hora Médio ──────────────────────────────────────────────
       else if (relatAtivo === 'custo-hora') {
+        // snap_bruto→snap_valor_total; snap_horas→snap_horas_normais
         const q = supabase.from('ponto_lancamentos')
-          .select('snap_bruto, snap_horas, colaboradores(funcao_id, funcoes(nome)), obra_id, obras(nome)')
+          .select('snap_valor_total, snap_horas_normais, colaboradores(funcao_id, funcoes(nome)), obra_id, obras(nome)')
           .eq('mes_referencia', mesRef)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
@@ -803,8 +819,8 @@ export default function Relatorios() {
           const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
           const nome = func ? String(func.nome) : '(Sem Função)'
           if (!map[nome]) map[nome] = { funcao: nome, bruto_total: 0, horas_total: 0, colaboradores: 0 }
-          map[nome].bruto_total = (map[nome].bruto_total as number) + Number((d as Record<string, unknown>).snap_bruto ?? 0)
-          map[nome].horas_total = (map[nome].horas_total as number) + Number((d as Record<string, unknown>).snap_horas ?? 0)
+          map[nome].bruto_total = (map[nome].bruto_total as number) + Number((d as Record<string, unknown>).snap_valor_total ?? 0)
+          map[nome].horas_total = (map[nome].horas_total as number) + Number((d as Record<string, unknown>).snap_horas_normais ?? 0)
           map[nome].colaboradores = (map[nome].colaboradores as number) + 1
         }
         resultado = Object.values(map).map(r => ({

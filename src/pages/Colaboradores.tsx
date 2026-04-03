@@ -912,7 +912,6 @@ export default function Colaboradores() {
   const [obras, setObras]   = useState<Obra[]>([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
-  const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('todos')
   const [filterFuncao, setFilterFuncao] = useState('todas')
   const [filterContrato, setFilterContrato] = useState('todos')
@@ -1808,13 +1807,6 @@ export default function Colaboradores() {
               <option value="todas">Todas as funções</option>
               {funcoes.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
             </select>
-            <input
-              type="text"
-              value={searchTerm}
-              onInput={e => setSearchTerm((e.target as HTMLInputElement).value)} onChange={e => setSearchTerm(e.target.value)}
-              placeholder="🔍 Nome, CPF ou chapa…"
-              style={{ width:'100%', height:34, border:'1px solid #334155', borderRadius:7, padding:'0 10px', fontSize:12, background:'#0f172a', color:'#fff', boxSizing:'border-box', outline:'none' }}
-            />
             <div style={{ fontSize: 11, color: '#64748b' }}>{filtered.length} de {rows.length} colaborador(es)</div>
           </div>
 

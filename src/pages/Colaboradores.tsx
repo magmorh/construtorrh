@@ -936,7 +936,7 @@ export default function Colaboradores() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editId, setEditId]       = useState<string | null>(null)
   const [form, setForm]           = useState<FormData>(EMPTY)
-  const [section, setSection]     = useState<'pessoal' | 'funcao' | 'bancario' | 'vt' | 'epis'>('pessoal')
+  const [section, setSection]     = useState<'status' | 'pessoal' | 'funcao' | 'bancario' | 'vt' | 'epis'>('status')
 
   // ── modal pré-cadastro (etapa 1) ─────────────────────────────────────────
   const [preModal, setPreModal]           = useState(false)
@@ -1342,7 +1342,7 @@ ${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><t
     setTrocandoFuncao(false)
     setEpiList(epis)
     // Se já tem EPIs vinculados, abrir direto na aba EPIs para o usuário configurar tamanhos
-    setSection(epis.length > 0 ? 'epis' : 'pessoal')
+    setSection(epis.length > 0 ? 'epis' : 'status')
     setModalOpen(true)
   }
 
@@ -1409,7 +1409,7 @@ ${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><t
       .eq('colaborador_id', c.id)
       .order('data_inicio', { ascending: false })
     setHistoricoContratos((hcData ?? []) as HistoricoContrato[])
-    setSection('pessoal')
+    setSection('status')
     setForm({
       nome: c.nome, chapa: c.chapa ?? '', cpf: c.cpf ?? '', rg: c.rg ?? '',
       pis_nit: c.pis_nit ?? '', data_nascimento: c.data_nascimento ?? '',
@@ -1618,6 +1618,7 @@ ${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><t
     if (!form.nome.trim()) { toast.error('Nome é obrigatório'); setSection('pessoal'); return }
     if (!form.funcao_id)   { toast.error('Selecione a função'); setSection('funcao'); return }
     if (!form.chapa)       { toast.error('Chapa não gerada — selecione a função'); setSection('funcao'); return }
+    if (!editId && form.status === 'inativo') { toast.error('Novo colaborador não pode ser criado como Inativo'); setSection('status'); return }
 
     // Trava: não pode mudar função ou contrato se tiver ponto lançado
     const mudouFuncao     = editId && form.funcao_id !== funcaoOriginal && funcaoOriginal !== ''
@@ -2366,7 +2367,7 @@ ${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><t
         <DialogContent
           onInteractOutside={e => e.preventDefault()}
           onEscapeKeyDown={e => e.preventDefault()}
-          style={{ maxWidth: 680, padding: 0, display: 'flex', flexDirection: 'column', maxHeight: '92vh', overflow: 'hidden' }}>
+          style={{ maxWidth: 860, width: '95vw', padding: 0, display: 'flex', flexDirection: 'column', height: '92vh', maxHeight: '92vh', overflow: 'hidden' }}>
 
           {/* cabeçalho */}
           <DialogHeader style={{ padding: '18px 24px 0', flexShrink: 0 }}>
@@ -2377,8 +2378,8 @@ ${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><t
 
           {/* abas do modal */}
           <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', margin: '12px 24px 0', flexShrink: 0 }}>
-            {(['pessoal', 'funcao', 'bancario', 'vt', 'epis'] as const).map(s => {
-              const labels: Record<string, string> = { pessoal: 'Dados Pessoais', funcao: 'Função & Contrato', bancario: 'Dados Bancários', vt: 'Vale Transporte', epis: '🦺 EPIs' }
+            {(['status', 'pessoal', 'funcao', 'bancario', 'vt', 'epis'] as const).map(s => {
+              const labels: Record<string, string> = { status: '📋 Status & Compl.', pessoal: 'Dados Pessoais', funcao: 'Função & Contrato', bancario: 'Dados Bancários', vt: 'Vale Transporte', epis: '🦺 EPIs' }
               const isEpisTab = s === 'epis'
               const hasEpis   = isEpisTab && epiList.length > 0
               return (
@@ -2406,6 +2407,141 @@ ${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><t
 
           {/* conteúdo scrollável */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+
+            {/* ── SEÇÃO STATUS & COMPLEMENTARES ──────────────────────────── */}
+            {section === 'status' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                {/* Status + Observações */}
+                <Sec title="Status do Colaborador">
+                  <Grid cols={2}>
+                    <Field label="Status">
+                      <Select value={form.status} onValueChange={v => {
+                        if (v === 'inativo' && editId) {
+                          const colab = rows.find(r => r.id === editId)
+                          abrirModalInativar(editId, colab?.nome ?? form.nome, form.status)
+                        } else { set('status', v); if (v === 'ativo') set('data_status', '') }
+                      }}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ativo">✅ Ativo</SelectItem>
+                          <SelectItem value="inativo">🔴 Inativo</SelectItem>
+                          <SelectItem value="afastado">🟡 Afastado</SelectItem>
+                          <SelectItem value="ferias">🌴 Férias</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    {form.status !== 'ativo' && (
+                      <Field label={`Data de ${form.status === 'inativo' ? 'inativação' : form.status === 'afastado' ? 'afastamento' : 'início das férias'} *`}>
+                        <Input type="date" value={form.data_status} onChange={e => set('data_status', e.target.value)}
+                          style={{ borderColor: !form.data_status ? '#dc2626' : undefined }} />
+                        {!form.data_status && <div style={{fontSize:10,color:'#dc2626',marginTop:2}}>Obrigatório para status não-ativo</div>}
+                      </Field>
+                    )}
+                    <Field label="Observações" span={2}>
+                      <Textarea value={form.observacoes} onChange={e => set('observacoes', e.target.value)} rows={3} placeholder="Observações gerais…" />
+                    </Field>
+                  </Grid>
+                  {/* Botão Encerrar e Recontratar — somente em edição de ativo */}
+                  {editId && form.status !== 'inativo' && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                      <button type="button"
+                        onClick={() => { setModalOpen(false); setTimeout(() => { setRecontColabId(editId); setModalRecontratar(true) }, 80) }}
+                        style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 16px', borderRadius:8, border:'1.5px solid #7c3aed', background:'#faf5ff', color:'#7c3aed', fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                        🔄 Encerrar e Recontratar
+                      </button>
+                      <p style={{ fontSize:11, color:'var(--muted-foreground)', marginTop:6 }}>Encerra o vínculo atual e abre um novo cadastro preservando os dados pessoais.</p>
+                    </div>
+                  )}
+                </Sec>
+
+                {/* Dados Complementares */}
+                <Sec title="📋 Dados Complementares">
+                  <Grid cols={2}>
+                    <Field label="Nome do Pai">
+                      <Input value={form.nome_pai} onChange={e => set('nome_pai', e.target.value)} placeholder="Nome completo do pai" />
+                    </Field>
+                    <Field label="Nome da Mãe">
+                      <Input value={form.nome_mae} onChange={e => set('nome_mae', e.target.value)} placeholder="Nome completo da mãe" />
+                    </Field>
+                    <Field label="Cor / Raça">
+                      <Select value={form.cor_raca} onValueChange={v => set('cor_raca', v)}>
+                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="branca">Branca</SelectItem>
+                          <SelectItem value="preta">Preta</SelectItem>
+                          <SelectItem value="parda">Parda</SelectItem>
+                          <SelectItem value="amarela">Amarela</SelectItem>
+                          <SelectItem value="indigena">Indígena</SelectItem>
+                          <SelectItem value="nao_declarada">Não declarada</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Documento Militar">
+                      <Input value={form.doc_militar} onChange={e => set('doc_militar', e.target.value)} placeholder="Nº do documento" />
+                    </Field>
+                    <Field label="Matrícula eSocial">
+                      <Input value={form.matricula_esocial} onChange={e => set('matricula_esocial', e.target.value)} placeholder="Ex: 11" />
+                    </Field>
+                    <Field label="Deficiência">
+                      <div style={{ display:'flex', alignItems:'center', gap:10, height:36 }}>
+                        <button type="button"
+                          onClick={() => { set('deficiencia', !form.deficiencia); if (form.deficiencia) set('tipo_deficiencia', '') }}
+                          style={{ position:'relative', display:'inline-flex', width:44, height:24, borderRadius:12, border:'none', cursor:'pointer', background: form.deficiencia ? '#dc2626' : 'rgba(0,0,0,0.15)', transition:'background 150ms', flexShrink:0 }}>
+                          <span style={{ position:'absolute', top:3, left: form.deficiencia ? 22 : 3, width:18, height:18, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 3px rgba(0,0,0,0.2)', transition:'left 150ms' }} />
+                        </button>
+                        <span style={{ fontSize:12, color:'var(--muted-foreground)' }}>{form.deficiencia ? 'Sim' : 'Não'}</span>
+                      </div>
+                    </Field>
+                    {form.deficiencia && (
+                      <Field label="Tipo de Deficiência" span={2}>
+                        <Input value={form.tipo_deficiencia} onChange={e => set('tipo_deficiencia', e.target.value)} placeholder="Ex: Visual, Auditiva, Física…" />
+                      </Field>
+                    )}
+                  </Grid>
+                </Sec>
+
+                {/* Histórico de Vínculos */}
+                {editId && (() => {
+                  const colabAtual = rows.find(r => r.id === editId)
+                  const cpfAtual   = colabAtual?.cpf
+                  const outros = cpfAtual ? rows.filter(r => r.cpf === cpfAtual && r.id !== editId).sort((a,b) => (a.data_admissao ?? '').localeCompare(b.data_admissao ?? '')) : []
+                  if (outros.length === 0) return null
+                  return (
+                    <div style={{ borderTop:'1px solid var(--border)', paddingTop:16 }}>
+                      <div style={{ fontWeight:800, fontSize:13, color:'#7c3aed', marginBottom:10, display:'flex', alignItems:'center', gap:6 }}>
+                        🔗 Histórico de Vínculos ({outros.length + 1} registros no CPF {cpfAtual})
+                      </div>
+                      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                        {[...outros, colabAtual!].sort((a,b) => (a?.data_admissao ?? '').localeCompare(b?.data_admissao ?? '')).map((v, i, arr) => {
+                          const isAtual = v.id === editId; const isUltimo = i === arr.length - 1
+                          const cor = v.tipo_contrato === 'clt' ? '#1d4ed8' : '#d97706'; const bg = v.tipo_contrato === 'clt' ? '#dbeafe' : '#fef3c7'
+                          return (
+                            <div key={v.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8, background: isAtual ? bg : 'var(--muted)', border:`1px solid ${isAtual ? cor : 'var(--border)'}`, opacity: v.status === 'inativo' ? 0.7 : 1 }}>
+                              <div style={{ width:24, height:24, borderRadius:'50%', background: isAtual ? cor : '#9ca3af', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:11, flexShrink:0 }}>{i+1}</div>
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ fontWeight:700, fontSize:12, color: isAtual ? cor : 'var(--foreground)', display:'flex', gap:6, alignItems:'center' }}>
+                                  <span style={{ fontFamily:'monospace' }}>{v.chapa ?? '—'}</span>
+                                  <span style={{ textTransform:'uppercase', fontSize:10 }}>{v.tipo_contrato}</span>
+                                  {isAtual && <span style={{ fontSize:9, background:cor, color:'#fff', padding:'1px 5px', borderRadius:99 }}>ATUAL</span>}
+                                  {!isAtual && isUltimo && <span style={{ fontSize:9, background:'#10b981', color:'#fff', padding:'1px 5px', borderRadius:99 }}>MAIS RECENTE</span>}
+                                </div>
+                                <div style={{ fontSize:10, color:'var(--muted-foreground)', marginTop:2 }}>
+                                  {v.data_admissao ? new Date(v.data_admissao+'T12:00:00').toLocaleDateString('pt-BR') : '—'}{' → '}
+                                  {v.status === 'inativo' && (v as any).data_encerramento ? new Date((v as any).data_encerramento+'T12:00:00').toLocaleDateString('pt-BR') : v.status === 'ativo' ? 'Presente' : v.status?.toUpperCase()}
+                                  {(v as any).motivo_encerramento && <span style={{ marginLeft:8, fontStyle:'italic' }}>({(v as any).motivo_encerramento.replace(/_/g,' ')})</span>}
+                                </div>
+                              </div>
+                              {!isAtual && (<button type="button" onClick={() => openEdit(v as ColaboradorRow)} style={{ fontSize:10, padding:'3px 8px', borderRadius:5, border:'1px solid var(--border)', background:'var(--card)', cursor:'pointer', color:'var(--primary)', fontWeight:600 }}>Ver ficha</button>)}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
 
             {/* ── SEÇÃO DADOS PESSOAIS ───────────────────────────────────── */}
             {section === 'pessoal' && (
@@ -2483,164 +2619,6 @@ ${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><t
                   </Grid>
                 </Sec>
 
-                <Sec title="Status">
-                  <Grid cols={2}>
-                    <Field label="Status">
-                      <Select value={form.status} onValueChange={v => {
-                        if (v === 'inativo' && editId) {
-                          // Abre modal de confirmação em vez de aplicar direto
-                          const colab = rows.find(r => r.id === editId)
-                          abrirModalInativar(editId, colab?.nome ?? form.nome, form.status)
-                        } else {
-                          set('status', v)
-                          if (v === 'ativo') set('data_status', '')
-                        }
-                      }}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ativo">✅ Ativo</SelectItem>
-                          <SelectItem value="inativo">🔴 Inativo</SelectItem>
-                          <SelectItem value="afastado">🟡 Afastado</SelectItem>
-                          <SelectItem value="ferias">🌴 Férias</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    {form.status !== 'ativo' && (
-                      <Field label={`Data de ${form.status === 'inativo' ? 'inativação' : form.status === 'afastado' ? 'afastamento' : 'início das férias'} *`}>
-                        <Input
-                          type="date"
-                          value={form.data_status}
-                          onChange={e => set('data_status', e.target.value)}
-                          style={{ borderColor: !form.data_status ? '#dc2626' : undefined }}
-                        />
-                        {!form.data_status && (
-                          <div style={{fontSize:10,color:'#dc2626',marginTop:2}}>Obrigatório para status não-ativo</div>
-                        )}
-                      </Field>
-                    )}
-                    <Field label="Observações" span={2}>
-                      <Textarea value={form.observacoes} onChange={e => set('observacoes', e.target.value)} rows={2} placeholder="Observações gerais…" />
-                    </Field>
-                  </Grid>
-                </Sec>
-
-                {/* ── Dados Complementares (Ficha de Registro) ─────────── */}
-                <Sec title="📋 Dados Complementares">
-                  <Grid cols={2}>
-                    <Field label="Nome do Pai">
-                      <Input value={form.nome_pai} onChange={e => set('nome_pai', e.target.value)} placeholder="Nome completo do pai" />
-                    </Field>
-                    <Field label="Nome da Mãe">
-                      <Input value={form.nome_mae} onChange={e => set('nome_mae', e.target.value)} placeholder="Nome completo da mãe" />
-                    </Field>
-                    <Field label="Cor / Raça">
-                      <Select value={form.cor_raca} onValueChange={v => set('cor_raca', v)}>
-                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="branca">Branca</SelectItem>
-                          <SelectItem value="preta">Preta</SelectItem>
-                          <SelectItem value="parda">Parda</SelectItem>
-                          <SelectItem value="amarela">Amarela</SelectItem>
-                          <SelectItem value="indigena">Indígena</SelectItem>
-                          <SelectItem value="nao_declarada">Não declarada</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <Field label="Documento Militar">
-                      <Input value={form.doc_militar} onChange={e => set('doc_militar', e.target.value)} placeholder="Nº do documento" />
-                    </Field>
-                    <Field label="Matrícula eSocial">
-                      <Input value={form.matricula_esocial} onChange={e => set('matricula_esocial', e.target.value)} placeholder="Ex: 11" />
-                    </Field>
-                    <Field label="Deficiência">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, height: 36 }}>
-                        <button type="button"
-                          onClick={() => { set('deficiencia', !form.deficiencia); if (form.deficiencia) set('tipo_deficiencia', '') }}
-                          style={{ position: 'relative', display: 'inline-flex', width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', background: form.deficiencia ? '#dc2626' : 'rgba(0,0,0,0.15)', transition: 'background 150ms', flexShrink: 0 }}>
-                          <span style={{ position: 'absolute', top: 3, left: form.deficiencia ? 22 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.2)', transition: 'left 150ms' }} />
-                        </button>
-                        <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{form.deficiencia ? 'Sim' : 'Não'}</span>
-                      </div>
-                    </Field>
-                    {form.deficiencia && (
-                      <Field label="Tipo de Deficiência" span={2}>
-                        <Input value={form.tipo_deficiencia} onChange={e => set('tipo_deficiencia', e.target.value)} placeholder="Ex: Visual, Auditiva, Física…" />
-                      </Field>
-                    )}
-                  </Grid>
-                </Sec>
-
-                {/* ── Histórico de Vínculos (somente modo edição) ──────── */}
-                {editId && (() => {
-                  const colabAtual = rows.find(r => r.id === editId)
-                  const cpfAtual   = colabAtual?.cpf
-                  // Todos os cadastros do mesmo CPF (excluindo o atual)
-                  const outros = cpfAtual
-                    ? rows.filter(r => r.cpf === cpfAtual && r.id !== editId)
-                        .sort((a, b) => (a.data_admissao ?? '').localeCompare(b.data_admissao ?? ''))
-                    : []
-
-                  if (outros.length === 0) return null
-
-                  return (
-                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-                      <div style={{ fontWeight: 800, fontSize: 13, color: '#7c3aed', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        🔗 Histórico de Vínculos ({outros.length + 1} registros no CPF {cpfAtual})
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {[...outros, colabAtual!].sort((a,b) => (a?.data_admissao ?? '').localeCompare(b?.data_admissao ?? '')).map((v, i, arr) => {
-                          const isAtual  = v.id === editId
-                          const isUltimo = i === arr.length - 1
-                          const cor = v.tipo_contrato === 'clt' ? '#1d4ed8' : '#d97706'
-                          const bg  = v.tipo_contrato === 'clt' ? '#dbeafe' : '#fef3c7'
-                          return (
-                            <div key={v.id} style={{
-                              display: 'flex', alignItems: 'center', gap: 10,
-                              padding: '8px 12px', borderRadius: 8,
-                              background: isAtual ? bg : 'var(--muted)',
-                              border: `1px solid ${isAtual ? cor : 'var(--border)'}`,
-                              opacity: v.status === 'inativo' ? 0.7 : 1,
-                            }}>
-                              <div style={{
-                                width: 24, height: 24, borderRadius: '50%',
-                                background: isAtual ? cor : '#9ca3af',
-                                color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                fontWeight: 800, fontSize: 11, flexShrink: 0,
-                              }}>{i + 1}</div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 700, fontSize: 12, color: isAtual ? cor : 'var(--foreground)', display: 'flex', gap: 6, alignItems: 'center' }}>
-                                  <span style={{ fontFamily: 'monospace' }}>{v.chapa ?? '—'}</span>
-                                  <span style={{ textTransform: 'uppercase', fontSize: 10 }}>{v.tipo_contrato}</span>
-                                  {isAtual && <span style={{ fontSize: 9, background: cor, color: '#fff', padding: '1px 5px', borderRadius: 99 }}>ATUAL</span>}
-                                  {!isAtual && isUltimo && <span style={{ fontSize: 9, background: '#10b981', color: '#fff', padding: '1px 5px', borderRadius: 99 }}>MAIS RECENTE</span>}
-                                </div>
-                                <div style={{ fontSize: 10, color: 'var(--muted-foreground)', marginTop: 2 }}>
-                                  {v.data_admissao ? new Date(v.data_admissao + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}
-                                  {' → '}
-                                  {v.status === 'inativo' && (v as any).data_encerramento
-                                    ? new Date((v as any).data_encerramento + 'T12:00:00').toLocaleDateString('pt-BR')
-                                    : v.status === 'ativo' ? 'Presente' : v.status?.toUpperCase()}
-                                  {(v as any).motivo_encerramento && <span style={{ marginLeft: 8, fontStyle: 'italic' }}>({(v as any).motivo_encerramento.replace(/_/g, ' ')})</span>}
-                                </div>
-                              </div>
-                              {!isAtual && (
-                                <button
-                                  type="button"
-                                  onClick={() => openEdit(v as ColaboradorRow)}
-                                  style={{ fontSize: 10, padding: '3px 8px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--card)', cursor: 'pointer', color: 'var(--primary)', fontWeight: 600 }}
-                                >
-                                  Ver ficha
-                                </button>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )
-                })()}
-              </div>
-            )}
 
             {/* ── SEÇÃO FUNÇÃO & CONTRATO ────────────────────────────────── */}
             {section === 'funcao' && (

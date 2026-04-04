@@ -193,11 +193,6 @@ CREATE INDEX IF NOT EXISTS idx_portal_producao_obra
 ALTER TABLE colaboradores
   ADD COLUMN IF NOT EXISTS salario NUMERIC(10,2);
 
--- Migra de salario_base onde salario estiver vazio
-UPDATE colaboradores
-SET salario = salario_base
-WHERE salario IS NULL AND salario_base IS NOT NULL;
-
 
 -- ════════════════════════════════════════════════════════════
 -- BLOCO 5 — ATESTADOS: colunas data_inicio / data_fim / status

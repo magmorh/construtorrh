@@ -58,6 +58,8 @@ const GestorAtestados    = React.lazy(() => import('@/pages/gestor/GestorAtestad
 const GestorAcidentes    = React.lazy(() => import('@/pages/gestor/GestorAcidentes'))
 const GestorMeteorologia = React.lazy(() => import('@/pages/gestor/GestorMeteorologia'))
 const GestorRelatorios   = React.lazy(() => import('@/pages/gestor/GestorRelatorios'))
+const GestorLogin        = React.lazy(() => import('@/pages/gestor/GestorLogin'))
+const GestorAdmin        = React.lazy(() => import('@/pages/gestor/GestorAdmin'))
 
 // ─── Full-page loading spinner ───────────────────────────────────────────────
 function FullPageSpinner() {
@@ -144,14 +146,19 @@ export default function App() {
               <Route path="/portal/lancamentos"   element={<PortalLancamentos />} />
               <Route path="/portal/clima"          element={<PortalClima />} />
 
-              {/* Portal do Gestor — privado */}
-              <Route path="/gestor" element={<PrivateRoute><GestorDashboard /></PrivateRoute>} />
-              <Route path="/gestor/presenca" element={<PrivateRoute><GestorPresenca /></PrivateRoute>} />
-              <Route path="/gestor/producao" element={<PrivateRoute><GestorProducao /></PrivateRoute>} />
-              <Route path="/gestor/atestados" element={<PrivateRoute><GestorAtestados /></PrivateRoute>} />
-              <Route path="/gestor/acidentes" element={<PrivateRoute><GestorAcidentes /></PrivateRoute>} />
-              <Route path="/gestor/meteorologia" element={<PrivateRoute><GestorMeteorologia /></PrivateRoute>} />
-              <Route path="/gestor/relatorios" element={<PrivateRoute><GestorRelatorios /></PrivateRoute>} />
+              {/* Login do Gestor — público */}
+              <Route path="/gestor-login" element={<GestorLogin />} />
+
+              {/* Portal do Gestor — privado (gestor OU admin logado) */}
+              <Route path="/gestor" element={<GestorDashboard />} />
+              <Route path="/gestor/presenca" element={<GestorPresenca />} />
+              <Route path="/gestor/producao" element={<GestorProducao />} />
+              <Route path="/gestor/atestados" element={<GestorAtestados />} />
+              <Route path="/gestor/acidentes" element={<GestorAcidentes />} />
+              <Route path="/gestor/meteorologia" element={<GestorMeteorologia />} />
+              <Route path="/gestor/relatorios" element={<GestorRelatorios />} />
+              {/* Admin: gerenciar gestores — só master */}
+              <Route path="/gestor-admin" element={<PrivateRoute><Layout><GestorAdmin /></Layout></PrivateRoute>} />
 
               {/* Private — wrapped in Layout */}
               <Route

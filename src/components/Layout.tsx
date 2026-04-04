@@ -48,6 +48,7 @@ const PAGE_TITLES: Record<string, { label: string; icon: React.ElementType; colo
   '/portal-admin':      { label: 'Portal da Obra',      icon: Smartphone,      color: '#10b981' },
   '/configuracoes':     { label: 'Configurações',       icon: Settings,        color: '#64748b' },
   '/gestor':            { label: 'Portal do Gestor',    icon: BarChart3,       color: '#f59e0b' },
+  '/gestor-admin':      { label: 'Gestores — Admin',    icon: BarChart3,       color: '#f59e0b' },
 }
 
 // ─── Grupos de navegação ─────────────────────────────────────────────────────
@@ -144,10 +145,11 @@ const NAV_GROUPS = [
     short: 'Sistema',
     icon:  Cog,
     items: [
-      { to: '/usuarios',      label: 'Usuários',       icon: UserCog,   color: '#38bdf8', adminOnly: true },
-      { to: '/portal-admin',  label: 'Portal da Obra', icon: Smartphone,color: '#34d399', adminOnly: true },
+      { to: '/usuarios',      label: 'Usuários',         icon: UserCog,   color: '#38bdf8', adminOnly: true },
+      { to: '/portal-admin',  label: 'Portal da Obra',   icon: Smartphone,color: '#34d399', adminOnly: true },
+      { to: '/gestor-admin',  label: 'Gestores',         icon: BarChart3, color: '#f59e0b', adminOnly: true },
       { to: '/gestor',        label: 'Portal do Gestor', icon: BarChart3, color: '#f59e0b' },
-      { to: '/configuracoes', label: 'Configurações',  icon: Settings,  color: '#94a3b8' },
+      { to: '/configuracoes', label: 'Configurações',    icon: Settings,  color: '#94a3b8' },
     ],
   },
 ]

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
+import { getGestorSession, clearGestorSession } from '@/hooks/useGestorAuth'
 
 interface GestorLayoutProps { children: React.ReactNode }
 
@@ -56,6 +57,14 @@ export default function GestorLayout({ children }: GestorLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
+  const gestorSession = getGestorSession()
+
+  // Redireciona para login se não tiver sessão do gestor E não for usuário admin logado
+  React.useEffect(() => {
+    if (!gestorSession && !user) {
+      navigate('/gestor-login')
+    }
+  }, [gestorSession, user, navigate])
   const [menuOpen, setMenuOpen] = useState(false)
   const [alertas, setAlertas] = useState(0)
 
@@ -138,8 +147,12 @@ export default function GestorLayout({ children }: GestorLayoutProps) {
             {user?.email}
           </div>
           <button
-            onClick={() => navigate('/')}
-            title="Voltar ao sistema"
+            onClick={() => {
+              clearGestorSession()
+              if (user) navigate('/')
+              else navigate('/gestor-login')
+            }}
+            title="Sair do portal do gestor"
             style={{
               display: 'flex', alignItems: 'center', gap: 4,
               padding: '4px 10px', borderRadius: 7, border: 'none',

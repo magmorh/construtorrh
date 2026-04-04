@@ -601,47 +601,94 @@ export default function Relatorios() {
       else if (relatAtivo === 'producao-playbook') {
         // ponto_producao: filtrar por mes_referencia; FK playbook_item_id
         const q = supabase.from('ponto_producao')
-          .select('quantidade, playbook_itens!playbook_item_id(id, descricao, unidade, preco_unitario, categoria), obras(nome)')
+          .select('quantidade, colaborador_id, obra_id, playbook_itens!playbook_item_id(id, descricao, unidade, preco_unitario, categoria), obras(nome)')
           .gte('mes_referencia', mesRefIni)
           .lte('mes_referencia', mesRefFim)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
-        const map: Record<string, Record<string, unknown>> = {}
+        const mapPB: Record<string, Record<string, unknown>> = {}
+        const colaboradoresPorItem: Record<string, Set<string>> = {}
+        const todosColabIds = new Set<string>()
         for (const d of data ?? []) {
           const pb = (d as Record<string, unknown>).playbook_itens as Record<string, unknown> | null
           const key = String(pb?.id ?? 'sem')
-          if (!map[key]) map[key] = { descricao: pb?.descricao ?? '—', unidade: pb?.unidade ?? '—', categoria: pb?.categoria ?? '—', preco: Number(pb?.preco_unitario ?? 0), qtd: 0, total: 0, lancamentos: 0 }
-          map[key].qtd = (map[key].qtd as number) + Number((d as Record<string, unknown>).quantidade ?? 0)
-          map[key].total = (map[key].total as number) + (Number((d as Record<string, unknown>).quantidade ?? 0) * Number(pb?.preco_unitario ?? 0))
-          map[key].lancamentos = (map[key].lancamentos as number) + 1
+          const colabId = String((d as Record<string, unknown>).colaborador_id ?? '')
+          if (!mapPB[key]) {
+            mapPB[key] = { descricao: pb?.descricao ?? '—', unidade: pb?.unidade ?? '—', categoria: pb?.categoria ?? '—', preco: Number(pb?.preco_unitario ?? 0), qtd: 0, total: 0, lancamentos: 0, horas_totais: 0, coeficiente: 0 }
+            colaboradoresPorItem[key] = new Set()
+          }
+          mapPB[key].qtd = (mapPB[key].qtd as number) + Number((d as Record<string, unknown>).quantidade ?? 0)
+          mapPB[key].total = (mapPB[key].total as number) + (Number((d as Record<string, unknown>).quantidade ?? 0) * Number(pb?.preco_unitario ?? 0))
+          mapPB[key].lancamentos = (mapPB[key].lancamentos as number) + 1
+          if (colabId) { colaboradoresPorItem[key].add(colabId); todosColabIds.add(colabId) }
         }
-        resultado = Object.values(map).sort((a, b) => (b.total as number) - (a.total as number))
+        // Buscar horas dos colaboradores únicos no período
+        if (todosColabIds.size > 0) {
+          const qHoras = supabase.from('ponto_lancamentos')
+            .select('colaborador_id, snap_horas_normais, snap_horas_extras')
+            .gte('mes_referencia', mesRefIni)
+            .lte('mes_referencia', mesRefFim)
+            .in('colaborador_id', Array.from(todosColabIds))
+          if (filtroObra !== 'todos') qHoras.eq('obra_id', filtroObra)
+          const { data: horasData } = await qHoras
+          // mapa colaborador_id → horas totais
+          const horasPorColab: Record<string, number> = {}
+          for (const h of horasData ?? []) {
+            const hid = String((h as Record<string, unknown>).colaborador_id)
+            horasPorColab[hid] = (horasPorColab[hid] ?? 0)
+              + Number((h as Record<string, unknown>).snap_horas_normais ?? 0)
+              + Number((h as Record<string, unknown>).snap_horas_extras ?? 0)
+          }
+          // Calcular horas_totais e coeficiente por item
+          for (const [key, colabSet] of Object.entries(colaboradoresPorItem)) {
+            const hTotal = Array.from(colabSet).reduce((acc, cid) => acc + (horasPorColab[cid] ?? 0), 0)
+            mapPB[key].horas_totais = hTotal
+            const qtdItem = mapPB[key].qtd as number
+            mapPB[key].coeficiente = hTotal > 0 ? qtdItem / hTotal : 0
+          }
+        }
+        resultado = Object.values(mapPB).sort((a, b) => (b.total as number) - (a.total as number))
       }
 
       // ── 16. Meta vs Realizado ─────────────────────────────────────────────
       else if (relatAtivo === 'meta-realizado') {
-        // horas realizadas = normais + extras (total real trabalhado)
+        // horas realizadas = normais + extras; agrupa por colaborador (pode ter múltiplos lançamentos por obras diferentes)
         const q = supabase.from('ponto_lancamentos')
           .select('colaborador_id, snap_horas_normais, snap_horas_extras, snap_faltas, colaboradores(nome, salario, funcoes(nome)), obras(nome)')
-          .eq('mes_referencia', mesRef)
+          .gte('mes_referencia', mesRefIni)
+          .lte('mes_referencia', mesRefFim)
         if (filtroObra !== 'todos') q.eq('obra_id', filtroObra)
         const { data } = await q
-        resultado = (data ?? []).map(d => {
+        // Agrupa por colaborador_id somando horas de todos os lançamentos do período
+        const mapMR: Record<string, Record<string, unknown>> = {}
+        for (const d of data ?? []) {
+          const cid = String((d as Record<string, unknown>).colaborador_id)
           const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
           const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
-          const horasNormais = Number((d as Record<string, unknown>).snap_horas_normais ?? 0)
-          const horasExtras = Number((d as Record<string, unknown>).snap_horas_extras ?? 0)
-          const horas = horasNormais + horasExtras
-          const salario = Number(colab?.salario ?? 0)
-          const metaHoras = 220
+          if (!mapMR[cid]) {
+            mapMR[cid] = {
+              colaborador: colab ? String(colab.nome) : '—',
+              funcao: func ? String(func.nome) : '—',
+              salario: Number(colab?.salario ?? 0),
+              horas_normais: 0, horas_extras: 0, faltas: 0,
+            }
+          }
+          mapMR[cid].horas_normais = (mapMR[cid].horas_normais as number) + Number((d as Record<string, unknown>).snap_horas_normais ?? 0)
+          mapMR[cid].horas_extras  = (mapMR[cid].horas_extras  as number) + Number((d as Record<string, unknown>).snap_horas_extras  ?? 0)
+          mapMR[cid].faltas        = (mapMR[cid].faltas        as number) + Number((d as Record<string, unknown>).snap_faltas        ?? 0)
+        }
+        const metaHoras = 220
+        resultado = Object.values(mapMR).map(r => {
+          const horas = (r.horas_normais as number) + (r.horas_extras as number)
+          const salario = r.salario as number
           return {
-            colaborador: colab ? String(colab.nome) : '—',
-            funcao: func ? String(func.nome) : '—',
+            colaborador: r.colaborador,
+            funcao: r.funcao,
             meta_horas: metaHoras,
-            horas_normais: horasNormais,
-            horas_extras: horasExtras,
+            horas_normais: r.horas_normais,
+            horas_extras: r.horas_extras,
             horas_realizadas: horas,
-            faltas: Number((d as Record<string, unknown>).snap_faltas ?? 0),
+            faltas: r.faltas,
             diferenca: horas - metaHoras,
             pct_atingido: metaHoras > 0 ? ((horas / metaHoras) * 100).toFixed(1) : '0.0',
             custo_hora: salario > 0 && horas > 0 ? salario / horas : 0,
@@ -2238,7 +2285,7 @@ export default function Relatorios() {
                         {relatAtivo === 'meta-realizado' && ['Colaborador', 'Função', 'Meta (h)', 'Hs Normais', 'Hs Extras', 'Total Realizado', 'Faltas', 'Diferença (h)', '% Atingido', 'Custo/Hora'].map(h => <th key={h} className="px-4 py-3 text-left">{h}</th>)}
                         {relatAtivo === 'evolucao-horas' && ['Mês', 'Colaboradores', 'Hs Normais', 'Hs Extras', 'Total Horas', 'Faltas', 'Média Hs/Colab'].map(h => <th key={h} className="px-4 py-3 text-left">{h}</th>)}
                         {relatAtivo === 'producao-funcao' && ['Função', 'Categoria', 'Qtd Total', 'Lançamentos', 'Média por Lanç.'].map(h => <th key={h} className="px-4 py-3 text-left">{h}</th>)}
-                        {relatAtivo === 'producao-playbook' && ['Atividade', 'Unidade', 'Categoria', 'Preço Unit.', 'Qtd Total', 'Lançamentos', 'Total'].map(h => <th key={h} className="px-4 py-3 text-left">{h}</th>)}
+                        {relatAtivo === 'producao-playbook' && ['Atividade', 'Unidade', 'Categoria', 'Preço Unit.', 'Qtd Total', 'Lançamentos', 'Total', 'Horas Totais', 'Coeficiente'].map(h => <th key={h} className="px-4 py-3 text-left">{h}</th>)}
                       </tr>
                     </thead>
                     <tbody>
@@ -2282,6 +2329,8 @@ export default function Relatorios() {
                             <td key="q" className="px-4 py-2.5 text-right font-semibold">{fmtNum(r.qtd as number)}</td>,
                             <td key="l" className="px-4 py-2.5 text-right text-slate-500">{String(r.lancamentos)}</td>,
                             <td key="t" className="px-4 py-2.5 text-right font-bold text-[#1e3a5f]">{fmtCur(r.total as number)}</td>,
+                            <td key="h" className="px-4 py-2.5 text-right text-slate-600">{(r.horas_totais as number) > 0 ? `${fmtNum(r.horas_totais as number)}h` : '—'}</td>,
+                            <td key="cf" className="px-4 py-2.5 text-right font-semibold text-emerald-700">{(r.coeficiente as number) > 0 ? `${(r.coeficiente as number).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})} ${String(r.unidade)}/h` : '—'}</td>,
                           ]}
                         </tr>
                       ))}

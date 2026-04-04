@@ -1,119 +1,208 @@
--- =====================================================================
--- SQL: Tabelas para Portal do Gestor - ConstrutorRH
--- Execute no Supabase SQL Editor
--- =====================================================================
+-- ============================================================
+-- FIX: Portal do Gestor + Estação Meteorológica
+-- ConstrutorRH — Execute no Supabase SQL Editor
+-- Seguro para reexecutar (IF NOT EXISTS / IF EXISTS em tudo)
+-- ============================================================
 
--- Tabela: obra_clima (Estação Meteorológica)
+
+-- ════════════════════════════════════════════════════════════
+-- 1. COLABORADORES — coluna "salario"
+--    Schema tem salario_base; o código usa c.salario
+-- ════════════════════════════════════════════════════════════
+ALTER TABLE colaboradores
+  ADD COLUMN IF NOT EXISTS salario numeric(10,2);
+
+-- Migra valores existentes de salario_base → salario (se salario_base estiver preenchido)
+UPDATE colaboradores
+SET salario = salario_base
+WHERE salario IS NULL AND salario_base IS NOT NULL;
+
+
+-- ════════════════════════════════════════════════════════════
+-- 2. PORTAL_PONTO_DIARIO — colunas que o gestor lê
+--    (playbook_item_id e servico_descricao já podem existir
+--     via fix_playbook_ponto_portal.sql — IF NOT EXISTS é seguro)
+-- ════════════════════════════════════════════════════════════
+ALTER TABLE portal_ponto_diario
+  ADD COLUMN IF NOT EXISTS horas_trabalhadas  numeric(5,2),
+  ADD COLUMN IF NOT EXISTS playbook_item_id   uuid REFERENCES playbook_itens(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS servico_descricao  text,
+  ADD COLUMN IF NOT EXISTS lancado_por        text;
+
+CREATE INDEX IF NOT EXISTS idx_pponto_playbook
+  ON portal_ponto_diario (playbook_item_id)
+  WHERE playbook_item_id IS NOT NULL;
+
+
+-- ════════════════════════════════════════════════════════════
+-- 3. PORTAL_PRODUCAO — colunas que o gestor lê
+--    Schema original tem: quantidade, obs, status — mas faltam
+--    unidade e servico_descricao
+-- ════════════════════════════════════════════════════════════
+ALTER TABLE portal_producao
+  ADD COLUMN IF NOT EXISTS unidade            text NOT NULL DEFAULT 'un',
+  ADD COLUMN IF NOT EXISTS servico_descricao  text,
+  ADD COLUMN IF NOT EXISTS data               date;
+
+-- Índice de data (pode já existir, IF NOT EXISTS é seguro)
+CREATE INDEX IF NOT EXISTS idx_portal_producao_data
+  ON portal_producao (data DESC);
+
+
+-- ════════════════════════════════════════════════════════════
+-- 4. ATESTADOS — colunas data_inicio / data_fim
+--    Schema tem: data (sem _inicio), com_afastamento, dias_afastamento
+--    Código do gestor usa: data_inicio, data_fim
+-- ════════════════════════════════════════════════════════════
+ALTER TABLE atestados
+  ADD COLUMN IF NOT EXISTS data_inicio  date,
+  ADD COLUMN IF NOT EXISTS data_fim     date;
+
+-- Migra coluna legada "data" → "data_inicio" onde data_inicio está nulo
+UPDATE atestados
+SET data_inicio = data
+WHERE data_inicio IS NULL AND data IS NOT NULL;
+
+
+-- ════════════════════════════════════════════════════════════
+-- 5. ACIDENTES — colunas que o gestor lê
+--    Schema tem: data_ocorrencia, tipo, gravidade
+--    Código usa:  data_acidente,  tipo_acidente, dias_afastamento, cid
+-- ════════════════════════════════════════════════════════════
+ALTER TABLE acidentes
+  ADD COLUMN IF NOT EXISTS data_acidente    date,
+  ADD COLUMN IF NOT EXISTS tipo_acidente    text,
+  ADD COLUMN IF NOT EXISTS dias_afastamento int,
+  ADD COLUMN IF NOT EXISTS cid              text;
+
+-- Migra colunas legadas
+UPDATE acidentes
+SET
+  data_acidente = data_ocorrencia,
+  tipo_acidente = tipo
+WHERE data_acidente IS NULL AND data_ocorrencia IS NOT NULL;
+
+
+-- ════════════════════════════════════════════════════════════
+-- 6. OBRA_CLIMA — tabela nova (estação meteorológica)
+-- ════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS obra_clima (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  obra_id           UUID NOT NULL REFERENCES obras(id) ON DELETE CASCADE,
-  data              DATE NOT NULL,
-  choveu            BOOLEAN NOT NULL DEFAULT FALSE,
-  precipitacao_mm   NUMERIC(6,1),
-  temperatura_max   NUMERIC(4,1),
-  temperatura_min   NUMERIC(4,1),
-  vento_kmh         NUMERIC(5,1),
-  umidade_pct       NUMERIC(4,1),
-  condicao          TEXT NOT NULL DEFAULT 'ensolarado',
-  impacto_obra      TEXT NOT NULL DEFAULT 'nenhum',
-  observacoes       TEXT,
-  lancado_por       TEXT,
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(obra_id, data)
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  obra_id           uuid NOT NULL REFERENCES obras(id) ON DELETE CASCADE,
+  data              date NOT NULL,
+  choveu            boolean NOT NULL DEFAULT false,
+  precipitacao_mm   numeric(6,1),
+  temperatura_max   numeric(4,1),
+  temperatura_min   numeric(4,1),
+  vento_kmh         numeric(5,1),
+  umidade_pct       numeric(4,1),
+  condicao          text NOT NULL DEFAULT 'ensolarado',
+  impacto_obra      text NOT NULL DEFAULT 'nenhum',
+  observacoes       text,
+  lancado_por       text,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (obra_id, data)
 );
 
--- Índices para performance
-CREATE INDEX IF NOT EXISTS idx_obra_clima_obra_data ON obra_clima(obra_id, data DESC);
-CREATE INDEX IF NOT EXISTS idx_obra_clima_data ON obra_clima(data DESC);
+CREATE INDEX IF NOT EXISTS idx_obra_clima_obra_data
+  ON obra_clima (obra_id, data DESC);
 
--- RLS policies para obra_clima
+CREATE INDEX IF NOT EXISTS idx_obra_clima_data
+  ON obra_clima (data DESC);
+
+-- RLS (permite acesso via anon key do portal e autenticados do admin)
 ALTER TABLE obra_clima ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "obra_clima_select" ON obra_clima
-  FOR SELECT USING (true);
+DROP POLICY IF EXISTS "obra_clima_all" ON obra_clima;
+CREATE POLICY "obra_clima_all" ON obra_clima
+  FOR ALL USING (true) WITH CHECK (true);
 
-CREATE POLICY "obra_clima_insert" ON obra_clima
-  FOR INSERT WITH CHECK (true);
-
-CREATE POLICY "obra_clima_update" ON obra_clima
-  FOR UPDATE USING (true);
-
-CREATE POLICY "obra_clima_delete" ON obra_clima
-  FOR DELETE USING (true);
-
--- Trigger de updated_at
+-- Trigger de updated_at (cria função apenas se não existir)
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.updated_at = NOW();
+  NEW.updated_at = now();
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS obra_clima_updated_at ON obra_clima;
 CREATE TRIGGER obra_clima_updated_at
   BEFORE UPDATE ON obra_clima
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- =====================================================================
--- Tabela: portal_producao (se não existir)
--- (Pode já existir como outro nome — verifique seu schema)
--- =====================================================================
-CREATE TABLE IF NOT EXISTS portal_producao (
-  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  obra_id               UUID NOT NULL REFERENCES obras(id) ON DELETE CASCADE,
-  colaborador_id        UUID REFERENCES colaboradores(id),
-  data                  DATE NOT NULL,
-  servico_descricao     TEXT,
-  playbook_item_id      UUID,
-  quantidade            NUMERIC(10,2) NOT NULL DEFAULT 0,
-  unidade               TEXT NOT NULL DEFAULT 'un',
-  observacoes           TEXT,
-  lancado_por           TEXT,
-  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 
-CREATE INDEX IF NOT EXISTS idx_portal_producao_obra_data ON portal_producao(obra_id, data DESC);
-CREATE INDEX IF NOT EXISTS idx_portal_producao_colab ON portal_producao(colaborador_id);
-CREATE INDEX IF NOT EXISTS idx_portal_producao_data ON portal_producao(data DESC);
+-- ════════════════════════════════════════════════════════════
+-- 7. RLS nas tabelas existentes que o Gestor lê via anon key
+--    (só cria se ainda não houver política de SELECT)
+-- ════════════════════════════════════════════════════════════
 
-ALTER TABLE portal_producao ENABLE ROW LEVEL SECURITY;
+-- atestados
+ALTER TABLE atestados ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename='atestados' AND policyname='atestados_all'
+  ) THEN
+    EXECUTE 'CREATE POLICY atestados_all ON atestados FOR ALL USING (true) WITH CHECK (true)';
+  END IF;
+END $$;
 
-CREATE POLICY "portal_producao_select" ON portal_producao FOR SELECT USING (true);
-CREATE POLICY "portal_producao_insert" ON portal_producao FOR INSERT WITH CHECK (true);
-CREATE POLICY "portal_producao_update" ON portal_producao FOR UPDATE USING (true);
-CREATE POLICY "portal_producao_delete" ON portal_producao FOR DELETE USING (true);
+-- acidentes
+ALTER TABLE acidentes ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename='acidentes' AND policyname='acidentes_all'
+  ) THEN
+    EXECUTE 'CREATE POLICY acidentes_all ON acidentes FOR ALL USING (true) WITH CHECK (true)';
+  END IF;
+END $$;
 
--- =====================================================================
--- Coluna lancado_por em portal_ponto_diario (se não existir)
--- =====================================================================
-ALTER TABLE portal_ponto_diario
-  ADD COLUMN IF NOT EXISTS lancado_por TEXT;
+-- colaboradores (pode já ter RLS)
+ALTER TABLE colaboradores ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename='colaboradores' AND policyname='colaboradores_all'
+  ) THEN
+    EXECUTE 'CREATE POLICY colaboradores_all ON colaboradores FOR ALL USING (true) WITH CHECK (true)';
+  END IF;
+END $$;
 
--- =====================================================================
--- View útil: vw_presenca_resumo (presença diária consolidada)
--- =====================================================================
-CREATE OR REPLACE VIEW vw_presenca_resumo AS
+-- obras
+ALTER TABLE obras ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename='obras' AND policyname='obras_all'
+  ) THEN
+    EXECUTE 'CREATE POLICY obras_all ON obras FOR ALL USING (true) WITH CHECK (true)';
+  END IF;
+END $$;
+
+
+-- ════════════════════════════════════════════════════════════
+-- CONFIRMAÇÃO
+-- ════════════════════════════════════════════════════════════
 SELECT
-  p.data,
-  p.obra_id,
-  o.nome AS obra_nome,
-  COUNT(*) AS total_lancamentos,
-  COUNT(*) FILTER (WHERE p.status IN ('presente','meio_periodo','producao')) AS presentes,
-  COUNT(*) FILTER (WHERE p.status = 'falta') AS faltas,
-  COUNT(*) FILTER (WHERE p.status = 'falta_justificada') AS faltas_justificadas,
-  ROUND(
-    COUNT(*) FILTER (WHERE p.status IN ('presente','meio_periodo','producao'))::NUMERIC /
-    NULLIF(COUNT(*), 0) * 100, 1
-  ) AS taxa_presenca_pct
-FROM portal_ponto_diario p
-LEFT JOIN obras o ON o.id = p.obra_id
-GROUP BY p.data, p.obra_id, o.nome;
-
--- =====================================================================
--- COMENTÁRIOS FINAIS:
--- 1. Se a tabela portal_producao já existir com outro nome, ajuste
---    as queries no GestorProducao.tsx
--- 2. A tabela obra_clima usa UNIQUE(obra_id, data) para permitir upsert
---    pelo Portal do Encarregado (PortalClima.tsx)
--- =====================================================================
+  'colaboradores.salario'          AS coluna, column_name IS NOT NULL AS ok
+FROM information_schema.columns
+WHERE table_name='colaboradores' AND column_name='salario'
+UNION ALL
+SELECT 'portal_ponto_diario.horas_trabalhadas', column_name IS NOT NULL
+FROM information_schema.columns
+WHERE table_name='portal_ponto_diario' AND column_name='horas_trabalhadas'
+UNION ALL
+SELECT 'portal_producao.unidade', column_name IS NOT NULL
+FROM information_schema.columns
+WHERE table_name='portal_producao' AND column_name='unidade'
+UNION ALL
+SELECT 'atestados.data_inicio', column_name IS NOT NULL
+FROM information_schema.columns
+WHERE table_name='atestados' AND column_name='data_inicio'
+UNION ALL
+SELECT 'acidentes.data_acidente', column_name IS NOT NULL
+FROM information_schema.columns
+WHERE table_name='acidentes' AND column_name='data_acidente'
+UNION ALL
+SELECT 'obra_clima (tabela)', table_name IS NOT NULL
+FROM information_schema.tables
+WHERE table_name='obra_clima';

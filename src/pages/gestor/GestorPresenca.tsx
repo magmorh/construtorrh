@@ -75,7 +75,7 @@ export default function GestorPresenca() {
           .select('colaborador_id, data, status, horas_trabalhadas, observacoes, obra_id')
           .gte('data', dataInicio)
           .lte('data', dataFim),
-        supabase.from('obras').select('id, nome').eq('status', 'ativa').order('nome'),
+        supabase.from('obras').select('id, nome').neq('status', 'concluida').order('nome'),
         supabase.from('portal_ponto_diario')
           .select('colaborador_id, status, data')
           .gte('data', (() => { const d = new Date(); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10) })())

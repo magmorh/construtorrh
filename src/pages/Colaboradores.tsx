@@ -2231,8 +2231,8 @@ ${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><t
 
                   {/* Salvar + Cancelar */}
                   <button onClick={handleSave} disabled={saving || gerando}
-                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 7, border: 'none', background: saving ? '#94a3b8' : 'hsl(var(--primary))', color: '#fff', fontWeight: 700, fontSize: 12, cursor: saving ? 'not-allowed' : 'pointer' }}>
-                    {saving ? <><Loader2 size={12} className="animate-spin" /> Salvando…</> : 'Salvar'}
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 16px', borderRadius: 7, border: 'none', background: saving ? '#94a3b8' : '#16a34a', color: '#fff', fontWeight: 700, fontSize: 12, cursor: saving ? 'not-allowed' : 'pointer', boxShadow: saving ? 'none' : '0 2px 6px rgba(22,163,74,0.35)' }}>
+                    {saving ? <><Loader2 size={12} className="animate-spin" /> Salvando…</> : '✓ Salvar'}
                   </button>
                   <button onClick={() => { setInlineEditing(false); setEditId(null) }} disabled={saving}
                     style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--background)', color: 'var(--foreground)', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>

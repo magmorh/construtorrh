@@ -430,7 +430,7 @@ export default function Pagamentos() {
   const [filtroNomeLanc, setFiltroNomeLanc]   = useState('')
   const [filtroDataIni, setFiltroDataIni]     = useState('')
   const [filtroDataFim, setFiltroDataFim]     = useState('')
-  const [filtroMesLanc, setFiltroMesLanc]     = useState(new Date().toISOString().slice(0, 7))
+  const [filtroMesLanc, setFiltroMesLanc]     = useState('')  // vazio = sem filtro de mês (mostra tudo)
   const [filtroObraLanc, setFiltroObraLanc]   = useState('todos')
   const [filtroFuncaoLanc, setFiltroFuncaoLanc] = useState('todos')
 
@@ -704,24 +704,18 @@ export default function Pagamentos() {
           </div>
           {/* REALIZADOS */}
           <div style={{ background:'#f0fdf4', border:'2px solid #bbf7d0', borderRadius:12, padding:'14px 18px' }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
               <span style={{ fontSize:12, fontWeight:800, color:'#15803d', textTransform:'uppercase', letterSpacing:'0.05em' }}>✅ Realizados</span>
               <span style={{ background:'#15803d', color:'#fff', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700 }}>{qtdPagoGeral} pagos</span>
             </div>
-            <div style={{ fontSize:22, fontWeight:800, color:'#15803d', marginBottom:4 }}>{formatCurrency(totalPagoGeral)}</div>
+            <div style={{ fontSize:22, fontWeight:800, color:'#15803d', marginBottom:2 }}>{formatCurrency(totalPagoGeral)}</div>
             <div style={{ fontSize:11, color:'#166534', marginBottom:8 }}>Total histórico (todos os períodos)</div>
-            <div style={{ borderTop:'1px solid #bbf7d0', paddingTop:8 }}>
-              <div style={{ fontSize:11, color:'#166534', fontWeight:600, marginBottom:4 }}>Mês {filtroMesLanc}:</div>
-              <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#166534' }}>
-                  <span>📑 Folha de ponto</span><strong>{qtdFolhaPaga} · {formatCurrency(vlFolhaPaga)}</strong>
-                </div>
-                <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#166534' }}>
-                  <span>📋 Avulsos pagos</span><strong>{qtdAvPago} · {formatCurrency(vlAvPago)}</strong>
-                </div>
-                <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#166534', fontWeight:700, borderTop:'1px solid #bbf7d0', paddingTop:4 }}>
-                  <span>Subtotal do mês</span><strong>{formatCurrency(totalPago)}</strong>
-                </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#166534' }}>
+                <span>📑 Folha de ponto</span><strong>{qtdFolhaPagaTotal} · {formatCurrency(vlFolhaPagaTotal)}</strong>
+              </div>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#166534' }}>
+                <span>📋 Avulsos pagos</span><strong>{qtdAvPagoTotal} · {formatCurrency(vlAvPagoTotal)}</strong>
               </div>
             </div>
           </div>
@@ -818,9 +812,18 @@ export default function Pagamentos() {
           <input type="date" value={filtroDataFim} onChange={e=>setFiltroDataFim(e.target.value)}
             className="h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground" />
         </div>
-        {(filtroNomeLanc||filtroDataIni||filtroDataFim||filtroObraLanc!=='todos'||filtroFuncaoLanc!=='todos') && (
-          <Button variant="outline" size="sm" onClick={()=>{setFiltroNomeLanc('');setFiltroDataIni('');setFiltroDataFim('');setFiltroObraLanc('todos');setFiltroFuncaoLanc('todos')}}>
-            ✕ Limpar
+        {aba === 'realizados' && (
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Competência / Mês</label>
+            <input type="month" value={filtroMesLanc} onChange={e=>setFiltroMesLanc(e.target.value)}
+              className="h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground"
+              title="Deixe em branco para ver todos os meses" />
+            {filtroMesLanc && <button onClick={()=>setFiltroMesLanc('')} style={{marginLeft:4,fontSize:11,color:'#64748b',background:'none',border:'none',cursor:'pointer'}}>✕ Todos</button>}
+          </div>
+        )}
+        {(filtroNomeLanc||filtroDataIni||filtroDataFim||filtroObraLanc!=='todos'||filtroFuncaoLanc!=='todos'||filtroMesLanc) && (
+          <Button variant="outline" size="sm" onClick={()=>{setFiltroNomeLanc('');setFiltroDataIni('');setFiltroDataFim('');setFiltroObraLanc('todos');setFiltroFuncaoLanc('todos');setFiltroMesLanc('')}}>
+            ✕ Limpar tudo
           </Button>
         )}
       </div>

@@ -67,7 +67,7 @@ export default function GestorMeteorologia() {
           .gte('data', dtIni)
           .lte('data', dtFim)
           .order('data', { ascending: false }),
-        supabase.from('obras').select('id, nome').eq('status', 'ativa').order('nome'),
+        supabase.from('obras').select('id, nome').neq('status', 'concluida').order('nome'),
       ])
       setObras(obrasData ?? [])
       setRows((data ?? []).map((r: any) => ({

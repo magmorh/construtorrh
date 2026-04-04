@@ -97,7 +97,7 @@ export default function GestorDashboard() {
           .lte('data', hoje),
         supabase.from('obras')
           .select('id, nome, codigo')
-          .eq('status', 'ativa')
+          .neq('status', 'concluida')
           .order('nome'),
         supabase.from('atestados')
           .select('id')

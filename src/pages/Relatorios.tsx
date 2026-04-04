@@ -955,7 +955,7 @@ export default function Relatorios() {
     } finally {
       setLoading(false)
     }
-  }, [relatAtivo, filtroObra, filtroColaborador, filtroFuncao, filtroMes, filtroAno, filtroMesIni, filtroAnoIni, filtroMesFim, filtroAnoFim, mesRef, mesRefIni, mesRefFim, diasVencimento])
+  }, [relatAtivo, filtroObra, filtroColaborador, filtroFuncao, filtroDataIni, filtroDataFim, mesRef, mesRefIni, mesRefFim, diasVencimento])
 
   // ── Imprimir PDF ────────────────────────────────────────────────────────────
 

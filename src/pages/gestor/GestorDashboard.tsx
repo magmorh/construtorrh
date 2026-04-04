@@ -110,9 +110,9 @@ export default function GestorDashboard() {
           .gte('data', mesInicio)
           .lte('data', hoje)
           .order('data', { ascending: false }),
-        supabase.from('portal_producao')
-          .select('id, quantidade, unidade, obra_id, colaborador_id, servico_descricao, data')
-          .gte('data', mesInicio),
+        supabase.from('ponto_producao')
+          .select('id, quantidade, valor_total, obra_id, mes_referencia')
+          .gte('mes_referencia', mesInicio.slice(0,7)),
       ])
 
       const ativos = colabs ?? []
@@ -152,15 +152,18 @@ export default function GestorDashboard() {
       // Presentes detalhado
       setPresentes(presentesHoje.map(c => {
         const p = pontosMap.get(c.id)
+        // ✅ Usa a obra do PONTO LANÇADO HOJE, não a obra do cadastro do colaborador
+        const obraDoLancamento = (obrasData ?? []).find(o => o.id === p?.obra_id)
+        const obraNome = obraDoLancamento?.nome ?? (c.obras as any)?.nome ?? '—'
         return {
           id: c.id,
           nome: c.nome,
           chapa: c.chapa ?? '',
           funcao: (c.funcoes as any)?.nome ?? '—',
-          obra: (c.obras as any)?.nome ?? '—',
+          obra: obraNome,
           tipo_contrato: c.tipo_contrato ?? 'clt',
           status_hoje: p?.status ?? 'presente',
-          horas: p?.horas_trabalhadas ?? 0,
+          horas: p?.horas_extra ?? 0,
         }
       }))
 
@@ -227,7 +230,10 @@ export default function GestorDashboard() {
 
   const presentesFiltrados = useMemo(() => {
     if (obraFiltro === 'todas') return presentes
-    return presentes.filter(p => obras.find(o => o.nome === p.obra && o.id === obraFiltro))
+    return presentes.filter(p => {
+      const o = obras.find(ob => ob.nome === p.obra)
+      return o?.id === obraFiltro
+    })
   }, [presentes, obraFiltro, obras])
 
   const obrasFiltradas = useMemo(() => {

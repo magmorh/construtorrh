@@ -8,18 +8,20 @@ interface ProducaoRow {
   obra_id: string; obra_nome: string
   colaborador_id: string; colaborador_nome: string; funcao: string
   servico: string; quantidade: number; unidade: string
-  tipo_contrato: string; valor_unit: number; valor_total: number
+  tipo_contrato: string; valor_total: number
 }
 
 export default function GestorProducao() {
-  const hoje = new Date().toISOString().slice(0, 10)
+  const hoje    = new Date().toISOString().slice(0, 10)
   const mesAtual = hoje.slice(0, 7)
+  // Default: último mês com dados (mês anterior até atual)
+  const mesAnt  = (() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7) })()
 
   const [loading, setLoading]       = useState(true)
   const [rows, setRows]             = useState<ProducaoRow[]>([])
   const [obras, setObras]           = useState<{ id: string; nome: string }[]>([])
   const [obraFiltro, setObraFiltro] = useState('todas')
-  const [mesIni, setMesIni]         = useState(mesAtual)
+  const [mesIni, setMesIni]         = useState(mesAnt)
   const [mesFim, setMesFim]         = useState(mesAtual)
   const [agrupar, setAgrupar]       = useState<'servico' | 'colaborador' | 'obra'>('servico')
 
@@ -29,11 +31,10 @@ export default function GestorProducao() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      // Mesma query exata do relatório "Produtividade por Obra" que funciona
       const q = supabase.from('ponto_producao')
         .select(`
           id, mes_referencia, obra_id, colaborador_id,
-          quantidade, valor_unit, valor_total,
+          quantidade, valor_total,
           playbook_itens!playbook_item_id(descricao, unidade),
           obras(nome),
           colaboradores(nome, tipo_contrato, funcoes(nome))
@@ -61,7 +62,6 @@ export default function GestorProducao() {
         quantidade: r.quantidade ?? 0,
         unidade: r.playbook_itens?.unidade ?? 'un',
         tipo_contrato: r.colaboradores?.tipo_contrato ?? 'clt',
-        valor_unit: r.valor_unit ?? 0,
         valor_total: r.valor_total ?? 0,
       }))
       setRows(flat)

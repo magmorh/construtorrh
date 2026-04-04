@@ -3,461 +3,409 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import GestorLayout from './GestorLayout'
 import {
-  Users, UserCheck, UserX, CloudRain, AlertTriangle, Activity,
-  TrendingUp, Clock, HardHat, BarChart3, CheckCircle2,
-  Building2, FileText, ShieldAlert, Thermometer, Loader2, Wind,
-  CalendarCheck, CalendarX, Trophy
+  Users, UserCheck, CloudRain, BarChart3,
+  Building2, FileText, ShieldAlert, Loader2,
+  CalendarCheck,
 } from 'lucide-react'
 
-interface KpiCard {
-  label: string
-  value: string | number
-  sub?: string
-  icon: React.ReactNode
-  color: string
-  bg: string
-  trend?: { val: string; up: boolean }
-}
-
+// ─── Tipos ───────────────────────────────────────────────────────────────────
 interface ObraData {
-  id: string
-  nome: string
-  codigo?: string
-  ativos: number
-  presentes: number
-  faltando: number
-  producao_total: number
+  id: string; nome: string; codigo?: string
+  ativos: number; presentes: number; faltando: number; producao_total: number
+}
+interface ColabPresente {
+  id: string; nome: string; chapa: string; funcao: string
+  obra: string; obra_id: string; tipo_contrato: string; status_hoje: string; horas: number
+}
+interface RawColab {
+  id: string; nome: string; chapa: string | null; tipo_contrato: string | null
+  obra_id: string | null; funcoes: { nome: string } | null; obras: { nome: string } | null
 }
 
-interface ColabPresente {
-  id: string
-  nome: string
-  chapa: string
-  funcao: string
-  obra: string
-  tipo_contrato: string
-  status_hoje: string
-  horas?: number
-}
+// ─── helpers ─────────────────────────────────────────────────────────────────
+const fmtPct = (n: number) => `${n}%`
+const TAXA_COR = (t: number) => t >= 80 ? '#16a34a' : t >= 50 ? '#b45309' : '#dc2626'
 
 export default function GestorDashboard() {
-  const navigate = useNavigate()
-  const hoje = new Date().toISOString().slice(0, 10)
-  const semanaInicio = (() => {
-    const d = new Date(); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10)
-  })()
-  const mesInicio = hoje.slice(0, 8) + '01'
+  const navigate  = useNavigate()
+  const hoje      = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const semanaIni = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10) }, [])
+  const mesIni    = useMemo(() => hoje.slice(0, 8) + '01', [hoje])
 
-  const [loading, setLoading] = useState(true)
-  const [obras, setObras] = useState<ObraData[]>([])
-  const [obraFiltro, setObraFiltro] = useState('todas')
-  const [presentes, setPresentes] = useState<ColabPresente[]>([])
-  const [totalAtivos, setTotalAtivos] = useState(0)
-  const [totalCLT, setTotalCLT] = useState(0)
-  const [totalAutonomo, setTotalAutonomo] = useState(0)
-  const [faltaHoje, setFaltaHoje] = useState(0)
-  const [taxaPresencaDia, setTaxaPresencaDia] = useState(0)
-  const [taxaPresencaSemana, setTaxaPresencaSemana] = useState(0)
-  const [taxaPresencaMes, setTaxaPresencaMes] = useState(0)
-  const [producaoTotal, setProducaoTotal] = useState(0)
-  const [atestadosPendentes, setAtestadosPendentes] = useState(0)
-  const [acidentesMes, setAcidentesMes] = useState(0)
-  const [diasChuvososMes, setDiasChuvososMes] = useState(0)
-  const [ultimoClima, setUltimoClima] = useState<any>(null)
-  const [porFuncao, setPorFuncao] = useState<{ funcao: string; qtd: number; tipo: string }[]>([])
-  const [porTipo, setPorTipo] = useState<{ tipo: string; qtd: number }[]>([])
+  // ── Estado central ──────────────────────────────────────────────────────────
+  const [loading,     setLoading]     = useState(true)
+  const [obraFiltro,  setObraFiltro]  = useState('todas')
 
+  // dados brutos (sempre todos)
+  const [todasObras,    setTodasObras]    = useState<ObraData[]>([])
+  const [todosPresentes,setTodosPresentes]= useState<ColabPresente[]>([])
+  const [todosAtivos,   setTodosAtivos]   = useState<RawColab[]>([])
+
+  // métricas globais (independentes da obra)
+  const [taxaSemana,   setTaxaSemana]   = useState(0)
+  const [taxaMes,      setTaxaMes]      = useState(0)
+  const [diasChuva,    setDiasChuva]    = useState(0)
+  const [ultimoClima,  setUltimoClima]  = useState<any>(null)
+  const [atestados,    setAtestados]    = useState(0)
+  const [acidentes,    setAcidentes]    = useState(0)
+  const [porFuncao,    setPorFuncao]    = useState<{ fn: string; qtd: number }[]>([])
+  const [porTipo,      setPorTipo]      = useState<{ tipo: string; qtd: number }[]>([])
+
+  // ── Fetch tudo ──────────────────────────────────────────────────────────────
   const fetchTudo = useCallback(async () => {
     setLoading(true)
     try {
       const [
-        { data: colabs },
-        { data: pontosHoje },
-        { data: pontosSemana },
-        { data: pontosMes },
-        { data: obrasData },
-        { data: atestados },
-        { data: acidentes },
-        { data: clima },
-        { data: producao },
+        { data: colabs    },
+        { data: pHoje     },
+        { data: pSemana   },
+        { data: pMes      },
+        { data: obrasRaw  },
+        { data: atests    },
+        { data: acids     },
+        { data: climaData },
+        { data: producao  },
       ] = await Promise.all([
         supabase.from('colaboradores')
-          .select('id, nome, chapa, tipo_contrato, status, funcao_id, obra_id, funcoes(nome, sigla), obras(nome, codigo)')
+          .select('id, nome, chapa, tipo_contrato, obra_id, funcoes(nome), obras(nome)')
           .eq('status', 'ativo'),
         supabase.from('portal_ponto_diario')
-          .select('colaborador_id, obra_id, status, horas_trabalhadas, playbook_item_id, servico_descricao')
+          .select('colaborador_id, obra_id, status, horas_extra')
           .eq('data', hoje),
         supabase.from('portal_ponto_diario')
           .select('colaborador_id, obra_id, status, data')
-          .gte('data', semanaInicio)
-          .lte('data', hoje),
+          .gte('data', semanaIni).lte('data', hoje),
         supabase.from('portal_ponto_diario')
           .select('colaborador_id, obra_id, status, data')
-          .gte('data', mesInicio)
-          .lte('data', hoje),
+          .gte('data', mesIni).lte('data', hoje),
         supabase.from('obras')
           .select('id, nome, codigo')
           .neq('status', 'concluida')
           .order('nome'),
-        supabase.from('atestados')
-          .select('id')
-          .gte('data', mesInicio),
-        supabase.from('acidentes')
-          .select('id')
-          .gte('data_ocorrencia', mesInicio),
+        supabase.from('atestados').select('id', { count: 'exact', head: true }).gte('data', mesIni),
+        supabase.from('acidentes').select('id', { count: 'exact', head: true }).gte('data_ocorrencia', mesIni),
         supabase.from('obra_clima')
-          .select('*')
-          .gte('data', mesInicio)
-          .lte('data', hoje)
-          .order('data', { ascending: false }),
+          .select('*').gte('data', mesIni).lte('data', hoje).order('data', { ascending: false }),
         supabase.from('ponto_producao')
-          .select('id, quantidade, valor_total, obra_id, mes_referencia')
-          .gte('mes_referencia', mesInicio.slice(0,7)),
+          .select('id, quantidade, obra_id, mes_referencia')
+          .gte('mes_referencia', mesIni.slice(0, 7)),
       ])
 
-      const ativos = colabs ?? []
-      setTotalAtivos(ativos.length)
-      setTotalCLT(ativos.filter(c => c.tipo_contrato === 'clt').length)
-      setTotalAutonomo(ativos.filter(c => c.tipo_contrato !== 'clt').length)
+      const ativosArr = (colabs ?? []) as RawColab[]
+      setTodosAtivos(ativosArr)
 
-      // Presença hoje
-      const pontosMap = new Map<string, any>()
-      ;(pontosHoje ?? []).forEach(p => pontosMap.set(p.colaborador_id, p))
+      // mapa ponto → obra hoje
+      const pontoMap = new Map<string, { obra_id: string; status: string; horas_extra: number }>()
+      ;(pHoje ?? []).forEach((p: any) => pontoMap.set(p.colaborador_id, p))
 
-      const presentesHoje = ativos.filter(c => {
-        const p = pontosMap.get(c.id)
-        return p && ['presente', 'meio_periodo', 'producao'].includes(p.status)
-      })
-      const faltasHoje = ativos.filter(c => {
-        const p = pontosMap.get(c.id)
-        return p && p.status === 'falta'
-      })
-      setFaltaHoje(faltasHoje.length)
+      // Presentes HOJE — usa obra_id DO PONTO (não do cadastro)
+      const presHoje: ColabPresente[] = ativosArr
+        .filter(c => {
+          const p = pontoMap.get(c.id)
+          return p && ['presente', 'meio_periodo', 'producao'].includes(p.status)
+        })
+        .map(c => {
+          const p = pontoMap.get(c.id)!
+          const obraObj = (obrasRaw ?? []).find(o => o.id === p.obra_id)
+          return {
+            id: c.id,
+            nome: c.nome,
+            chapa: c.chapa ?? '',
+            funcao: (c.funcoes as any)?.nome ?? '—',
+            obra: obraObj?.nome ?? (c.obras as any)?.nome ?? '—',
+            obra_id: p.obra_id,
+            tipo_contrato: c.tipo_contrato ?? 'clt',
+            status_hoje: p.status,
+            horas: p.horas_extra ?? 0,
+          }
+        })
+      setTodosPresentes(presHoje)
 
-      const taxa = ativos.length > 0 ? Math.round((presentesHoje.length / ativos.length) * 100) : 0
-      setTaxaPresencaDia(taxa)
-
-      // Taxa semana
-      const diasUnicos = [...new Set((pontosSemana ?? []).map(p => p.data))]
-      const presencasSemana = (pontosSemana ?? []).filter(p => ['presente', 'meio_periodo', 'producao'].includes(p.status)).length
-      const totalPossiveisSemana = ativos.length * Math.max(diasUnicos.length, 1)
-      setTaxaPresencaSemana(Math.round((presencasSemana / totalPossiveisSemana) * 100))
-
-      // Taxa mês
-      const diasUnicosMes = [...new Set((pontosMes ?? []).map(p => p.data))]
-      const presencasMes = (pontosMes ?? []).filter(p => ['presente', 'meio_periodo', 'producao'].includes(p.status)).length
-      const totalPossiveisMes = ativos.length * Math.max(diasUnicosMes.length, 1)
-      setTaxaPresencaMes(Math.round((presencasMes / totalPossiveisMes) * 100))
-
-      // Presentes detalhado
-      setPresentes(presentesHoje.map(c => {
-        const p = pontosMap.get(c.id)
-        // ✅ Usa a obra do PONTO LANÇADO HOJE, não a obra do cadastro do colaborador
-        const obraDoLancamento = (obrasData ?? []).find(o => o.id === p?.obra_id)
-        const obraNome = obraDoLancamento?.nome ?? (c.obras as any)?.nome ?? '—'
-        return {
-          id: c.id,
-          nome: c.nome,
-          chapa: c.chapa ?? '',
-          funcao: (c.funcoes as any)?.nome ?? '—',
-          obra: obraNome,
-          tipo_contrato: c.tipo_contrato ?? 'clt',
-          status_hoje: p?.status ?? 'presente',
-          horas: p?.horas_extra ?? 0,
-        }
-      }))
-
-      // Obras com dados
-      const obrasComDados: ObraData[] = (obrasData ?? []).map(o => {
-        const atvsObra = ativos.filter(c => c.obra_id === o.id)
-        const presObra = presentesHoje.filter(c => c.obra_id === o.id)
-        const prodObra = (producao ?? [])
+      // Obras com métricas — usa obra_id DO PONTO para contagem de presentes
+      const obrasComDados: ObraData[] = (obrasRaw ?? []).map(o => {
+        const atvsObra  = ativosArr.filter(c => c.obra_id === o.id)
+        const presObra  = presHoje.filter(p => p.obra_id === o.id)
+        const prodObra  = (producao ?? [])
           .filter((p: any) => p.obra_id === o.id)
           .reduce((s: number, p: any) => s + (p.quantidade ?? 0), 0)
         return {
-          id: o.id,
-          nome: o.nome,
-          codigo: o.codigo ?? undefined,
-          ativos: atvsObra.length,
-          presentes: presObra.length,
+          id: o.id, nome: o.nome, codigo: o.codigo ?? undefined,
+          ativos: atvsObra.length, presentes: presObra.length,
           faltando: atvsObra.length - presObra.length,
-          producao_total: prodObra,
+          producao_total: Math.round(prodObra * 100) / 100,
         }
       })
-      setObras(obrasComDados)
+      setTodasObras(obrasComDados)
 
-      // Produção total do mês
-      const prodTotal = (producao ?? []).reduce((s: number, p: any) => s + (p.quantidade ?? 0), 0)
-      setProducaoTotal(Math.round(prodTotal * 100) / 100)
+      // Taxa semana/mês (globais)
+      const diasUnicos = [...new Set((pSemana ?? []).map((p: any) => p.data))]
+      const presSemana = (pSemana ?? []).filter((p: any) => ['presente','meio_periodo','producao'].includes(p.status)).length
+      setTaxaSemana(Math.round((presSemana / Math.max(ativosArr.length * Math.max(diasUnicos.length, 1), 1)) * 100))
 
-      // Atestados e acidentes
-      setAtestadosPendentes(atestados?.length ?? 0)
-      setAcidentesMes(acidentes?.length ?? 0)
+      const diasUnicosMes = [...new Set((pMes ?? []).map((p: any) => p.data))]
+      const presMes = (pMes ?? []).filter((p: any) => ['presente','meio_periodo','producao'].includes(p.status)).length
+      setTaxaMes(Math.round((presMes / Math.max(ativosArr.length * Math.max(diasUnicosMes.length, 1), 1)) * 100))
 
       // Clima
-      const climaData = clima ?? []
-      setDiasChuvososMes(climaData.filter(c => c.choveu).length)
-      setUltimoClima(climaData[0] ?? null)
+      const cl = climaData ?? []
+      setDiasChuva(cl.filter((c: any) => c.choveu).length)
+      setUltimoClima(cl[0] ?? null)
 
-      // Por função
-      const funcaoMap = new Map<string, { qtd: number; tipo: string }>()
-      ativos.forEach(c => {
+      // Alertas
+      setAtestados((atests as any)?.length ?? 0)
+      setAcidentes((acids as any)?.length ?? 0)
+
+      // Por função — todos os ativos
+      const fnMap = new Map<string, number>()
+      ativosArr.forEach(c => {
         const fn = (c.funcoes as any)?.nome ?? 'Sem função'
-        const tipo = c.tipo_contrato ?? 'clt'
-        if (!funcaoMap.has(fn)) funcaoMap.set(fn, { qtd: 0, tipo })
-        funcaoMap.get(fn)!.qtd++
+        fnMap.set(fn, (fnMap.get(fn) ?? 0) + 1)
       })
-      const funcaoArr = Array.from(funcaoMap.entries())
-        .map(([funcao, v]) => ({ funcao, ...v }))
-        .sort((a, b) => b.qtd - a.qtd)
-        .slice(0, 8)
-      setPorFuncao(funcaoArr)
+      setPorFuncao(Array.from(fnMap.entries()).map(([fn, qtd]) => ({ fn, qtd })).sort((a, b) => b.qtd - a.qtd).slice(0, 8))
 
-      // Por tipo de contrato
-      const tiposMap = new Map<string, number>()
-      ativos.forEach(c => {
-        const t = c.tipo_contrato ?? 'clt'
-        tiposMap.set(t, (tiposMap.get(t) ?? 0) + 1)
-      })
-      setPorTipo(Array.from(tiposMap.entries()).map(([tipo, qtd]) => ({ tipo, qtd })))
+      // Por tipo
+      const tpMap = new Map<string, number>()
+      ativosArr.forEach(c => { const t = c.tipo_contrato ?? 'clt'; tpMap.set(t, (tpMap.get(t) ?? 0) + 1) })
+      setPorTipo(Array.from(tpMap.entries()).map(([tipo, qtd]) => ({ tipo, qtd })))
 
     } finally {
       setLoading(false)
     }
-  }, [hoje, semanaInicio, mesInicio])
+  }, [hoje, semanaIni, mesIni])
 
   useEffect(() => { fetchTudo() }, [fetchTudo])
 
-  const presentesFiltrados = useMemo(() => {
-    if (obraFiltro === 'todas') return presentes
-    return presentes.filter(p => {
-      const o = obras.find(ob => ob.nome === p.obra)
-      return o?.id === obraFiltro
-    })
-  }, [presentes, obraFiltro, obras])
+  // ── Dados FILTRADOS por obra ────────────────────────────────────────────────
+  const presentes = useMemo(() =>
+    obraFiltro === 'todas' ? todosPresentes : todosPresentes.filter(p => p.obra_id === obraFiltro),
+  [todosPresentes, obraFiltro])
 
-  const obrasFiltradas = useMemo(() => {
-    if (obraFiltro === 'todas') return obras
-    return obras.filter(o => o.id === obraFiltro)
-  }, [obras, obraFiltro])
+  const ativos = useMemo(() =>
+    obraFiltro === 'todas' ? todosAtivos : todosAtivos.filter(c => c.obra_id === obraFiltro),
+  [todosAtivos, obraFiltro])
 
-  const kpis: KpiCard[] = [
-    {
-      label: 'Colaboradores Ativos',
-      value: totalAtivos,
-      sub: `${totalCLT} CLT · ${totalAutonomo} Autônomos`,
-      icon: <Users size={20} />,
-      color: '#2563eb', bg: '#eff6ff',
-    },
-    {
-      label: 'Presentes Hoje',
-      value: presentes.length,
-      sub: `${faltaHoje} falta(s) registrada(s)`,
-      icon: <UserCheck size={20} />,
-      color: '#16a34a', bg: '#f0fdf4',
-      trend: { val: `${taxaPresencaDia}%`, up: taxaPresencaDia >= 80 },
-    },
-    {
-      label: 'Taxa Presença / Dia',
-      value: `${taxaPresencaDia}%`,
-      sub: `Semana: ${taxaPresencaSemana}% · Mês: ${taxaPresencaMes}%`,
-      icon: <CalendarCheck size={20} />,
-      color: '#0891b2', bg: '#ecfeff',
-    },
-    {
-      label: 'Produção no Mês',
-      value: producaoTotal.toLocaleString('pt-BR'),
-      sub: 'Total de unidades/m² produzidos',
-      icon: <BarChart3 size={20} />,
-      color: '#b45309', bg: '#fffbeb',
-    },
-    {
-      label: 'Atestados Pendentes',
-      value: atestadosPendentes,
-      sub: 'Aguardando validação',
-      icon: <FileText size={20} />,
-      color: atestadosPendentes > 0 ? '#7c3aed' : '#64748b',
-      bg: atestadosPendentes > 0 ? '#f5f3ff' : '#f8fafc',
-    },
-    {
-      label: 'Acidentes no Mês',
-      value: acidentesMes,
-      sub: 'Registrados neste mês',
-      icon: <ShieldAlert size={20} />,
-      color: acidentesMes > 0 ? '#dc2626' : '#64748b',
-      bg: acidentesMes > 0 ? '#fef2f2' : '#f8fafc',
-    },
-    {
-      label: 'Dias de Chuva',
-      value: diasChuvososMes,
-      sub: `Mês atual · Último: ${ultimoClima ? new Date(ultimoClima.data + 'T12:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }) : '—'}`,
-      icon: <CloudRain size={20} />,
-      color: '#0369a1', bg: '#f0f9ff',
-    },
-    {
-      label: 'Obras Ativas',
-      value: obras.length,
-      sub: `${obras.filter(o => o.ativos > 0).length} com colaboradores`,
-      icon: <Building2 size={20} />,
-      color: '#059669', bg: '#f0fdf4',
-    },
-  ]
+  const obras = useMemo(() =>
+    obraFiltro === 'todas' ? todasObras : todasObras.filter(o => o.id === obraFiltro),
+  [todasObras, obraFiltro])
 
+  const faltas = useMemo(() => {
+    const presIds = new Set(presentes.map(p => p.id))
+    return ativos.filter(c => !presIds.has(c.id)).length
+  }, [ativos, presentes])
+
+  const taxaDia = useMemo(() =>
+    ativos.length > 0 ? Math.round((presentes.length / ativos.length) * 100) : 0,
+  [ativos, presentes])
+
+  const producaoFiltrada = useMemo(() =>
+    obras.reduce((s, o) => s + o.producao_total, 0),
+  [obras])
+
+  // ── Loading ──────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <GestorLayout>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', flexDirection: 'column', gap: 12 }}>
-          <Loader2 size={32} color="#2563eb" className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
-          <span style={{ color: '#64748b', fontSize: 14 }}>Carregando dados do gestor…</span>
+          <Loader2 size={32} color="#2563eb" style={{ animation: 'spin 1s linear infinite' }} />
+          <span style={{ color: '#64748b', fontSize: 14 }}>Carregando dados…</span>
+          <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
         </div>
       </GestorLayout>
     )
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <GestorLayout>
-      {/* ── Header ── */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: '#0f172a' }}>
-              📊 Dashboard do Gestor
-            </h1>
-            <p style={{ color: '#64748b', fontSize: 13, margin: '4px 0 0' }}>
-              {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
-            </p>
-          </div>
+      <style>{`
+        @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+        .dash-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+        .dash-grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+        .dash-grid-6{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+        .kpi-grid   {display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+        .presente-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+        @media(max-width:640px){
+          .dash-grid-2{grid-template-columns:1fr!important}
+          .dash-grid-4{grid-template-columns:1fr 1fr!important}
+          .kpi-grid   {grid-template-columns:1fr 1fr!important}
+          .presente-grid{grid-template-columns:1fr!important}
+          .dash-grid-6{grid-template-columns:repeat(3,1fr)!important}
+        }
+      `}</style>
 
-          {/* Filtro por obra */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <button
-              onClick={() => setObraFiltro('todas')}
-              style={{
-                padding: '6px 14px', borderRadius: 8, border: `2px solid ${obraFiltro === 'todas' ? '#2563eb' : '#e2e8f0'}`,
-                background: obraFiltro === 'todas' ? '#eff6ff' : '#fff', color: obraFiltro === 'todas' ? '#2563eb' : '#64748b',
-                fontWeight: 700, fontSize: 12, cursor: 'pointer',
-              }}
-            >
-              🏗️ Todas as Obras
-            </button>
-            {obras.map(o => (
-              <button
-                key={o.id}
-                onClick={() => setObraFiltro(o.id)}
-                style={{
-                  padding: '6px 14px', borderRadius: 8, border: `2px solid ${obraFiltro === o.id ? '#2563eb' : '#e2e8f0'}`,
-                  background: obraFiltro === o.id ? '#eff6ff' : '#fff', color: obraFiltro === o.id ? '#2563eb' : '#64748b',
-                  fontWeight: 600, fontSize: 12, cursor: 'pointer', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}
-              >
-                {o.codigo ? `[${o.codigo}] ` : ''}{o.nome}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* ══ HEADER ══════════════════════════════════════════════════════════════ */}
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 4px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+          📊 Dashboard do Gestor
+        </h1>
+        <p style={{ color: '#64748b', fontSize: 12, margin: 0 }}>
+          {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
+        </p>
       </div>
 
-      {/* ── KPIs Grid ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14, marginBottom: 24 }}>
-        {kpis.map((k, i) => (
+      {/* ══ FILTRO DE OBRA ══════════════════════════════════════════════════════ */}
+      <div style={{
+        display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20,
+        padding: '10px 14px', background: '#fff',
+        borderRadius: 12, border: '1px solid #e2e8f0',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+      }}>
+        {[{ id: 'todas', label: '🏗️ Todas as Obras', codigo: '' }, ...todasObras.map(o => ({ id: o.id, label: o.nome, codigo: o.codigo ?? '' }))].map(o => (
+          <button
+            key={o.id}
+            onClick={() => setObraFiltro(o.id)}
+            style={{
+              padding: '6px 14px', borderRadius: 20,
+              border: `2px solid ${obraFiltro === o.id ? '#2563eb' : '#e2e8f0'}`,
+              background: obraFiltro === o.id ? '#2563eb' : '#f8fafc',
+              color: obraFiltro === o.id ? '#fff' : '#374151',
+              fontWeight: 700, fontSize: 12, cursor: 'pointer',
+              whiteSpace: 'nowrap', transition: 'all 0.15s',
+            }}
+          >
+            {o.codigo ? `[${o.codigo}] ` : ''}{o.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ══ KPIs ════════════════════════════════════════════════════════════════ */}
+      <div className="kpi-grid" style={{ marginBottom: 20 }}>
+        {[
+          {
+            label: 'Colaboradores Ativos', value: ativos.length,
+            sub: obraFiltro === 'todas'
+              ? `${todosAtivos.filter(c=>c.tipo_contrato==='clt').length} CLT · ${todosAtivos.filter(c=>c.tipo_contrato!=='clt').length} Autônomos`
+              : `nesta obra`,
+            icon: <Users size={18} />, color: '#2563eb', bg: '#eff6ff',
+          },
+          {
+            label: 'Presentes Hoje', value: presentes.length,
+            sub: `${faltas} falta(s) · ${fmtPct(taxaDia)} taxa`,
+            icon: <UserCheck size={18} />, color: '#16a34a', bg: '#f0fdf4',
+            extra: <span style={{ fontSize: 12, fontWeight: 800, color: TAXA_COR(taxaDia) }}>↑ {fmtPct(taxaDia)}</span>,
+          },
+          {
+            label: 'Taxa Presença', value: fmtPct(taxaDia),
+            sub: obraFiltro === 'todas' ? `Semana: ${fmtPct(taxaSemana)} · Mês: ${fmtPct(taxaMes)}` : 'hoje nesta obra',
+            icon: <CalendarCheck size={18} />, color: TAXA_COR(taxaDia), bg: taxaDia >= 80 ? '#f0fdf4' : taxaDia >= 50 ? '#fffbeb' : '#fef2f2',
+          },
+          {
+            label: 'Produção no Mês', value: producaoFiltrada.toLocaleString('pt-BR'),
+            sub: 'unidades / m²',
+            icon: <BarChart3 size={18} />, color: '#b45309', bg: '#fffbeb',
+          },
+          {
+            label: 'Atestados no Mês', value: atestados,
+            sub: 'registrados',
+            icon: <FileText size={18} />, color: atestados > 0 ? '#7c3aed' : '#64748b', bg: atestados > 0 ? '#f5f3ff' : '#f8fafc',
+          },
+          {
+            label: 'Acidentes no Mês', value: acidentes,
+            sub: 'registrados',
+            icon: <ShieldAlert size={18} />, color: acidentes > 0 ? '#dc2626' : '#64748b', bg: acidentes > 0 ? '#fef2f2' : '#f8fafc',
+          },
+          {
+            label: 'Dias de Chuva', value: diasChuva,
+            sub: 'este mês',
+            icon: <CloudRain size={18} />, color: '#0369a1', bg: '#f0f9ff',
+          },
+          {
+            label: 'Obras Ativas', value: todasObras.length,
+            sub: `${todasObras.filter(o=>o.ativos>0).length} com colaboradores`,
+            icon: <Building2 size={18} />, color: '#059669', bg: '#f0fdf4',
+          },
+        ].map((k, i) => (
           <div key={i} style={{
-            background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
-            padding: '16px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+            background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
+            padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
             display: 'flex', alignItems: 'flex-start', gap: 12,
           }}>
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: k.bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 38, height: 38, borderRadius: 10, background: k.bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {React.cloneElement(k.icon as React.ReactElement, { color: k.color })}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 2 }}>{k.label}</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: k.color, lineHeight: 1.2 }}>{k.value}</div>
-              {k.sub && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>{k.sub}</div>}
-              {k.trend && (
-                <div style={{ fontSize: 11, fontWeight: 700, color: k.trend.up ? '#16a34a' : '#dc2626', marginTop: 2 }}>
-                  {k.trend.up ? '↑' : '↓'} {k.trend.val}
-                </div>
-              )}
+              <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{k.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: k.color, lineHeight: 1.2, marginTop: 2 }}>{k.value}</div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{k.sub}</div>
+              {(k as any).extra && <div style={{ marginTop: 2 }}>{(k as any).extra}</div>}
             </div>
           </div>
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+      {/* ══ LINHA 2: Obras + Equipe ══════════════════════════════════════════ */}
+      <div className="dash-grid-2" style={{ marginBottom: 20 }}>
 
-        {/* ── Obras overview ── */}
-        <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', padding: 18, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-          <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, color: '#0f172a' }}>
-            <Building2 size={16} color="#2563eb" /> Situação por Obra
+        {/* Situação por Obra */}
+        <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', padding: 18 }}>
+          <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, color: '#0f172a' }}>
+            <Building2 size={15} color="#2563eb" /> Situação por Obra
           </div>
-          {obrasFiltradas.length === 0 ? (
-            <div style={{ color: '#94a3b8', textAlign: 'center', padding: 24, fontSize: 13 }}>Nenhuma obra ativa</div>
-          ) : obrasFiltradas.map(o => {
-            const taxa = o.ativos > 0 ? Math.round((o.presentes / o.ativos) * 100) : 0
-            return (
-              <div key={o.id} style={{ marginBottom: 14, padding: '12px 14px', background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <div>
-                    <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{o.nome}</span>
-                    {o.codigo && <span style={{ marginLeft: 6, fontSize: 10, background: '#e0f2fe', color: '#0369a1', borderRadius: 4, padding: '1px 6px', fontWeight: 700 }}>{o.codigo}</span>}
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: taxa >= 80 ? '#16a34a' : taxa >= 50 ? '#b45309' : '#dc2626' }}>{taxa}%</span>
-                </div>
-                {/* Progress bar */}
-                <div style={{ height: 6, background: '#e2e8f0', borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
-                  <div style={{ height: '100%', width: `${taxa}%`, borderRadius: 3, background: taxa >= 80 ? '#16a34a' : taxa >= 50 ? '#f59e0b' : '#dc2626', transition: 'width 0.5s' }} />
-                </div>
-                <div style={{ display: 'flex', gap: 12, fontSize: 11 }}>
-                  <span style={{ color: '#16a34a', fontWeight: 700 }}>✓ {o.presentes} pres.</span>
-                  <span style={{ color: '#dc2626', fontWeight: 600 }}>✗ {o.faltando} falta</span>
-                  <span style={{ color: '#64748b' }}>Total: {o.ativos}</span>
-                  {o.producao_total > 0 && <span style={{ color: '#b45309', fontWeight: 600 }}>📦 {o.producao_total.toLocaleString('pt-BR')}</span>}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        {/* ── Distribuição por Função ── */}
-        <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', padding: 18, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-          <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, color: '#0f172a' }}>
-            <HardHat size={16} color="#f59e0b" /> Equipe por Função
-          </div>
-          {porFuncao.length === 0 ? (
-            <div style={{ color: '#94a3b8', textAlign: 'center', padding: 24, fontSize: 13 }}>Sem dados</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {porFuncao.map((f, i) => {
-                const pct = totalAtivos > 0 ? Math.round((f.qtd / totalAtivos) * 100) : 0
-                const colors = ['#2563eb','#16a34a','#b45309','#7c3aed','#0891b2','#dc2626','#059669','#c2410c']
-                const cor = colors[i % colors.length]
+          {obras.length === 0
+            ? <div style={{ color: '#94a3b8', textAlign: 'center', padding: 24, fontSize: 13 }}>Nenhuma obra ativa</div>
+            : obras.map(o => {
+                const taxa = o.ativos > 0 ? Math.round((o.presentes / o.ativos) * 100) : 0
                 return (
-                  <div key={f.funcao}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{f.funcao}</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: cor }}>{f.qtd} <span style={{ fontWeight: 400, color: '#94a3b8' }}>({pct}%)</span></span>
+                  <div key={o.id} style={{ marginBottom: 12, padding: '10px 12px', background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.nome}</span>
+                        {o.codigo && <span style={{ fontSize: 10, background: '#e0f2fe', color: '#0369a1', borderRadius: 4, padding: '1px 5px', fontWeight: 700, flexShrink: 0 }}>{o.codigo}</span>}
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: TAXA_COR(taxa), flexShrink: 0, marginLeft: 8 }}>{taxa}%</span>
                     </div>
-                    <div style={{ height: 5, background: '#e2e8f0', borderRadius: 3, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${pct}%`, background: cor, borderRadius: 3, transition: 'width 0.4s' }} />
+                    <div style={{ height: 5, background: '#e2e8f0', borderRadius: 3, overflow: 'hidden', marginBottom: 6 }}>
+                      <div style={{ height: '100%', width: `${taxa}%`, borderRadius: 3, background: TAXA_COR(taxa), transition: 'width 0.5s' }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, fontSize: 11, flexWrap: 'wrap' }}>
+                      <span style={{ color: '#16a34a', fontWeight: 700 }}>✓ {o.presentes} pres.</span>
+                      <span style={{ color: '#dc2626', fontWeight: 600 }}>✗ {o.faltando} falta</span>
+                      <span style={{ color: '#64748b' }}>Total: {o.ativos}</span>
+                      {o.producao_total > 0 && <span style={{ color: '#b45309', fontWeight: 700 }}>📦 {o.producao_total.toLocaleString('pt-BR')}</span>}
                     </div>
                   </div>
                 )
-              })}
-            </div>
-          )}
+              })
+          }
+        </div>
 
-          {/* Tipos de contrato */}
-          <div style={{ marginTop: 20, paddingTop: 14, borderTop: '1px solid #e2e8f0' }}>
-            <div style={{ fontWeight: 700, fontSize: 12, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Por Tipo de Contrato</div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {/* Equipe por Função */}
+        <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', padding: 18 }}>
+          <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, color: '#0f172a' }}>
+            👷 Equipe por Função
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {porFuncao.map((f, i) => {
+              const pct   = todosAtivos.length > 0 ? Math.round((f.qtd / todosAtivos.length) * 100) : 0
+              const cores = ['#2563eb','#16a34a','#b45309','#7c3aed','#0891b2','#dc2626','#059669','#c2410c']
+              const cor   = cores[i % cores.length]
+              return (
+                <div key={f.fn}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{f.fn}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: cor }}>{f.qtd} <span style={{ fontWeight: 400, color: '#94a3b8' }}>({pct}%)</span></span>
+                  </div>
+                  <div style={{ height: 4, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: cor, borderRadius: 2 }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Tipo de contrato */}
+          <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid #e2e8f0' }}>
+            <div style={{ fontWeight: 700, fontSize: 11, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Por Tipo de Contrato</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {porTipo.map(t => (
                 <div key={t.tipo} style={{
-                  flex: 1, minWidth: 80,
+                  flex: 1, minWidth: 70, textAlign: 'center',
                   background: t.tipo === 'clt' ? '#eff6ff' : '#fff7ed',
                   border: `1px solid ${t.tipo === 'clt' ? '#bfdbfe' : '#fed7aa'}`,
-                  borderRadius: 10, padding: '10px 14px', textAlign: 'center',
+                  borderRadius: 10, padding: '10px 12px',
                 }}>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: t.tipo === 'clt' ? '#2563eb' : '#ea580c' }}>{t.qtd}</div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: t.tipo === 'clt' ? '#1d4ed8' : '#c2410c' }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: t.tipo === 'clt' ? '#2563eb' : '#ea580c' }}>{t.qtd}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: t.tipo === 'clt' ? '#1d4ed8' : '#c2410c' }}>
                     {t.tipo === 'clt' ? 'CLT' : t.tipo === 'autonomo' ? 'Autônomo' : t.tipo.toUpperCase()}
                   </div>
                 </div>
@@ -467,32 +415,33 @@ export default function GestorDashboard() {
         </div>
       </div>
 
-      {/* ── Lista de Presentes ── */}
-      <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', padding: 18, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', marginBottom: 20 }}>
-        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#0f172a' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <UserCheck size={16} color="#16a34a" />
+      {/* ══ PRESENTES HOJE ══════════════════════════════════════════════════ */}
+      <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', padding: 18, marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14, color: '#0f172a' }}>
+            <UserCheck size={15} color="#16a34a" />
             Colaboradores Presentes Hoje
-            <span style={{ background: '#dcfce7', color: '#15803d', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 800 }}>{presentesFiltrados.length}</span>
+            <span style={{ background: '#dcfce7', color: '#15803d', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 800 }}>
+              {presentes.length}
+            </span>
           </div>
-          <button
-            onClick={() => navigate('/gestor/presenca')}
-            style={{ fontSize: 12, color: '#2563eb', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
-          >
-            Ver mais →
+          <button onClick={() => navigate('/gestor/presenca')}
+            style={{ fontSize: 12, color: '#2563eb', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer' }}>
+            Ver todos →
           </button>
         </div>
 
-        {presentesFiltrados.length === 0 ? (
-          <div style={{ color: '#94a3b8', textAlign: 'center', padding: 28, fontSize: 13 }}>
-            📋 Nenhum ponto lançado hoje ainda
+        {presentes.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 28, color: '#94a3b8', fontSize: 13 }}>
+            📋 Nenhum ponto lançado hoje
+            {obraFiltro !== 'todas' && <> nesta obra</>}
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
-            {presentesFiltrados.slice(0, 12).map(c => {
-              const statusColor: Record<string, string> = { presente: '#16a34a', meio_periodo: '#b45309', producao: '#7c3aed' }
-              const statusLabel: Record<string, string> = { presente: 'Presente', meio_periodo: 'Meio Per.', producao: 'Produção' }
-              const cor = statusColor[c.status_hoje] ?? '#64748b'
+          <div className="presente-grid">
+            {presentes.slice(0, 12).map(c => {
+              const cmap: Record<string, string> = { presente: '#16a34a', meio_periodo: '#b45309', producao: '#7c3aed' }
+              const lmap: Record<string, string> = { presente: 'Presente', meio_periodo: 'Meio Per.', producao: 'Produção' }
+              const cor = cmap[c.status_hoje] ?? '#64748b'
               return (
                 <div key={c.id} style={{
                   display: 'flex', alignItems: 'center', gap: 10,
@@ -500,67 +449,69 @@ export default function GestorDashboard() {
                   background: '#f8fafc', border: '1px solid #e2e8f0',
                 }}>
                   <div style={{
-                    width: 36, height: 36, borderRadius: '50%',
-                    background: `linear-gradient(135deg, ${cor}22, ${cor}44)`,
+                    width: 34, height: 34, borderRadius: '50%',
+                    background: `${cor}22`, flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexShrink: 0, fontSize: 13, fontWeight: 800, color: cor,
+                    fontSize: 12, fontWeight: 800, color: cor,
                   }}>
-                    {c.nome.slice(0, 2).toUpperCase()}
+                    {c.nome.replace(/\b(DOS|DE|DA|DO)\b/gi, '').trim().split(' ').filter(Boolean).slice(0,2).map(s=>s[0]).join('').toUpperCase()}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome}</div>
-                    <div style={{ fontSize: 11, color: '#64748b', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <span>🏷️ {c.funcao}</span>
-                      <span>🏗️ {c.obra}</span>
+                    <div style={{ fontSize: 10, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      🏷️ {c.funcao} · 🏗️ {c.obra}
                     </div>
                   </div>
                   <div style={{ flexShrink: 0, textAlign: 'right' }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, background: `${cor}18`, color: cor, borderRadius: 6, padding: '2px 7px', display: 'block' }}>
-                      {statusLabel[c.status_hoje] ?? c.status_hoje}
+                    <span style={{ fontSize: 10, fontWeight: 700, background: `${cor}18`, color: cor, borderRadius: 6, padding: '2px 7px', display: 'block', whiteSpace: 'nowrap' }}>
+                      {lmap[c.status_hoje] ?? c.status_hoje}
                     </span>
-                    {c.horas ? <span style={{ fontSize: 10, color: '#94a3b8' }}>{c.horas}h</span> : null}
+                    {c.horas > 0 && <span style={{ fontSize: 10, color: '#94a3b8' }}>{c.horas}h</span>}
                   </div>
                 </div>
               )
             })}
           </div>
         )}
-        {presentesFiltrados.length > 12 && (
+        {presentes.length > 12 && (
           <div style={{ textAlign: 'center', marginTop: 12, fontSize: 12, color: '#64748b' }}>
-            + {presentesFiltrados.length - 12} colaboradores — <button onClick={() => navigate('/gestor/presenca')} style={{ color: '#2563eb', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer' }}>Ver todos</button>
+            +{presentes.length - 12} colaboradores —{' '}
+            <button onClick={() => navigate('/gestor/presenca')} style={{ color: '#2563eb', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer' }}>
+              Ver todos
+            </button>
           </div>
         )}
       </div>
 
-      {/* ── Clima ── */}
+      {/* ══ CLIMA ════════════════════════════════════════════════════════════ */}
       {ultimoClima && (
-        <div style={{ background: 'linear-gradient(135deg, #0ea5e9, #0369a1)', borderRadius: 14, padding: 18, boxShadow: '0 4px 12px rgba(14,165,233,0.3)', marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <div style={{
+          background: 'linear-gradient(135deg,#0ea5e9,#0369a1)',
+          borderRadius: 14, padding: 18, marginBottom: 20,
+          boxShadow: '0 4px 12px rgba(14,165,233,0.3)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ fontSize: 36 }}>
-                {ultimoClima.choveu ? '🌧️' : '☀️'}
-              </div>
+              <span style={{ fontSize: 36 }}>{ultimoClima.choveu ? '🌧️' : '☀️'}</span>
               <div>
-                <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: 600 }}>ÚLTIMO REGISTRO CLIMÁTICO</div>
-                <div style={{ color: '#fff', fontWeight: 800, fontSize: 16 }}>
+                <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Último Registro Climático</div>
+                <div style={{ color: '#fff', fontWeight: 800, fontSize: 15 }}>
                   {new Date(ultimoClima.data + 'T12:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
                 </div>
-                <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 2 }}>
+                <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11, marginTop: 2 }}>
                   {ultimoClima.choveu ? `🌧 Choveu${ultimoClima.precipitacao_mm ? ` · ${ultimoClima.precipitacao_mm} mm` : ''}` : '☀️ Sem chuva'}
-                  {ultimoClima.temperatura_max ? ` · 🌡 ${ultimoClima.temperatura_max}°C máx.` : ''}
+                  {ultimoClima.temperatura_max ? ` · 🌡 ${ultimoClima.temperatura_max}°C` : ''}
                   {ultimoClima.vento_kmh ? ` · 💨 ${ultimoClima.vento_kmh} km/h` : ''}
                 </div>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
               <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.12)', borderRadius: 10, padding: '8px 16px' }}>
-                <div style={{ color: '#fff', fontWeight: 800, fontSize: 20 }}>{diasChuvososMes}</div>
-                <div style={{ color: 'rgba(255,255,255,0.70)', fontSize: 10 }}>Dias de chuva no mês</div>
+                <div style={{ color: '#fff', fontWeight: 900, fontSize: 22 }}>{diasChuva}</div>
+                <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10 }}>Dias chuva/mês</div>
               </div>
-              <button
-                onClick={() => navigate('/gestor/meteorologia')}
-                style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
-              >
+              <button onClick={() => navigate('/gestor/meteorologia')}
+                style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                 📊 Ver tudo
               </button>
             </div>
@@ -568,30 +519,27 @@ export default function GestorDashboard() {
         </div>
       )}
 
-      {/* ── Atalhos ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+      {/* ══ ATALHOS ══════════════════════════════════════════════════════════ */}
+      <div className="dash-grid-6">
         {[
-          { icon: '👥', label: 'Presença Detalhada', to: '/gestor/presenca', cor: '#2563eb', bg: '#eff6ff' },
-          { icon: '📦', label: 'Produção por Obra', to: '/gestor/producao', cor: '#b45309', bg: '#fffbeb' },
-          { icon: '🩺', label: 'Atestados', to: '/gestor/atestados', cor: '#7c3aed', bg: '#f5f3ff' },
-          { icon: '⚠️', label: 'Acidentes', to: '/gestor/acidentes', cor: '#dc2626', bg: '#fef2f2' },
-          { icon: '🌦️', label: 'Meteorologia', to: '/gestor/meteorologia', cor: '#0369a1', bg: '#f0f9ff' },
-          { icon: '📊', label: 'Relatórios', to: '/gestor/relatorios', cor: '#64748b', bg: '#f8fafc' },
+          { icon: '👥', label: 'Presença', to: '/gestor/presenca', cor: '#2563eb' },
+          { icon: '📦', label: 'Produção', to: '/gestor/producao', cor: '#b45309' },
+          { icon: '🩺', label: 'Atestados', to: '/gestor/atestados', cor: '#7c3aed' },
+          { icon: '⚠️', label: 'Acidentes', to: '/gestor/acidentes', cor: '#dc2626' },
+          { icon: '🌦️', label: 'Meteorologia', to: '/gestor/meteorologia', cor: '#0369a1' },
+          { icon: '📊', label: 'Relatórios', to: '/gestor/relatorios', cor: '#64748b' },
         ].map(a => (
-          <button
-            key={a.to}
-            onClick={() => navigate(a.to)}
-            style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-              padding: '16px 12px', borderRadius: 12, border: `1px solid ${a.bg}`,
-              background: '#fff', cursor: 'pointer', transition: 'transform 100ms, box-shadow 100ms',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-            }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = ''; (e.currentTarget as HTMLElement).style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)' }}
+          <button key={a.to} onClick={() => navigate(a.to)} style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+            padding: '14px 10px', borderRadius: 12,
+            border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer',
+            transition: 'transform 100ms, box-shadow 100ms',
+          }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.cssText += ';transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.10)' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = ''; (e.currentTarget as HTMLElement).style.boxShadow = '' }}
           >
-            <span style={{ fontSize: 24 }}>{a.icon}</span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: a.cor, textAlign: 'center' }}>{a.label}</span>
+            <span style={{ fontSize: 22 }}>{a.icon}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: a.cor }}>{a.label}</span>
           </button>
         ))}
       </div>

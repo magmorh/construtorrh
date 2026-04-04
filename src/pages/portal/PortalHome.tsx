@@ -3,16 +3,20 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { getPortalSession } from '@/hooks/usePortalAuth'
 import PortalLayout from './PortalLayout'
-import { ClipboardList, AlertTriangle, UserPlus, ChevronRight, Building2 } from 'lucide-react'
+import {
+  ClipboardList, AlertTriangle, UserPlus, ShieldCheck,
+  HardHat, BookOpen, FolderOpen, FileImage, MessageSquare,
+  ChevronRight, Building2,
+} from 'lucide-react'
 
 interface ObraInfo { id: string; nome: string; codigo?: string }
 
 export default function PortalHome() {
   const nav     = useNavigate()
   const session = getPortalSession()
-  const [obras,   setObras]   = useState<ObraInfo[]>([])
+  const [obras,      setObras]      = useState<ObraInfo[]>([])
   const [contadores, setContadores] = useState<Record<string, { ponto: number; ocorr: number }>>({})
-  const [loading, setLoading] = useState(true)
+  const [loading,    setLoading]    = useState(true)
   const hoje = new Date().toISOString().slice(0, 10)
 
   const fetchData = useCallback(async () => {
@@ -42,49 +46,162 @@ export default function PortalHome() {
   if (!session) return null
 
   const dataHojeFmt = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
+  const primeiroNome = (session.nome ?? session.login).split(' ')[0]
+
+  // ── Ações principais ────────────────────────────────────────────────────────
+  const acoesRapidas = [
+    {
+      icon: <ClipboardList size={24} />, label: 'Lançar Ponto',
+      sub: 'Presenças do dia', to: '/portal/ponto',
+      cor: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe',
+    },
+    {
+      icon: <AlertTriangle size={24} />, label: 'Ocorrência',
+      sub: 'Registrar evento', to: '/portal/ocorrencias',
+      cor: '#dc2626', bg: '#fef2f2', border: '#fecaca',
+    },
+    {
+      icon: <HardHat size={24} />, label: 'Ficha de Prod.',
+      sub: 'Enviar documento', to: '/portal/producao',
+      cor: '#b45309', bg: '#fffbeb', border: '#fde68a',
+    },
+    {
+      icon: <UserPlus size={24} />, label: 'Cadastro',
+      sub: 'Novo colaborador', to: '/portal/solicitacoes',
+      cor: '#15803d', bg: '#f0fdf4', border: '#bbf7d0',
+    },
+    {
+      icon: <ShieldCheck size={24} />, label: 'Solicitar EPI',
+      sub: 'Equipamentos', to: '/portal/epis',
+      cor: '#c2410c', bg: '#fff7ed', border: '#fed7aa',
+    },
+    {
+      icon: <FileImage size={24} />, label: 'Documentos',
+      sub: 'Enviar arquivos', to: '/portal/documentos',
+      cor: '#0369a1', bg: '#f0f9ff', border: '#bae6fd',
+    },
+    {
+      icon: <BookOpen size={24} />, label: 'Playbook',
+      sub: 'Serviços e preços', to: '/portal/playbook',
+      cor: '#059669', bg: '#f0fdf4', border: '#a7f3d0',
+    },
+    {
+      icon: <FolderOpen size={24} />, label: 'Projetos',
+      sub: 'Arquivos da obra', to: '/portal/projetos',
+      cor: '#475569', bg: '#f8fafc', border: '#cbd5e1',
+    },
+    {
+      icon: <MessageSquare size={24} />, label: 'Mensagens',
+      sub: 'Avisos do RH', to: '/portal/mensagens',
+      cor: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe',
+    },
+  ]
 
   return (
     <PortalLayout>
-      <div style={{ padding: '20px 16px 8px' }}>
-        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 2, textTransform: 'capitalize' }}>{dataHojeFmt}</div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: '#1e3a5f', marginBottom: 4 }}>
-          Olá, {(session.nome ?? session.login).split(' ')[0]}! 👋
+      {/* ── Saudação ── */}
+      <div style={{ padding: '18px 16px 10px' }}>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 2, textTransform: 'capitalize' }}>
+          {dataHojeFmt}
         </div>
-        <div style={{ fontSize: 13, color: '#6b7280' }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: '#1e3a5f', lineHeight: 1.3 }}>
+          Olá, {primeiroNome}! 👋
+        </div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
           Você tem acesso a <strong>{obras.length}</strong> obra{obras.length !== 1 ? 's' : ''}
         </div>
       </div>
 
-      {/* Atalhos rápidos */}
-      <div style={{ padding: '12px 16px' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af', marginBottom: 10 }}>
-          Ações Rápidas
+      {/* ── Obras com contadores ── */}
+      {!loading && obras.length > 0 && (
+        <div style={{ padding: '0 16px 10px' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af', marginBottom: 8 }}>
+            Obras Ativas
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {obras.map(o => {
+              const cnt = contadores[o.id] ?? { ponto: 0, ocorr: 0 }
+              return (
+                <div key={o.id} style={{
+                  background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12,
+                  padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10,
+                }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#1e3a5f,#1d4ed8)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Building2 size={16} color="#fff" />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {o.nome}
+                    </div>
+                    {o.codigo && (
+                      <div style={{ fontSize: 10, color: '#9ca3af' }}>{o.codigo}</div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    {cnt.ponto > 0 && (
+                      <span style={{ background: '#dcfce7', color: '#15803d', borderRadius: 6, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>
+                        ✓ {cnt.ponto}
+                      </span>
+                    )}
+                    {cnt.ocorr > 0 && (
+                      <span style={{ background: '#fee2e2', color: '#dc2626', borderRadius: 6, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>
+                        ⚠ {cnt.ocorr}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          {[
-            { icon: <ClipboardList size={26} color="#1e3a5f" />, label: 'Lançar Ponto',  sub: 'Presenças do dia',  to: '/portal/ponto',        bg: '#eff6ff', border: '#bfdbfe' },
-            { icon: <AlertTriangle size={26} color="#dc2626" />, label: 'Ocorrência',    sub: 'Registrar evento',  to: '/portal/ocorrencias',  bg: '#fef2f2', border: '#fecaca' },
-            { icon: <UserPlus size={26} color="#15803d" />,      label: 'Cadastro',      sub: 'Novo colaborador',  to: '/portal/solicitacoes', bg: '#f0fdf4', border: '#bbf7d0' },
-            { icon: <span style={{fontSize:26}}>🦺</span>,       label: 'Solicitar EPI', sub: 'Equipamentos',      to: '/portal/epis',         bg: '#fff7ed', border: '#fed7aa' },
-          ].map(a => (
-            <div key={a.to} onClick={() => nav(a.to)}
+      )}
+
+      {/* ── Ações rápidas ── */}
+      <div style={{ padding: '4px 16px 32px' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#9ca3af', marginBottom: 10 }}>
+          Menu Rápido
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+          {acoesRapidas.map(a => (
+            <button
+              key={a.to}
+              onClick={() => nav(a.to)}
               style={{
-                background: a.bg, border: `1px solid ${a.border}`, borderRadius: 14,
-                padding: '16px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column',
-                gap: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', transition: 'transform 0.1s',
+                background: a.bg,
+                border: `1.5px solid ${a.border}`,
+                borderRadius: 14,
+                padding: '14px 10px',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 6,
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                transition: 'transform 0.12s, box-shadow 0.12s',
+                WebkitTapHighlightColor: 'transparent',
               }}
-              onTouchStart={e => (e.currentTarget.style.transform = 'scale(0.97)')}
-              onTouchEnd={e => (e.currentTarget.style.transform = 'scale(1)')}>
-              {a.icon}
+              onTouchStart={e => {
+                e.currentTarget.style.transform = 'scale(0.95)'
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)'
+              }}
+              onTouchEnd={e => {
+                e.currentTarget.style.transform = 'scale(1)'
+                e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)'
+              }}
+            >
+              <div style={{ color: a.cor }}>{a.icon}</div>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 13, color: '#111' }}>{a.label}</div>
-                <div style={{ fontSize: 11, color: '#6b7280' }}>{a.sub}</div>
+                <div style={{ fontWeight: 700, fontSize: 11, color: '#1e293b', textAlign: 'center', lineHeight: 1.3 }}>
+                  {a.label}
+                </div>
+                <div style={{ fontSize: 9, color: '#6b7280', textAlign: 'center', marginTop: 2, lineHeight: 1.3 }}>
+                  {a.sub}
+                </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </div>
-
     </PortalLayout>
   )
 }

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { getPortalSession } from '@/hooks/usePortalAuth'
 import PortalLayout from './PortalLayout'
-import { FileImage, Upload, Camera, CheckCircle2, Loader2, Trash2, Download, Image as ImgIcon, FileText } from 'lucide-react'
+import { HardHat, Upload, Camera, CheckCircle2, Loader2, Trash2, Download, Image as ImgIcon, FileText } from 'lucide-react'
 
 interface Obra       { id: string; nome: string }
 interface ColabRow   { id: string; nome: string; chapa: string }
@@ -202,9 +202,14 @@ export default function PortalProducao() {
 
   return (
     <PortalLayout>
-      <div style={{ padding: '16px 16px 8px' }}>
-        <div style={{ fontWeight: 800, fontSize: 18, color: '#1e3a5f' }}>📎 Anexar Ficha de Produção</div>
-        <div style={{ fontSize: 12, color: '#9ca3af' }}>Envie fotos, fichas e documentos da obra</div>
+      <div style={{ padding: '16px 16px 8px', display:'flex', alignItems:'center', gap:10 }}>
+        <div style={{ width:38, height:38, borderRadius:10, background:'linear-gradient(135deg,#b45309,#92400e)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+          <HardHat size={18} color="#fff"/>
+        </div>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 17, color: '#1e293b', lineHeight:1.2 }}>Fichas de Produção</div>
+          <div style={{ fontSize: 12, color: '#9ca3af' }}>Envie fotos, fichas e documentos da obra</div>
+        </div>
       </div>
 
       {/* Seletor de obra */}
@@ -216,8 +221,12 @@ export default function PortalProducao() {
           </select>
         </div>
       )}
-      {obrasData.length === 1 && (
-        <div style={{ padding:'0 16px 8px', fontSize:12, fontWeight:700, color:'#6b7280' }}>🏗️ {obrasData[0]?.nome}</div>
+      {obrasData.length === 1 && obrasData[0] && (
+        <div style={{ padding:'0 16px 8px' }}>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#fffbeb', border:'1px solid #fde68a', borderRadius:8, padding:'4px 10px', fontSize:12, fontWeight:700, color:'#92400e' }}>
+            🏗️ {obrasData[0].nome}
+          </div>
+        </div>
       )}
 
       {/* Abas */}

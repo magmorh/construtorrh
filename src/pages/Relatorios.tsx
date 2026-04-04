@@ -127,8 +127,9 @@ const GRUPOS: RelatGroup[] = [
     items: [
       { id: 'ranking-producao', label: 'Ranking de Produção', icon: <Star size={14}/>, desc: 'Top colaboradores por quantidade produzida' },
       { id: 'producao-playbook', label: 'Produção por Item Playbook', icon: <Package size={14}/>, desc: 'Produção por atividade do playbook' },
-      { id: 'meta-realizado', label: 'Meta vs Realizado', icon: <Target size={14}/>, desc: 'Horas contratadas vs trabalhadas vs extras' },
+      { id: 'meta-realizado', label: 'Meta vs Realizado', icon: <Target size={14}/>, desc: 'Horas contratadas vs trabalhadas vs extras — agrupado por função' },
       { id: 'evolucao-horas', label: 'Evolução de Horas', icon: <Activity size={14}/>, desc: 'Horas trabalhadas, extras e faltas mês a mês' },
+      { id: 'coeficiente-producao', label: 'Coeficiente de Produção', icon: <TrendingUp size={14}/>, desc: 'Produtividade real por atividade e função (un/hora) — base para orçamentos' },
     ]
   },
   {
@@ -715,6 +716,67 @@ export default function Relatorios() {
           mapColabs[m].add(String((d as Record<string, unknown>).colaborador_id))
         }
         resultado = Object.values(map).map(r => ({ ...r, horas: (r.horas_normais as number) + (r.horas_extras as number), colaboradores: mapColabs[String(r.mes)]?.size ?? 0 })).sort((a, b) => String(a.mes).localeCompare(String(b.mes)))
+      }
+
+      // ── Coeficiente de Produção ───────────────────────────────────────────
+      else if (relatAtivo === 'coeficiente-producao') {
+        const qProd = supabase.from('ponto_producao')
+          .select('colaborador_id, quantidade, valor_total, mes_referencia, playbook_itens!playbook_item_id(id, descricao, unidade, categoria, preco_unitario), colaboradores(nome, funcoes(nome))')
+          .gte('mes_referencia', mesRefIni)
+          .lte('mes_referencia', mesRefFim)
+        if (filtroObra !== 'todos') qProd.eq('obra_id', filtroObra)
+        const { data: prodData } = await qProd
+
+        const qHoras = supabase.from('ponto_lancamentos')
+          .select('colaborador_id, snap_horas_normais, snap_horas_extras')
+          .gte('mes_referencia', mesRefIni)
+          .lte('mes_referencia', mesRefFim)
+        if (filtroObra !== 'todos') qHoras.eq('obra_id', filtroObra)
+        const { data: horasData } = await qHoras
+
+        const horasPorColab: Record<string, number> = {}
+        for (const h of horasData ?? []) {
+          horasPorColab[h.colaborador_id] = (horasPorColab[h.colaborador_id] ?? 0) + Number(h.snap_horas_normais ?? 0) + Number(h.snap_horas_extras ?? 0)
+        }
+
+        const map: Record<string, Record<string, unknown>> = {}
+        const colabsMap: Record<string, Set<string>> = {}
+
+        for (const d of prodData ?? []) {
+          const pb = (d as Record<string,unknown>).playbook_itens as Record<string,unknown> | null
+          const colab = (d as Record<string,unknown>).colaboradores as Record<string,unknown> | null
+          const func = colab ? (colab.funcoes as Record<string,unknown> | null) : null
+          const itemId = String(pb?.id ?? 'sem')
+          const funcaoNome = func ? String(func.nome) : '(Sem Função)'
+          const key = `${itemId}___${funcaoNome}`
+
+          if (!map[key]) {
+            map[key] = {
+              descricao: pb?.descricao ?? '—', unidade: pb?.unidade ?? '—',
+              categoria: pb?.categoria ?? '—', funcao: funcaoNome,
+              quantidade: 0, valor_total: 0, horas_totais: 0, colaboradores: 0,
+            }
+            colabsMap[key] = new Set()
+          }
+          const qty = Number(d.quantidade ?? 0)
+          map[key].quantidade = (map[key].quantidade as number) + qty
+          map[key].valor_total = (map[key].valor_total as number) + Number(d.valor_total ?? qty * Number(pb?.preco_unitario ?? 0))
+          colabsMap[key].add(String(d.colaborador_id))
+        }
+
+        // calcular horas por item (soma das horas dos colaboradores únicos daquele item)
+        for (const key of Object.keys(map)) {
+          let h = 0
+          for (const cid of colabsMap[key]) { h += horasPorColab[cid] ?? 0 }
+          map[key].horas_totais = h
+          map[key].colaboradores = colabsMap[key].size
+        }
+
+        resultado = Object.values(map).map(r => ({
+          ...r,
+          coeficiente: (r.horas_totais as number) > 0 ? (r.quantidade as number) / (r.horas_totais as number) : 0,
+          custo_por_unidade: (r.quantidade as number) > 0 ? (r.valor_total as number) / (r.quantidade as number) : 0,
+        })).sort((a, b) => String(a.categoria).localeCompare(String(b.categoria)) || String(a.descricao).localeCompare(String(b.descricao)))
       }
 
       // ── 18. Painel de Acidentes ───────────────────────────────────────────
@@ -2276,13 +2338,155 @@ export default function Relatorios() {
                 </div>
               )}
 
-              {/* ── Tabelas genéricas (Meta vs Realizado, Evolução de Horas, Produtividade por Função, Produção Playbook) ── */}
-              {['meta-realizado', 'evolucao-horas', 'producao-funcao', 'producao-playbook'].includes(relatAtivo) && (
+              {/* ── Tabela: Coeficiente de Produção ── */}
+              {relatAtivo === 'coeficiente-producao' && (() => {
+                const porCategoria: Record<string, Record<string, unknown>[]> = {}
+                dados.forEach(r => {
+                  const cat = String(r.categoria ?? 'Geral')
+                  if (!porCategoria[cat]) porCategoria[cat] = []
+                  porCategoria[cat].push(r)
+                })
+                const totalQtd = dados.reduce((s,r) => s + (r.quantidade as number), 0)
+                const totalH   = dados.reduce((s,r) => s + (r.horas_totais as number), 0)
+                return (
+                  <div>
+                    <div className="flex gap-3 px-4 py-3 border-b border-slate-100 flex-wrap">
+                      <div className="flex-1 min-w-[110px] text-center p-3 bg-slate-50 rounded-lg">
+                        <div className="text-2xl font-black text-[#1e3a5f]">{dados.length}</div>
+                        <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide">Combinações</div>
+                      </div>
+                      <div className="flex-1 min-w-[110px] text-center p-3 bg-blue-50 rounded-lg">
+                        <div className="text-2xl font-black text-blue-700">{fmtNum(totalQtd)}</div>
+                        <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide">Total Produzido</div>
+                      </div>
+                      <div className="flex-1 min-w-[110px] text-center p-3 bg-green-50 rounded-lg">
+                        <div className="text-2xl font-black text-green-700">{fmtNum(totalH)}h</div>
+                        <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide">Horas Totais</div>
+                      </div>
+                      <div className="flex-1 min-w-[110px] text-center p-3 bg-emerald-50 rounded-lg">
+                        <div className="text-2xl font-black text-emerald-700">{totalH > 0 ? fmtNum(totalQtd/totalH) : '—'}</div>
+                        <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide">Coef. Geral un/h</div>
+                      </div>
+                    </div>
+                    {Object.entries(porCategoria).map(([cat, rows]) => (
+                      <div key={cat}>
+                        <div className="px-4 py-2 bg-[#f1f5f9] border-y border-slate-200 text-[11px] font-bold text-[#1e3a5f] uppercase tracking-wide flex items-center gap-2">
+                          <span>📦 {cat}</span>
+                          <span className="text-slate-400 font-normal">— {rows.length} item(ns)</span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-[#1e3a5f] text-white text-[10px]">
+                                <th className="px-3 py-2.5 text-left">Atividade</th>
+                                <th className="px-3 py-2.5 text-left">Função</th>
+                                <th className="px-3 py-2.5 text-center">Un</th>
+                                <th className="px-3 py-2.5 text-right">Qtd</th>
+                                <th className="px-3 py-2.5 text-right">Horas</th>
+                                <th className="px-3 py-2.5 text-right font-bold">Coeficiente</th>
+                                <th className="px-3 py-2.5 text-right">R$/un</th>
+                                <th className="px-3 py-2.5 text-center">Colabs</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rows.map((r, i) => (
+                                <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                  <td className="px-3 py-2 font-medium text-slate-800">{String(r.descricao)}</td>
+                                  <td className="px-3 py-2 text-slate-500 text-xs">{String(r.funcao)}</td>
+                                  <td className="px-3 py-2 text-center"><span className="bg-blue-50 text-blue-700 text-xs px-1.5 py-0.5 rounded font-mono">{String(r.unidade)}</span></td>
+                                  <td className="px-3 py-2 text-right font-semibold">{fmtNum(r.quantidade as number)}</td>
+                                  <td className="px-3 py-2 text-right text-slate-500">{fmtNum(r.horas_totais as number)}h</td>
+                                  <td className="px-3 py-2 text-right">
+                                    <span className="bg-emerald-100 text-emerald-800 font-bold text-xs px-2 py-0.5 rounded-full">
+                                      {(r.horas_totais as number) > 0 ? `${fmtNum(r.coeficiente as number)} ${String(r.unidade)}/h` : '—'}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 text-right text-slate-600">{fmtCur(r.custo_por_unidade as number)}</td>
+                                  <td className="px-3 py-2 text-center text-slate-500">{String(r.colaboradores)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr className="bg-[#e8f0fe] font-bold text-[#1e3a5f] text-xs">
+                                <td colSpan={3} className="px-3 py-2">SUBTOTAL {cat.toUpperCase()}</td>
+                                <td className="px-3 py-2 text-right">{fmtNum(rows.reduce((s,r) => s + (r.quantidade as number), 0))}</td>
+                                <td className="px-3 py-2 text-right">{fmtNum(rows.reduce((s,r) => s + (r.horas_totais as number), 0))}h</td>
+                                <td className="px-3 py-2 text-right">
+                                  {(() => { const tq = rows.reduce((s,r) => s + (r.quantidade as number),0); const th = rows.reduce((s,r) => s + (r.horas_totais as number),0); return th > 0 ? `${fmtNum(tq/th)} un/h` : '—' })()}
+                                </td>
+                                <td colSpan={2}></td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+
+              {/* ── Tabela: Meta vs Realizado (agrupado por função) ── */}
+              {relatAtivo === 'meta-realizado' && (() => {
+                const porFuncao: Record<string, Record<string, unknown>[]> = {}
+                dados.forEach(r => {
+                  const f = String(r.funcao ?? '(Sem Função)')
+                  if (!porFuncao[f]) porFuncao[f] = []
+                  porFuncao[f].push(r)
+                })
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-[#1e3a5f] text-white text-xs">
+                          {['Colaborador', 'Meta (h)', 'Hs Normais', 'Hs Extras', 'Total Real.', 'Faltas', 'Diferença (h)', '% Atingido', 'Custo/Hora'].map(h => (
+                            <th key={h} className="px-4 py-3 text-left">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(porFuncao).map(([funcao, rows]) => (
+                          <React.Fragment key={funcao}>
+                            <tr>
+                              <td colSpan={9} className="px-4 py-1.5 bg-[#f1f5f9] text-[10px] font-bold text-[#1e3a5f] uppercase tracking-wide border-t-2 border-[#1e3a5f]">
+                                🔧 {funcao} — {rows.length} colaborador(es)
+                                <span className="ml-3 font-normal text-slate-500">
+                                  Total: {fmtNum(rows.reduce((s,r) => s + (r.horas_realizadas as number), 0))}h realizadas
+                                </span>
+                              </td>
+                            </tr>
+                            {rows.map((r, i) => (
+                              <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                <td className="px-4 py-2.5 font-medium">{String(r.colaborador)}</td>
+                                <td className="px-4 py-2.5 text-right">{String(r.meta_horas)}h</td>
+                                <td className="px-4 py-2.5 text-right text-slate-500">{fmtNum(r.horas_normais as number)}h</td>
+                                <td className="px-4 py-2.5 text-right text-green-600 font-semibold">{fmtNum(r.horas_extras as number)}h</td>
+                                <td className="px-4 py-2.5 text-right font-bold text-[#1e3a5f]">{fmtNum(r.horas_realizadas as number)}h</td>
+                                <td className="px-4 py-2.5 text-right text-red-600">{String(r.faltas)}</td>
+                                <td className={`px-4 py-2.5 text-right font-semibold ${Number(r.diferenca) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                  {Number(r.diferenca) >= 0 ? '+' : ''}{fmtNum(r.diferenca as number)}h
+                                </td>
+                                <td className="px-4 py-2.5 text-right">
+                                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${Number(r.pct_atingido) >= 95 ? 'bg-green-100 text-green-700' : Number(r.pct_atingido) >= 80 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                    {String(r.pct_atingido)}%
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-semibold text-[#1e3a5f]">{fmtCur(r.custo_hora as number)}</td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              })()}
+
+              {/* ── Tabelas genéricas (Evolução de Horas, Produtividade por Função, Produção Playbook) ── */}
+              {['evolucao-horas', 'producao-funcao', 'producao-playbook'].includes(relatAtivo) && (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-[#1e3a5f] text-white text-xs">
-                        {relatAtivo === 'meta-realizado' && ['Colaborador', 'Função', 'Meta (h)', 'Hs Normais', 'Hs Extras', 'Total Realizado', 'Faltas', 'Diferença (h)', '% Atingido', 'Custo/Hora'].map(h => <th key={h} className="px-4 py-3 text-left">{h}</th>)}
                         {relatAtivo === 'evolucao-horas' && ['Mês', 'Colaboradores', 'Hs Normais', 'Hs Extras', 'Total Horas', 'Faltas', 'Média Hs/Colab'].map(h => <th key={h} className="px-4 py-3 text-left">{h}</th>)}
                         {relatAtivo === 'producao-funcao' && ['Função', 'Categoria', 'Qtd Total', 'Lançamentos', 'Média por Lanç.'].map(h => <th key={h} className="px-4 py-3 text-left">{h}</th>)}
                         {relatAtivo === 'producao-playbook' && ['Atividade', 'Unidade', 'Categoria', 'Preço Unit.', 'Qtd Total', 'Lançamentos', 'Total', 'Horas Totais', 'Coeficiente'].map(h => <th key={h} className="px-4 py-3 text-left">{h}</th>)}
@@ -2291,20 +2495,6 @@ export default function Relatorios() {
                     <tbody>
                       {dados.map((r, i) => (
                         <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                          {relatAtivo === 'meta-realizado' && [
-                            <td key="c" className="px-4 py-2.5 font-medium">{String(r.colaborador)}</td>,
-                            <td key="f" className="px-4 py-2.5">{String(r.funcao)}</td>,
-                            <td key="m" className="px-4 py-2.5 text-right">{String(r.meta_horas)}h</td>,
-                            <td key="hn" className="px-4 py-2.5 text-right text-slate-500">{fmtNum(r.horas_normais as number)}h</td>,
-                            <td key="he" className="px-4 py-2.5 text-right text-green-600 font-semibold">{fmtNum(r.horas_extras as number)}h</td>,
-                            <td key="re" className="px-4 py-2.5 text-right font-bold text-[#1e3a5f]">{fmtNum(r.horas_realizadas as number)}h</td>,
-                            <td key="fa" className="px-4 py-2.5 text-right text-red-600">{String(r.faltas)}</td>,
-                            <td key="d" className={`px-4 py-2.5 text-right font-semibold ${Number(r.diferenca) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{Number(r.diferenca) >= 0 ? '+' : ''}{fmtNum(r.diferenca as number)}h</td>,
-                            <td key="p" className="px-4 py-2.5 text-right">
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${Number(r.pct_atingido) >= 95 ? 'bg-green-100 text-green-700' : Number(r.pct_atingido) >= 80 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{String(r.pct_atingido)}%</span>
-                            </td>,
-                            <td key="ch" className="px-4 py-2.5 text-right font-semibold text-[#1e3a5f]">{fmtCur(r.custo_hora as number)}</td>,
-                          ]}
                           {relatAtivo === 'evolucao-horas' && [
                             <td key="m" className="px-4 py-2.5 font-medium">{fmtMes(r.mes as string)}</td>,
                             <td key="c" className="px-4 py-2.5">{String(r.colaboradores)}</td>,

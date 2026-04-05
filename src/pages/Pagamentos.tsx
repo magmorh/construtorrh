@@ -836,32 +836,11 @@ export default function Pagamentos() {
         ))}
         </div>
         {/* Botões de relatório separados por aba */}
-        {aba === 'agendados' && (
-          <>
-          <button onClick={() => gerarRelatorioAgendados()}
-            style={{ marginBottom:4, padding:'6px 14px', borderRadius:7, border:'1px solid #b45309', background:'#fff7ed', color:'#b45309', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
-            📊 Rel. Agendamentos
-          </button>
-          <button
-            onClick={() => {
-              const libFolha = lancsPendentes.filter((l:any) => l.status==='liberado')
-              const mesR = libFolha[0]?.mes_referencia ?? new Date().toISOString().slice(0,7)
-              const mesLabel = `${mesR.slice(5,7)}/${mesR.slice(0,4)}`
-              gerarFolhaInter(libFolha, `Folha ${mesLabel}`)
-            }}
-            style={{ marginBottom:4, padding:'6px 14px', borderRadius:7, border:'2px solid #059669', background:'linear-gradient(135deg,#059669,#047857)', color:'#fff', fontSize:12, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:6, boxShadow:'0 2px 8px rgba(5,150,105,0.35)' }}>
-            🏦 Gerar Folha Inter (Agendados)
-          </button>
-          </>
-        )}
         {aba === 'realizados' && (
-          <>
           <button onClick={() => gerarRelatorioRealizados()}
             style={{ marginBottom:4, padding:'6px 14px', borderRadius:7, border:'1px solid #15803d', background:'#f0fdf4', color:'#15803d', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
             📊 Rel. Realizados
           </button>
-
-          </>
         )}
       </div>
 
@@ -988,20 +967,34 @@ export default function Pagamentos() {
                   </>
                 )}
                 {abaAgend === 'outros' && pendOutros.length > 0 && (
-                  <button
-                    onClick={() => {
-                      const mesR = pendOutros[0]?.competencia ?? new Date().toISOString().slice(0,7)
-                      const mesLabel = `${mesR.slice(5,7)}/${mesR.slice(0,4)}`
-                      const outrosParaInter = pendOutros.map((r) => ({
-                        ...r,
-                        colaboradores: r.colaboradores,
-                        snap_liquido: r.valor_liquido ?? r.valor_bruto ?? 0,
-                      }))
-                      gerarFolhaInter(outrosParaInter, `Outros ${mesLabel}`)
-                    }}
-                    style={{ padding:'5px 14px', borderRadius:7, border:'2px solid #059669', background:'linear-gradient(135deg,#059669,#047857)', color:'#fff', fontSize:12, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:5, boxShadow:'0 2px 6px rgba(5,150,105,0.35)' }}>
-                    🏦 Gerar Folha Inter
-                  </button>
+                  <>
+                    <button
+                      onClick={() => {
+                        const mesR = pendOutros[0]?.competencia ?? new Date().toISOString().slice(0,7)
+                        const mesLabel = `${mesR.slice(5,7)}/${mesR.slice(0,4)}`
+                        const totalOutros = pendOutros.reduce((s,r)=>s+(r.valor_liquido??r.valor_bruto??0),0)
+                        const dataGer = new Date().toLocaleDateString('pt-BR')
+                        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Outros Pendentes</title><style>body{font-family:sans-serif;padding:24px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #e2e8f0;padding:8px 12px;font-size:13px}th{background:#f8fafc;font-weight:700}tr:nth-child(even){background:#f8fafc}.total{font-weight:700;color:#7c3aed}</style></head><body><h2>📋 Pagamentos Avulsos — Outros Pendentes</h2><p style="color:#64748b">Emitido em: ${dataGer}</p><table><thead><tr><th>#</th><th>Colaborador</th><th>Tipo</th><th>Competência</th><th style="text-align:right">Valor</th></tr></thead><tbody>${pendOutros.map((r,i)=>`<tr><td>${i+1}</td><td>${r.colaboradores?.nome??'—'}</td><td>${r.tipo??'—'}</td><td>${r.competencia?.slice(5)}/${r.competencia?.slice(0,4)}</td><td style="text-align:right;color:#15803d;font-weight:700">R$ ${(r.valor_liquido??r.valor_bruto??0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td></tr>`).join('')}</tbody><tfoot><tr><td colspan="4" style="font-weight:700">Total — ${pendOutros.length} registro(s)</td><td style="text-align:right" class="total">R$ ${totalOutros.toLocaleString('pt-BR',{minimumFractionDigits:2})}</td></tr></tfoot></table></body></html>`
+                        const w = window.open('','_blank'); if(w){w.document.write(html); w.document.close(); setTimeout(()=>w.print(),400)}
+                      }}
+                      style={{ padding:'5px 14px', borderRadius:7, border:'1px solid #7c3aed', background:'#faf5ff', color:'#7c3aed', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                      📊 Rel. Outros
+                    </button>
+                    <button
+                      onClick={() => {
+                        const mesR = pendOutros[0]?.competencia ?? new Date().toISOString().slice(0,7)
+                        const mesLabel = `${mesR.slice(5,7)}/${mesR.slice(0,4)}`
+                        const outrosParaInter = pendOutros.map((r) => ({
+                          ...r,
+                          colaboradores: r.colaboradores,
+                          snap_liquido: r.valor_liquido ?? r.valor_bruto ?? 0,
+                        }))
+                        gerarFolhaInter(outrosParaInter, `Outros ${mesLabel}`)
+                      }}
+                      style={{ padding:'5px 14px', borderRadius:7, border:'2px solid #059669', background:'linear-gradient(135deg,#059669,#047857)', color:'#fff', fontSize:12, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:5, boxShadow:'0 2px 6px rgba(5,150,105,0.35)' }}>
+                      🏦 Gerar Folha Inter
+                    </button>
+                  </>
                 )}
               </div>
             </div>

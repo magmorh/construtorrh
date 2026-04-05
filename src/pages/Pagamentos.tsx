@@ -165,7 +165,7 @@ export default function Pagamentos() {
     setLoadingLancs(true)
     const { data, error } = await supabase
       .from('ponto_lancamentos')
-      .select('id, colaborador_id, obra_id, mes_referencia, data_inicio, data_fim, status, motivo_recusa, data_pagamento, obs_pagamento, snap_liquido, snap_valor_total, snap_horas, snap_dsr, snap_producao, snap_premio, snap_inss, snap_ir, snap_desconto_vt, snap_desconto_adiant, colaboradores(nome, chapa, tipo_contrato, funcao_id, cpf, funcoes(nome)), obras(nome)')
+      .select('id, colaborador_id, obra_id, mes_referencia, data_inicio, data_fim, status, motivo_recusa, data_pagamento, obs_pagamento, snap_liquido, snap_valor_total, snap_horas, snap_dsr, snap_producao, snap_premio, snap_inss, snap_ir, snap_desconto_vt, snap_desconto_adiant, colaboradores(nome, chapa, tipo_contrato, funcao_id, cpf, pix_chave, pix_tipo, funcoes(nome)), obras(nome)')
       .in('status', ['liberado', 'pago'])
       .order('mes_referencia', { ascending: false })
     if (error) {
@@ -507,6 +507,82 @@ export default function Pagamentos() {
     if (win) { win.document.write(html); win.document.close(); win.print() }
   }
 
+  // ── FOLHA BANCO INTER — CSV para pagamento em lote via PIX ─────────────────
+  function gerarFolhaInter(lancamentos: any[], descricaoBase: string) {
+    if (lancamentos.length === 0) {
+      toast.info('Nenhum lançamento disponível para gerar a folha.'); return
+    }
+
+    // Mapeamento de tipo de chave PIX para o formato Inter
+    function tipoParaInter(tipo: string | null): string {
+      if (!tipo) return 'CPF'
+      const t = tipo.toLowerCase()
+      if (t === 'cpf')      return 'CPF'
+      if (t === 'cnpj')     return 'CNPJ'
+      if (t === 'email')    return 'EMAIL'
+      if (t === 'telefone' || t === 'celular' || t === 'phone') return 'TELEFONE'
+      if (t === 'aleatoria' || t === 'evp' || t === 'aleatório') return 'ALEATORIA'
+      return 'CPF'
+    }
+
+    // Gera número sequencial único: PDE + AAMM + seq
+    const aamm = new Date().toISOString().slice(2,4) + new Date().toISOString().slice(5,7)
+    const dataPagamento = new Date().toISOString().slice(0,10)
+
+    const header = 'TipoChave,ChavePix,NomeFavorecido,CPF_CNPJ,Valor,Descricao,DataPagamento,SeuNumero'
+
+    const linhas: string[] = []
+    let seq = 1
+
+    // Agrupa por colaborador (somando múltiplos lançamentos do mesmo colaborador)
+    const agrupado = new Map<string, {
+      nome: string; cpf: string; pixChave: string; pixTipo: string | null; total: number
+    }>()
+
+    for (const l of lancamentos) {
+      const cid    = l.colaborador_id ?? l.id
+      const nome   = (l.colaboradores?.nome ?? '—').toUpperCase()
+      const cpf    = (l.colaboradores?.cpf  ?? '').replace(/\D/g,'')
+      const pixCh  = (l.colaboradores?.pix_chave ?? l.colaboradores?.pix  ?? cpf).replace(/\s/g,'')
+      const pixTp  = l.colaboradores?.pix_tipo ?? (cpf ? 'cpf' : null)
+      const valor  = l.snap_liquido ?? l.valor_liquido ?? 0
+      if (valor <= 0) continue
+      if (!agrupado.has(cid)) {
+        agrupado.set(cid, { nome, cpf, pixChave: pixCh, pixTipo: pixTp, total: 0 })
+      }
+      agrupado.get(cid)!.total += valor
+    }
+
+    for (const [, c] of agrupado) {
+      if (c.total <= 0) continue
+      const tipoChave = tipoParaInter(c.pixTipo)
+      const chavePix  = c.pixChave || c.cpf
+      if (!chavePix) continue    // sem chave PIX nem CPF → pula
+      const cpfLimpo  = c.cpf || chavePix.replace(/\D/g,'')
+      const seuNum    = `PDE${aamm}-${String(seq).padStart(4,'0')}`
+      const valor     = c.total.toFixed(2)
+      const descricao = descricaoBase.replace(/,/g,';')  // garante que vírgulas não quebrem o CSV
+      linhas.push([tipoChave, chavePix, c.nome, cpfLimpo, valor, descricao, dataPagamento, seuNum].join(','))
+      seq++
+    }
+
+    if (linhas.length === 0) {
+      toast.warning('Nenhum colaborador com chave PIX ou CPF cadastrado. Cadastre os dados bancários no módulo Colaboradores.')
+      return
+    }
+
+    const totalCSV = Array.from(agrupado.values()).reduce((s,c) => s + c.total, 0)
+    const csv  = header + '\n' + linhas.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `folha_inter_${dataPagamento}_${linhas.length}colab.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success(`✅ Folha Inter gerada! ${linhas.length} colaboradores · R$ ${totalCSV.toLocaleString('pt-BR',{minimumFractionDigits:2})}`)
+  }
+
   async function gerarRelatorioAgendados() {
     // Pega TODOS os agendados (status liberado), sem filtros de tela
     const todos = lancsPendentes.filter((l: any) => l.status === 'liberado')
@@ -765,11 +841,31 @@ export default function Pagamentos() {
             style={{ marginBottom:4, padding:'6px 14px', borderRadius:7, border:'1px solid #b45309', background:'#fff7ed', color:'#b45309', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
             📊 Rel. Agendamentos
           </button>
+          <button
+            onClick={() => {
+              const libFolha = lancsPendentes.filter((l:any) => l.status==='liberado')
+              const mesR = libFolha[0]?.mes_referencia ?? new Date().toISOString().slice(0,7)
+              const mesLabel = `${mesR.slice(5,7)}/${mesR.slice(0,4)}`
+              gerarFolhaInter(libFolha, `Folha ${mesLabel}`)
+            }}
+            style={{ marginBottom:4, padding:'6px 14px', borderRadius:7, border:'2px solid #059669', background:'linear-gradient(135deg,#059669,#047857)', color:'#fff', fontSize:12, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:6, boxShadow:'0 2px 8px rgba(5,150,105,0.35)' }}>
+            🏦 Gerar Folha Inter (Agendados)
+          </button>
         )}
         {aba === 'realizados' && (
           <button onClick={() => gerarRelatorioRealizados()}
             style={{ marginBottom:4, padding:'6px 14px', borderRadius:7, border:'1px solid #15803d', background:'#f0fdf4', color:'#15803d', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
             📊 Rel. Realizados
+          </button>
+          <button
+            onClick={() => {
+              const pagos = lancsPendentes.filter((l:any) => l.status==='pago')
+              const mesR  = filtroMesLanc || (pagos[0]?.mes_referencia ?? new Date().toISOString().slice(0,7))
+              const mesLabel = `${mesR.slice(5,7)}/${mesR.slice(0,4)}`
+              gerarFolhaInter(pagos, `Folha ${mesLabel}`)
+            }}
+            style={{ marginBottom:4, padding:'6px 14px', borderRadius:7, border:'2px solid #059669', background:'linear-gradient(135deg,#059669,#047857)', color:'#fff', fontSize:12, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:6, boxShadow:'0 2px 8px rgba(5,150,105,0.35)' }}>
+            🏦 Gerar Folha Inter (Realizados)
           </button>
         )}
       </div>
@@ -856,12 +952,23 @@ export default function Pagamentos() {
                   {st.count > 0 && <span style={{ background: abaAgend===st.key?'#1d4ed8':'#94a3b8', color:'#fff', borderRadius:20, padding:'1px 8px', fontSize:10, fontWeight:700 }}>{st.count}</span>}
                 </button>
               ))}
-              <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', paddingBottom:4 }}>
+              <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:8, paddingBottom:4 }}>
                 {abaAgend === 'folha' && lancsAgendados.length > 0 && (
-                  <button onClick={() => gerarRelatorioAgendados()}
-                    style={{ padding:'5px 14px', borderRadius:7, border:'1px solid #b45309', background:'#fff7ed', color:'#b45309', fontSize:12, fontWeight:700, cursor:'pointer' }}>
-                    📊 Rel. Folha Agendada
-                  </button>
+                  <>
+                    <button onClick={() => gerarRelatorioAgendados()}
+                      style={{ padding:'5px 14px', borderRadius:7, border:'1px solid #b45309', background:'#fff7ed', color:'#b45309', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                      📊 Rel. Folha Agendada
+                    </button>
+                    <button
+                      onClick={() => {
+                        const mesR     = lancsAgendados[0]?.mes_referencia ?? new Date().toISOString().slice(0,7)
+                        const mesLabel = `${mesR.slice(5,7)}/${mesR.slice(0,4)}`
+                        gerarFolhaInter(lancsAgendados, `Folha ${mesLabel}`)
+                      }}
+                      style={{ padding:'5px 14px', borderRadius:7, border:'2px solid #059669', background:'linear-gradient(135deg,#059669,#047857)', color:'#fff', fontSize:12, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:5, boxShadow:'0 2px 6px rgba(5,150,105,0.35)' }}>
+                      🏦 Gerar Folha Inter
+                    </button>
+                  </>
                 )}
                 {abaAgend === 'vt' && pendVT.length > 0 && (
                   <button onClick={() => setShowRelatorioVT(true)}

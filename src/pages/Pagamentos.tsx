@@ -30,7 +30,7 @@ import {
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
 type PagamentoRow = Pagamento & {
-  colaboradores?: Pick<Colaborador, 'nome' | 'chapa'>
+  colaboradores?: Pick<Colaborador, 'nome' | 'chapa' | 'cpf' | 'pix_chave' | 'pix_tipo'>
 }
 
 type FormData = {
@@ -142,7 +142,7 @@ export default function Pagamentos() {
     const [pagRes, colRes, obrRes, funcRes] = await Promise.all([
       supabase
         .from('pagamentos')
-        .select('*, colaboradores(nome,chapa),obras(nome)')
+        .select('*, colaboradores(nome,chapa,cpf,pix_chave,pix_tipo),obras(nome)')
         .order('competencia', { ascending: false }),
       supabase
         .from('colaboradores')

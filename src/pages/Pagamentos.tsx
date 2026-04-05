@@ -346,7 +346,7 @@ export default function Pagamentos() {
     if (!modalRecusarLanc) return
     setSavingPgto(true)
     const { error } = await supabase.from('ponto_lancamentos')
-      .update({ status: 'editavel', motivo_recusa: motivoRecusaLanc.trim() || 'Recusado pelo financeiro' })
+      .update({ status: 'rascunho', motivo_recusa: motivoRecusaLanc.trim() || 'Recusado pelo financeiro' })
       .eq('id', modalRecusarLanc.id)
     setSavingPgto(false)
     if (error) { toast.error('Erro ao recusar: ' + error.message); return }
@@ -1923,7 +1923,7 @@ export default function Pagamentos() {
                     </div>
                   </div>
                 )}
-                <div style={{ fontSize:12, color:'#64748b' }}>O lançamento voltará para status <strong>editável</strong> no módulo de Lançamentos para que o gestor possa corrigir e liberar novamente.</div>
+                <div style={{ fontSize:12, color:'#64748b' }}>O lançamento voltará para status <strong>rascunho</strong> no módulo de Lançamentos para que o gestor possa corrigir e liberar novamente.</div>
                 <div>
                   <label style={{ fontSize:12, fontWeight:600, display:'block', marginBottom:4 }}>Motivo da recusa (opcional)</label>
                   <input

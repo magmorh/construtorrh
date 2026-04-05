@@ -1127,6 +1127,321 @@ ${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><t
       setGerandoPDF(false)
     }
   }
+
+  // ── Gera Crachá CR-80 (5,4 cm × 8,6 cm) e abre para impressão ────────────
+  function gerarCracha(c: ColaboradorRow) {
+    const fn       = (c.funcoes as any)?.nome ?? '—'
+    const fotoUrl  = (c as any).foto_url ?? ''
+    const empresa  = 'CONSTRUTOR RH'
+
+    /* ── paleta ── */
+    const azul   = '#1e3a5f'
+    const azulCl = '#2563eb'
+    const branco = '#ffffff'
+
+    /* ── foto: img tag ou iniciais ── */
+    const fotoBloco = fotoUrl
+      ? `<img src="${fotoUrl}" alt="Foto" style="
+            width:100%; height:100%; object-fit:cover; object-position:center top;
+            display:block; border-radius:0;" />`
+      : `<div style="
+            width:100%; height:100%; display:flex; align-items:center;
+            justify-content:center; background:#334155;
+            font-size:34px; font-weight:900; color:#94a3b8; letter-spacing:-1px;">
+            ${c.nome.trim().split(/\s+/).map((n:string)=>n[0]).slice(0,2).join('').toUpperCase()}
+         </div>`
+
+    /* ── HTML do crachá ──
+       Dimensões CR-80: 85,6 mm × 54 mm  (paisagem)
+       Convertidas para px a 96 dpi:  325 × 205 px  (≈ 85.6 mm × 54 mm)
+       Com 300 dpi para impressão via @page ──────────────────────────── */
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<title>Crachá — ${c.nome}</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:100%; height:100%; background:#fff; }
+
+  @page {
+    size: 86mm 54mm;
+    margin: 0;
+  }
+
+  @media print {
+    html, body { width:86mm; height:54mm; }
+    .card { page-break-inside: avoid; }
+    .no-print { display:none !important; }
+  }
+
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #e2e8f0;
+  }
+
+  .card {
+    width: 86mm;
+    height: 54mm;
+    background: ${branco};
+    border-radius: 3mm;
+    overflow: hidden;
+    display: flex;
+    flex-direction: row;
+    box-shadow: 0 4px 24px rgba(0,0,0,.22);
+    position: relative;
+  }
+
+  /* ── Faixa lateral esquerda (logotipo / empresa) ── */
+  .side {
+    width: 14mm;
+    background: ${azul};
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 3mm 0;
+    gap: 2mm;
+  }
+  .side-text {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    color: ${branco};
+    font-size: 6.5pt;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    opacity: .9;
+  }
+  .side-dot {
+    width: 5mm; height: 5mm;
+    border-radius: 50%;
+    background: ${azulCl};
+    opacity: .7;
+    flex-shrink: 0;
+  }
+
+  /* ── Área principal ── */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Cabeçalho colorido ── */
+  .header {
+    background: ${azul};
+    padding: 2.5mm 3mm 2mm;
+    display: flex;
+    align-items: center;
+    gap: 2.5mm;
+  }
+  .header-empresa {
+    color: ${branco};
+    font-size: 7.5pt;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .header-line {
+    flex: 1;
+    height: 1px;
+    background: rgba(255,255,255,.25);
+  }
+  .header-chapa {
+    color: #93c5fd;
+    font-size: 6pt;
+    font-weight: 700;
+    white-space: nowrap;
+    letter-spacing: 0.05em;
+  }
+
+  /* ── Corpo (foto + dados) ── */
+  .body {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    padding: 2.5mm 3mm 2mm;
+    gap: 3mm;
+    align-items: center;
+  }
+
+  /* ── Foto ── */
+  .foto-wrap {
+    width: 20mm;
+    height: 26mm;
+    border-radius: 2mm;
+    overflow: hidden;
+    flex-shrink: 0;
+    border: 0.5mm solid #cbd5e1;
+    background: #334155;
+  }
+
+  /* ── Dados textuais ── */
+  .dados {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1.8mm;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .nome {
+    font-size: 9.5pt;
+    font-weight: 900;
+    color: #0f172a;
+    line-height: 1.15;
+    word-break: break-word;
+    hyphens: auto;
+  }
+  .divider {
+    height: 0.4mm;
+    background: linear-gradient(90deg, ${azulCl}, transparent);
+    border-radius: 1mm;
+    width: 80%;
+  }
+  .funcao-label {
+    font-size: 5.5pt;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .funcao-val {
+    font-size: 8pt;
+    font-weight: 700;
+    color: ${azulCl};
+    word-break: break-word;
+    hyphens: auto;
+    line-height: 1.2;
+  }
+
+  /* ── Rodapé ── */
+  .footer {
+    background: #f1f5f9;
+    border-top: 0.3mm solid #e2e8f0;
+    padding: 1.5mm 3mm;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .footer-chapa {
+    font-size: 6pt;
+    font-weight: 800;
+    color: ${azul};
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .footer-barras {
+    display: flex;
+    gap: 0.8mm;
+    align-items: flex-end;
+  }
+  .barra {
+    background: ${azul};
+    border-radius: 0.3mm;
+    opacity: .6;
+  }
+
+  /* ── Botão de impressão (some ao imprimir) ── */
+  .no-print {
+    position: fixed;
+    bottom: 12px;
+    right: 12px;
+    background: ${azulCl};
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 22px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,.25);
+    z-index: 9999;
+  }
+  .no-print:hover { background: #1d4ed8; }
+</style>
+</head>
+<body>
+
+<div class="card">
+
+  <!-- Faixa lateral -->
+  <div class="side">
+    <div class="side-dot"></div>
+    <span class="side-text">${empresa}</span>
+    <div class="side-dot"></div>
+  </div>
+
+  <!-- Área principal -->
+  <div class="main">
+
+    <!-- Cabeçalho -->
+    <div class="header">
+      <span class="header-empresa">${empresa}</span>
+      <div class="header-line"></div>
+      <span class="header-chapa">${c.chapa ?? ''}</span>
+    </div>
+
+    <!-- Corpo -->
+    <div class="body">
+
+      <!-- Foto -->
+      <div class="foto-wrap">${fotoBloco}</div>
+
+      <!-- Dados -->
+      <div class="dados">
+        <div class="nome">${c.nome.trim()}</div>
+        <div class="divider"></div>
+        <div class="funcao-label">Função</div>
+        <div class="funcao-val">${fn}</div>
+      </div>
+
+    </div>
+
+    <!-- Rodapé -->
+    <div class="footer">
+      <span class="footer-chapa">Chapa: ${c.chapa ?? '—'}</span>
+      <div class="footer-barras">
+        ${[7,10,6,9,5,8,4,7,6,10,5].map(h=>`<div class="barra" style="width:1.2mm;height:${h}px"></div>`).join('')}
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<button class="no-print" onclick="window.print()">🖨️ Imprimir Crachá</button>
+
+<script>
+  // Imprime automaticamente após imagem carregar (se houver foto)
+  const img = document.querySelector('img')
+  if (img) {
+    img.onload  = () => window.print()
+    img.onerror = () => window.print()
+    // fallback: se já carregou antes do onload ser atribuído
+    if (img.complete) setTimeout(() => window.print(), 300)
+  } else {
+    window.onload = () => setTimeout(() => window.print(), 200)
+  }
+<\/script>
+</body>
+</html>`
+
+    const win = window.open('', '_blank', 'width=520,height=420')
+    if (win) { win.document.write(html); win.document.close() }
+    else toast.error('Bloqueio de pop-up detectado. Permita pop-ups para este site.')
+  }
+
   // mapa: colaborador_id → tem ponto lançado? (bloqueia exclusão visualmente)
   const [colabsComPonto, setColabsComPonto] = useState<Set<string>>(new Set())
 
@@ -2183,6 +2498,10 @@ ${c.observacoes ? `<div class="sec"><div class="sec-title">Observações</div><t
                   <button onClick={() => gerarFichaRegistroPDF(c)} disabled={gerandoPDF}
                     style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: '1px solid #0ea5e9', background: '#f0f9ff', color: '#0284c7', fontWeight: 700, fontSize: 12, cursor: gerandoPDF ? 'not-allowed' : 'pointer', opacity: gerandoPDF ? 0.7 : 1 }}>
                     <Printer size={12} /> {gerandoPDF ? 'Gerando…' : 'Ficha PDF'}
+                  </button>
+                  <button onClick={() => gerarCracha(c)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: '1px solid #059669', background: '#f0fdf4', color: '#059669', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+                    🪪 Crachá
                   </button>
                   {c.status !== 'inativo' && (
                     <button onClick={() => { abrirModalInativar(c.id, c.nome, c.status ?? 'ativo') }}

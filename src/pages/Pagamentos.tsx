@@ -860,16 +860,7 @@ export default function Pagamentos() {
             style={{ marginBottom:4, padding:'6px 14px', borderRadius:7, border:'1px solid #15803d', background:'#f0fdf4', color:'#15803d', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
             📊 Rel. Realizados
           </button>
-          <button
-            onClick={() => {
-              const pagos = lancsPendentes.filter((l:any) => l.status==='pago')
-              const mesR  = filtroMesLanc || (pagos[0]?.mes_referencia ?? new Date().toISOString().slice(0,7))
-              const mesLabel = `${mesR.slice(5,7)}/${mesR.slice(0,4)}`
-              gerarFolhaInter(pagos, `Folha ${mesLabel}`)
-            }}
-            style={{ marginBottom:4, padding:'6px 14px', borderRadius:7, border:'2px solid #059669', background:'linear-gradient(135deg,#059669,#047857)', color:'#fff', fontSize:12, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:6, boxShadow:'0 2px 8px rgba(5,150,105,0.35)' }}>
-            🏦 Gerar Folha Inter (Realizados)
-          </button>
+
           </>
         )}
       </div>
@@ -975,9 +966,41 @@ export default function Pagamentos() {
                   </>
                 )}
                 {abaAgend === 'vt' && pendVT.length > 0 && (
-                  <button onClick={() => setShowRelatorioVT(true)}
-                    style={{ padding:'5px 14px', borderRadius:7, border:'1px solid #0369a1', background:'#eff6ff', color:'#0369a1', fontSize:12, fontWeight:700, cursor:'pointer' }}>
-                    📊 Rel. Vale Transporte
+                  <>
+                    <button onClick={() => setShowRelatorioVT(true)}
+                      style={{ padding:'5px 14px', borderRadius:7, border:'1px solid #0369a1', background:'#eff6ff', color:'#0369a1', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                      📊 Rel. Vale Transporte
+                    </button>
+                    <button
+                      onClick={() => {
+                        const mesR = pendVT[0]?.competencia ?? new Date().toISOString().slice(0,7)
+                        const mesLabel = `${mesR.slice(5,7)}/${mesR.slice(0,4)}`
+                        const vtParaInter = pendVT.map((r) => ({
+                          ...r,
+                          colaboradores: r.colaboradores,
+                          snap_liquido: r.valor_liquido ?? r.valor_bruto ?? 0,
+                        }))
+                        gerarFolhaInter(vtParaInter, `Vale Transporte ${mesLabel}`)
+                      }}
+                      style={{ padding:'5px 14px', borderRadius:7, border:'2px solid #059669', background:'linear-gradient(135deg,#059669,#047857)', color:'#fff', fontSize:12, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:5, boxShadow:'0 2px 6px rgba(5,150,105,0.35)' }}>
+                      🏦 Gerar Folha Inter
+                    </button>
+                  </>
+                )}
+                {abaAgend === 'outros' && pendOutros.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const mesR = pendOutros[0]?.competencia ?? new Date().toISOString().slice(0,7)
+                      const mesLabel = `${mesR.slice(5,7)}/${mesR.slice(0,4)}`
+                      const outrosParaInter = pendOutros.map((r) => ({
+                        ...r,
+                        colaboradores: r.colaboradores,
+                        snap_liquido: r.valor_liquido ?? r.valor_bruto ?? 0,
+                      }))
+                      gerarFolhaInter(outrosParaInter, `Outros ${mesLabel}`)
+                    }}
+                    style={{ padding:'5px 14px', borderRadius:7, border:'2px solid #059669', background:'linear-gradient(135deg,#059669,#047857)', color:'#fff', fontSize:12, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:5, boxShadow:'0 2px 6px rgba(5,150,105,0.35)' }}>
+                    🏦 Gerar Folha Inter
                   </button>
                 )}
               </div>

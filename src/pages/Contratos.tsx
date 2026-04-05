@@ -49,17 +49,18 @@ const CATEGORIAS: Record<string, { label: string; cor: string; bg: string; emoji
 const ALL_CATS = ['todos', ...Object.keys(CATEGORIAS)]
 
 const FONTS = ['Times New Roman', 'Arial', 'Georgia', 'Calibri', 'Courier New', 'Verdana', 'Tahoma', 'Helvetica']
-const SIZES = ['8', '9', '10', '11', '12', '13', '14', '16', '18', '20', '22', '24', '28', '32', '36', '48']
+// Tamanhos em pt (usamos CSS font-size via span, NÃO execCommand fontSize que usa escala 1-7)
+const FONT_SIZES_PT = [8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 28, 32, 36, 48]
 const LINE_HEIGHTS = ['1.0', '1.2', '1.4', '1.5', '1.6', '1.8', '2.0', '2.4', '3.0']
 
 // Estilos de bloco de texto
 const BLOCK_STYLES = [
-  { value: 'p',  label: 'Parágrafo',   style: { fontSize: '12px', fontWeight: '400', margin: '8px 0' } },
-  { value: 'h1', label: 'Título 1',    style: { fontSize: '22px', fontWeight: '900', margin: '0 0 14px', textAlign: 'center', textTransform: 'uppercase', letterSpacing: '.04em' } },
-  { value: 'h2', label: 'Título 2',    style: { fontSize: '16px', fontWeight: '800', margin: '18px 0 8px', textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', paddingBottom: '4px' } },
-  { value: 'h3', label: 'Título 3',    style: { fontSize: '13px', fontWeight: '700', margin: '14px 0 5px' } },
-  { value: 'h4', label: 'Subtítulo',   style: { fontSize: '12px', fontWeight: '700', margin: '10px 0 4px', fontStyle: 'italic' } },
-  { value: 'blockquote', label: 'Citação', style: { fontSize: '12px', fontWeight: '400', margin: '10px 0', borderLeft: '3px solid #94a3b8', paddingLeft: '12px', color: '#475569', fontStyle: 'italic' } },
+  { value: 'p',          label: 'Parágrafo',   css: 'font-size:12pt;font-weight:400;margin:8px 0;line-height:1.6;' },
+  { value: 'h1',         label: 'Título 1',    css: 'font-size:18pt;font-weight:900;margin:0 0 12px;text-align:center;text-transform:uppercase;letter-spacing:.04em;line-height:1.3;' },
+  { value: 'h2',         label: 'Título 2',    css: 'font-size:14pt;font-weight:800;margin:16px 0 6px;text-transform:uppercase;border-bottom:1.5px solid #334155;padding-bottom:3px;line-height:1.3;' },
+  { value: 'h3',         label: 'Título 3',    css: 'font-size:12pt;font-weight:700;margin:12px 0 4px;line-height:1.4;' },
+  { value: 'h4',         label: 'Subtítulo',   css: 'font-size:11pt;font-weight:700;margin:10px 0 3px;font-style:italic;line-height:1.4;' },
+  { value: 'blockquote', label: 'Citação',     css: 'font-size:11pt;font-weight:400;margin:10px 0;border-left:3px solid #94a3b8;padding-left:12px;color:#475569;font-style:italic;line-height:1.6;' },
 ]
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -234,49 +235,109 @@ export default function Contratos() {
   })
 
   // ── toolbar WYSIWYG ────────────────────────────────────────────────────────
+
+  // execCommand genérico (bold, italic, underline, listas, alinhamento, etc.)
   function exec(cmd: string, value?: string) {
-    document.execCommand(cmd, false, value ?? undefined)
     editorRef.current?.focus()
+    document.execCommand(cmd, false, value ?? undefined)
+  }
+
+  // Retorna o bloco pai mais próximo (filho direto do editor) do nó atual
+  function getBlockEl(): HTMLElement | null {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return null
+    let node: Node | null = sel.getRangeAt(0).startContainer
+    while (node && node.nodeType !== 1) node = node.parentNode
+    let el = node as HTMLElement | null
+    while (el && el.parentElement !== editorRef.current) el = el.parentElement
+    return el
+  }
+
+  // Aplicar tamanho de fonte em pt via span inline (evita a escala 1-7 do execCommand fontSize)
+  function applyFontSize(pt: number) {
+    editorRef.current?.focus()
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return
+    if (sel.isCollapsed) {
+      // Sem seleção: aplica no bloco inteiro
+      const block = getBlockEl()
+      if (block) { block.style.fontSize = `${pt}pt`; return }
+    }
+    // Com seleção: envolve em <span style="font-size:Xpt">
+    const range = sel.getRangeAt(0)
+    const span = document.createElement('span')
+    span.style.fontSize = `${pt}pt`
+    try {
+      range.surroundContents(span)
+    } catch {
+      // Se a seleção cruza elementos, usa extractContents
+      const frag = range.extractContents()
+      span.appendChild(frag)
+      range.insertNode(span)
+    }
+    sel.removeAllRanges()
+    const newRange = document.createRange()
+    newRange.selectNodeContents(span)
+    sel.addRange(newRange)
+  }
+
+  // Aplicar fonte via span inline
+  function applyFontFamily(family: string) {
+    editorRef.current?.focus()
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return
+    if (sel.isCollapsed) {
+      const block = getBlockEl()
+      if (block) { block.style.fontFamily = family; return }
+    }
+    const range = sel.getRangeAt(0)
+    const span = document.createElement('span')
+    span.style.fontFamily = family
+    try {
+      range.surroundContents(span)
+    } catch {
+      const frag = range.extractContents()
+      span.appendChild(frag)
+      range.insertNode(span)
+    }
   }
 
   // Aplicar estilo de bloco (h1, h2, h3, h4, p, blockquote)
   function applyBlockStyle(tag: string) {
-    const styleMap: Record<string, string> = {
-      p:          'font-size:12px;font-weight:400;margin:8px 0;',
-      h1:         'font-size:22px;font-weight:900;margin:0 0 14px;text-align:center;text-transform:uppercase;letter-spacing:.04em;',
-      h2:         'font-size:16px;font-weight:800;margin:18px 0 8px;text-transform:uppercase;border-bottom:1px solid #e2e8f0;padding-bottom:4px;',
-      h3:         'font-size:13px;font-weight:700;margin:14px 0 5px;',
-      h4:         'font-size:12px;font-weight:700;margin:10px 0 4px;font-style:italic;',
-      blockquote: 'font-size:12px;margin:10px 0;border-left:3px solid #94a3b8;padding-left:12px;color:#475569;font-style:italic;',
-    }
-    const inlineStyle = styleMap[tag] ?? ''
+    const bs = BLOCK_STYLES.find(b => b.value === tag)
+    if (!bs) return
+    editorRef.current?.focus()
     document.execCommand('formatBlock', false, tag)
-    // Aplica o style inline no elemento recém-criado
+    // Aplica o style inline robustamente
     setTimeout(() => {
       const sel = window.getSelection()
-      if (!sel || sel.rangeCount === 0) return
+      if (!sel || sel.rangeCount === 0) { editorRef.current?.focus(); return }
       let node: Node | null = sel.getRangeAt(0).startContainer
       while (node && node.nodeType !== 1) node = node.parentNode
-      const el = node as HTMLElement | null
-      if (el && el !== editorRef.current) {
-        const tagEl = el.closest(tag) as HTMLElement | null
-        if (tagEl) tagEl.setAttribute('style', inlineStyle)
+      let el = node as HTMLElement | null
+      // Tenta closest() primeiro; se não, sobe manualmente
+      const found = el?.closest(tag) as HTMLElement | null
+      const target = found ?? (() => {
+        let cur = el
+        while (cur && cur.tagName?.toLowerCase() !== tag) cur = cur.parentElement
+        return cur
+      })()
+      if (target && target !== editorRef.current) {
+        target.setAttribute('style', bs.css)
+        // Remove font-size herdado de spans filhos para evitar conflito
+        target.querySelectorAll('[style*="font-size"]').forEach(c => {
+          (c as HTMLElement).style.removeProperty('font-size')
+        })
       }
       editorRef.current?.focus()
-    }, 0)
+    }, 10)
   }
 
   // Aplicar line-height ao bloco atual
   function applyLineHeight(lh: string) {
-    const sel = window.getSelection()
-    if (!sel || sel.rangeCount === 0) { editorRef.current?.focus(); return }
-    let node: Node | null = sel.getRangeAt(0).startContainer
-    while (node && node.nodeType !== 1) node = node.parentNode
-    let el = node as HTMLElement | null
-    // Sobe até encontrar filho direto do editor
-    while (el && el.parentElement !== editorRef.current) el = el.parentElement
-    if (el) el.style.lineHeight = lh
     editorRef.current?.focus()
+    const block = getBlockEl()
+    if (block) block.style.lineHeight = lh
   }
 
   function inserirVariavel(texto: string) {
@@ -386,12 +447,12 @@ export default function Contratos() {
 body { background:#f0f4f8; font-family:'Times New Roman',Georgia,serif; }
 .page { max-width:700px; margin:30px auto; background:#fff; border-radius:8px; padding:40px 44px; box-shadow:0 2px 20px rgba(0,0,0,.12); font-size:12px; line-height:1.8; color:#1a1a1a; }
 .badge { display:inline-block; background:${cat.bg}; color:${cat.cor}; border-radius:20px; padding:2px 10px; font-size:10px; font-weight:700; margin-bottom:12px; }
-h1 { font-size:16px; font-weight:800; text-align:center; margin:0 0 18px; text-transform:uppercase; letter-spacing:.04em; }
-h2 { font-size:13px; font-weight:700; margin:18px 0 8px; text-transform:uppercase; border-bottom:1px solid #e2e8f0; padding-bottom:4px; }
-h3 { font-size:12px; font-weight:700; margin:14px 0 5px; }
-h4 { font-size:11px; font-weight:700; margin:10px 0 4px; font-style:italic; }
-blockquote { margin:10px 0; border-left:3px solid #94a3b8; padding-left:12px; color:#475569; font-style:italic; }
-p  { margin:8px 0; text-align:justify; }
+h1 { font-size:18pt; font-weight:900; text-align:center; margin:0 0 12px; text-transform:uppercase; letter-spacing:.04em; line-height:1.3; }
+h2 { font-size:14pt; font-weight:800; margin:16px 0 6px; text-transform:uppercase; border-bottom:1.5px solid #334155; padding-bottom:3px; line-height:1.3; }
+h3 { font-size:12pt; font-weight:700; margin:12px 0 4px; line-height:1.4; }
+h4 { font-size:11pt; font-weight:700; margin:10px 0 3px; font-style:italic; line-height:1.4; }
+blockquote { font-size:11pt; margin:10px 0; border-left:3px solid #94a3b8; padding-left:12px; color:#475569; font-style:italic; line-height:1.6; }
+p  { font-size:12pt; margin:8px 0; line-height:1.6; }
 table { width:100%; border-collapse:collapse; margin:10px 0; font-size:11px; }
 table td,table th { border:1px solid #d1d5db; padding:5px 8px; }
 table th { background:#f8fafc; font-weight:700; }
@@ -461,12 +522,12 @@ table th { background:#f8fafc; font-weight:700; }
   .watermark { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) rotate(-45deg); font-size:72px; color:rgba(30,58,95,.04); font-weight:900; pointer-events:none; z-index:0; white-space:nowrap; font-family:Arial,sans-serif; letter-spacing:.1em; }
 
   /* ── Conteúdo do doc ── */
-  h1 { font-size:16px; font-weight:800; text-align:center; margin:0 0 18px; text-transform:uppercase; letter-spacing:.04em; }
-  h2 { font-size:13px; font-weight:700; margin:18px 0 8px; text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid #e2e8f0; padding-bottom:4px; }
-  h3 { font-size:12px; font-weight:700; margin:14px 0 5px; }
-  h4 { font-size:11px; font-weight:700; margin:10px 0 4px; font-style:italic; }
-  blockquote { margin:10px 0; border-left:3px solid #94a3b8; padding-left:12px; color:#475569; font-style:italic; }
-  p  { margin:8px 0; text-align:justify; }
+  h1 { font-size:18pt; font-weight:900; text-align:center; margin:0 0 12px; text-transform:uppercase; letter-spacing:.04em; line-height:1.3; }
+  h2 { font-size:14pt; font-weight:800; margin:16px 0 6px; text-transform:uppercase; letter-spacing:.04em; border-bottom:1.5px solid #334155; padding-bottom:3px; line-height:1.3; }
+  h3 { font-size:12pt; font-weight:700; margin:12px 0 4px; line-height:1.4; }
+  h4 { font-size:11pt; font-weight:700; margin:10px 0 3px; font-style:italic; line-height:1.4; }
+  blockquote { font-size:11pt; margin:10px 0; border-left:3px solid #94a3b8; padding-left:12px; color:#475569; font-style:italic; line-height:1.6; }
+  p  { font-size:12pt; margin:8px 0; line-height:1.6; }
   table { width:100%; border-collapse:collapse; margin:10px 0; font-size:11px; }
   table td,table th { border:1px solid #d1d5db; padding:5px 8px; }
   table th { background:#f8fafc; font-weight:700; }
@@ -850,16 +911,20 @@ table th { background:#f8fafc; font-weight:700; }
               <div style={{ width: 1, height: 22, background: '#e2e8f0', margin: '0 2px' }} />
 
               {/* ── GRUPO 2: Fonte + Tamanho ── */}
-              <select onChange={e => exec('fontName', e.target.value)} defaultValue=""
+              <select
+                onChange={e => { if (e.target.value) applyFontFamily(e.target.value); e.target.value = '' }}
+                defaultValue=""
                 style={{ height: 28, minWidth: 130, borderRadius: 5, border: '1px solid #cbd5e1', background: '#fff', fontSize: 11, paddingLeft: 4, paddingRight: 4, cursor: 'pointer' }}>
-                <option value="" disabled>Fonte</option>
+                <option value="" disabled>Fonte…</option>
                 {FONTS.map(f => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
               </select>
 
-              <select onChange={e => exec('fontSize', e.target.value)} defaultValue=""
+              <select
+                onChange={e => { if (e.target.value) applyFontSize(Number(e.target.value)); e.target.value = '' }}
+                defaultValue=""
                 style={{ height: 28, width: 68, borderRadius: 5, border: '1px solid #cbd5e1', background: '#fff', fontSize: 11, paddingLeft: 4, paddingRight: 4, cursor: 'pointer' }}>
-                <option value="" disabled>Tam</option>
-                {SIZES.map(s => <option key={s} value={s}>{s}pt</option>)}
+                <option value="" disabled>Tam…</option>
+                {FONT_SIZES_PT.map(s => <option key={s} value={s}>{s}pt</option>)}
               </select>
 
               {/* Altura do texto */}
@@ -992,23 +1057,37 @@ table th { background:#f8fafc; font-weight:700; }
 
               {/* Área de edição */}
               <div style={{ flex: 1, overflow: 'auto', padding: '24px 32px', background: '#f0f4f8' }}>
+                {/* CSS base do editor — headings sem style inline herdam daqui */}
+                <style>{`
+                  .rh-editor h1 { font-size:18pt; font-weight:900; text-align:center; margin:0 0 12px; text-transform:uppercase; letter-spacing:.04em; line-height:1.3; }
+                  .rh-editor h2 { font-size:14pt; font-weight:800; margin:16px 0 6px; text-transform:uppercase; border-bottom:1.5px solid #334155; padding-bottom:3px; line-height:1.3; }
+                  .rh-editor h3 { font-size:12pt; font-weight:700; margin:12px 0 4px; line-height:1.4; }
+                  .rh-editor h4 { font-size:11pt; font-weight:700; margin:10px 0 3px; font-style:italic; line-height:1.4; }
+                  .rh-editor blockquote { font-size:11pt; margin:10px 0; border-left:3px solid #94a3b8; padding-left:12px; color:#475569; font-style:italic; line-height:1.6; }
+                  .rh-editor p { font-size:12pt; margin:8px 0; line-height:1.6; }
+                  .rh-editor ul { margin:6px 0 6px 24px; padding:0; list-style:disc; }
+                  .rh-editor ol { margin:6px 0 6px 24px; padding:0; list-style:decimal; }
+                  .rh-editor li { font-size:12pt; line-height:1.6; margin:2px 0; }
+                  .rh-editor hr { border:none; border-top:1px solid #e2e8f0; margin:14px 0; }
+                `}</style>
                 {/* Papel A4 */}
                 <div
                   ref={editorRef}
+                  className="rh-editor"
                   contentEditable
                   suppressContentEditableWarning
                   spellCheck={false}
                   style={{
                     minHeight: 'calc(297mm)',
-                    maxWidth: 700,
+                    maxWidth: '210mm',
                     margin: '0 auto',
                     background: '#fff',
                     borderRadius: 6,
-                    padding: '36px 44px',
+                    padding: '25mm 20mm',
                     boxShadow: '0 2px 16px rgba(0,0,0,.1)',
                     fontFamily: "'Times New Roman',Georgia,serif",
-                    fontSize: 12,
-                    lineHeight: 1.8,
+                    fontSize: '12pt',
+                    lineHeight: 1.6,
                     color: '#1a1a1a',
                     outline: 'none',
                     cursor: 'text',

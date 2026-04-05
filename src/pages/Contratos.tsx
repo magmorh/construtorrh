@@ -1,12 +1,11 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Colaborador, Funcao, Obra } from '@/lib/supabase'
-import { fetchEmpresaData } from '@/lib/relatorioHeader'
-import { formatDate } from '@/lib/utils'
+import { fetchEmpresaData, type EmpresaData } from '@/lib/relatorioHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
-import { Search, Plus, Pencil, Trash2, FileText, Eye, Printer, X, ChevronRight } from 'lucide-react'
+import { Search, Plus, Pencil, Trash2, FileText, Eye, Printer, X, ChevronDown } from 'lucide-react'
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
 interface Modelo {
@@ -21,6 +20,14 @@ interface Modelo {
   conteudo: string
   ativo: boolean
   ordem: number
+}
+
+interface FuncaoRow {
+  id: string
+  nome: string
+  sigla: string | null
+  descricao: string | null
+  cbo: string | null
 }
 
 type ColaboradorRow = Colaborador & {
@@ -41,84 +48,69 @@ const CATEGORIAS: Record<string, { label: string; cor: string; bg: string; emoji
 
 const ALL_CATS = ['todos', ...Object.keys(CATEGORIAS)]
 
-// ─── mapeamento de variáveis → dados do colaborador ──────────────────────────
-function buildVarMap(c: ColaboradorRow | null, emp: {
-  nome: string; cnpj: string; endereco: string; cidade: string; razaoSocial: string
-}): Record<string, string> {
+const FONTS = ['Times New Roman', 'Arial', 'Georgia', 'Calibri', 'Courier New']
+const SIZES = ['10', '11', '12', '14', '16', '18', '24']
+
+// ─── helpers ─────────────────────────────────────────────────────────────────
+function buildVarMap(
+  c: ColaboradorRow | null,
+  emp: { nome: string; cnpj: string; endereco: string; cidade: string; razaoSocial: string }
+): Record<string, string> {
   if (!c) return {}
-  const hoje = new Date()
+  const hoje  = new Date()
   const dia   = String(hoje.getDate()).padStart(2, '0')
   const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro']
   const mes   = meses[hoje.getMonth()]
   const ano   = String(hoje.getFullYear())
   const fmtDate = (d: string | null) => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR') : ''
   const salFmt  = c.salario ? `R$ ${c.salario.toLocaleString('pt-BR',{minimumFractionDigits:2})}` : ''
-  const salExt  = '' // campo manual
   const fn  = (c.funcoes as any)?.nome ?? ''
   const ob  = (c.obras  as any)?.nome  ?? ''
   const genero: Record<string,string> = { masculino:'brasileiro', feminino:'brasileira', outro:'brasileiro(a)' }
   const civil:  Record<string,string> = { solteiro:'solteiro(a)', casado:'casado(a)', divorciado:'divorciado(a)', viuvo:'viúvo(a)', uniao_estavel:'em união estável' }
-  const contr:  Record<string,string> = { clt:'CLT', autonomo:'Autônomo', pj:'PJ', temporario:'Temporário', aprendiz:'Menor Aprendiz', estagiario:'Estagiário' }
 
   return {
-    // ── Dados do colaborador ──────────────────────────────────────
-    'Nome Completo do Empregado':          c.nome,
-    'NOME COMPLETO':                       c.nome,
-    'Nome do(a) Novo(a) Colaborador(a)':  c.nome,
-    'NOME':                                c.nome,
-    'Número do CPF':                       c.cpf ?? '',
-    'Número do RG':                        c.rg  ?? '',
-    'Número do PIS/PASEP':                 c.pis_nit ?? '',
-    'Número da CTPS':                      c.ctps_numero ?? '',
-    'Série da CTPS':                       c.ctps_serie ?? '',
-    'Nacionalidade':                       genero[c.genero ?? ''] ?? 'brasileiro(a)',
-    'Estado Civil':                        civil[c.estado_civil ?? ''] ?? '',
-    'Profissão':                           fn,
-    'Profissão/Função':                    fn,
-    'NOME DA FUNÇÃO':                      fn,
-    'FUNÇÃO':                              fn,
+    'Nome Completo': c.nome, 'NOME': c.nome, 'Nome Completo do Empregado': c.nome,
+    'Nome do(a) Novo(a) Colaborador(a)': c.nome, 'NOME COMPLETO': c.nome,
+    'CPF': c.cpf ?? '', 'Número do CPF': c.cpf ?? '',
+    'RG': c.rg ?? '', 'Número do RG': c.rg ?? '',
+    'PIS/NIT': c.pis_nit ?? '', 'Número do PIS/PASEP': c.pis_nit ?? '',
+    'CTPS Nº': c.ctps_numero ?? '', 'Número da CTPS': c.ctps_numero ?? '',
+    'Série CTPS': c.ctps_serie ?? '', 'Série da CTPS': c.ctps_serie ?? '',
+    'Função': fn, 'FUNÇÃO': fn, 'NOME DA FUNÇÃO': fn, 'Profissão': fn, 'Profissão/Função': fn,
+    'Obra': ob, 'LOCAL DA PRESTAÇÃO DOS SERVIÇOS': ob,
+    'Data Admissão': fmtDate(c.data_admissao), 'Data de Início': fmtDate(c.data_admissao),
+    'Salário': salFmt, 'valor numérico': salFmt,
+    'Endereço': `${c.endereco ?? ''}, ${c.cidade ?? ''} - ${c.estado ?? ''}, CEP ${c.cep ?? ''}`,
+    'Endereço Completo do Empregado': `${c.endereco ?? ''}, ${c.cidade ?? ''} - ${c.estado ?? ''}`,
     'Endereço Completo do Empregado, não esquecer de colocar número, quadra, lote e CEP': `${c.endereco ?? ''}, ${c.cidade ?? ''} - ${c.estado ?? ''}, CEP ${c.cep ?? ''}`,
-    'Endereço Completo do Empregado':      `${c.endereco ?? ''}, ${c.cidade ?? ''} - ${c.estado ?? ''}`,
-    'Data de Início':                      fmtDate(c.data_admissao),
-    'LOCAL DA PRESTAÇÃO DOS SERVIÇOS':     ob,
-    'Data do Exame Admissional':           fmtDate(c.data_admissao),
-    'DATA DO EXAME ADMISSIONAL':           fmtDate(c.data_admissao),
-    // ── Salário ───────────────────────────────────────────────────
-    'valor numérico':                      salFmt,
-    'valor por extenso':                   salExt,
-    // ── Empresa ───────────────────────────────────────────────────
-    'Nome Completo ou Razão Social do Empregador': emp.nome,
-    'Razão Social da Empresa':             emp.razaoSocial || emp.nome,
-    'Número do CNPJ':                      emp.cnpj,
-    'Endereço Completo do Empregador':     emp.endereco,
-    'NOME FANTASIA DA EMPRESA':            emp.nome,
-    // ── Data ──────────────────────────────────────────────────────
-    'DIA':   dia,
-    'MÊS':   mes,
-    'ANO':   ano,
-    'CIDADE': emp.cidade || 'São Paulo',
+    'Cidade': c.cidade ?? '', 'Estado Civil': civil[c.estado_civil ?? ''] ?? '',
+    'Nacionalidade': genero[c.genero ?? ''] ?? 'brasileiro(a)',
+    // Empresa
+    'Nome Empresa': emp.nome, 'NOME FANTASIA DA EMPRESA': emp.nome,
+    'Nome Completo ou Razão Social do Empregador': emp.razaoSocial || emp.nome,
+    'Razão Social da Empresa': emp.razaoSocial || emp.nome,
+    'CNPJ': emp.cnpj, 'Número do CNPJ': emp.cnpj,
+    'Endereço Empresa': emp.endereco, 'Endereço Completo do Empregador': emp.endereco,
+    // Data
+    'Dia': dia, 'DIA': dia, 'Mês': mes, 'MÊS': mes, 'Ano': ano, 'ANO': ano,
+    'CIDADE': emp.cidade || c.cidade || 'São Paulo',
     'cidade/estado/raio km': emp.cidade,
     'região metropolitana de CIDADE DA PRESTAÇÃO DE SERVIÇOS': emp.cidade,
   }
 }
 
 function aplicarVariaveis(conteudo: string, varMap: Record<string, string>): string {
-  let result = conteudo
-  // Substitui {{VARIAVEL}} pelo valor mapeado (case-insensitive fuzzy)
-  result = result.replace(/\{\{([^}]+)\}\}/g, (_, chave) => {
-    // Busca exata primeiro
-    if (varMap[chave] !== undefined) return varMap[chave] || `<span style="background:#fef9c3;border-bottom:2px solid #ca8a04;padding:0 3px">{{${chave}}}</span>`
-    // Busca parcial (chave contém ou está contida)
+  return conteudo.replace(/\{\{([^}]+)\}\}/g, (_, chave) => {
+    if (varMap[chave] !== undefined)
+      return varMap[chave] || `<span style="background:#fef9c3;border-bottom:2px solid #ca8a04;padding:0 3px;border-radius:3px">{{${chave}}}</span>`
     const k = chave.toLowerCase()
     for (const [key, val] of Object.entries(varMap)) {
-      if (key.toLowerCase().includes(k) || k.includes(key.toLowerCase())) {
-        return val || `<span style="background:#fef9c3;border-bottom:2px solid #ca8a04;padding:0 3px">{{${chave}}}</span>`
-      }
+      if (key.toLowerCase().includes(k) || k.includes(key.toLowerCase()))
+        return val || `<span style="background:#fef9c3;border-bottom:2px solid #ca8a04;padding:0 3px;border-radius:3px">{{${chave}}}</span>`
     }
-    // Não mapeado — destaca em amarelo para preenchimento manual
     return `<span style="background:#fef9c3;border-bottom:2px solid #ca8a04;padding:0 3px;border-radius:3px">{{${chave}}}</span>`
   })
-  return result
 }
 
 function markdownToHtml(md: string): string {
@@ -129,53 +121,89 @@ function markdownToHtml(md: string): string {
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g,   '<em>$1</em>')
     .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #e2e8f0;margin:16px 0"/>')
-    .replace(/^☐\s*/gm, '<span style="display:inline-block;width:14px;height:14px;border:1.5px solid #64748b;border-radius:2px;margin-right:6px;vertical-align:middle"></span>')
-    .replace(/^\|\s*(.+?)\s*\|\s*(.+?)\s*\|$/gm, '<tr><td style="padding:5px 10px;border:1px solid #e2e8f0">$1</td><td style="padding:5px 10px;border:1px solid #e2e8f0">$2</td></tr>')
-    .replace(/(<tr>.*<\/tr>\s*)+/gs, m => `<table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:12px">${m}</table>`)
     .replace(/\n\n/g, '</p><p style="margin:8px 0">')
-    .replace(/^(.)/gm, (line) => line.startsWith('<') ? line : line)
 }
 
-// ─── componente principal ─────────────────────────────────────────────────────
+// ─── Variáveis fixas para o painel lateral ───────────────────────────────────
+const VARS_COLABORADOR = [
+  { label: 'Nome Completo', value: 'Nome Completo' },
+  { label: 'CPF', value: 'CPF' },
+  { label: 'RG', value: 'RG' },
+  { label: 'PIS/NIT', value: 'PIS/NIT' },
+  { label: 'CTPS Nº', value: 'CTPS Nº' },
+  { label: 'Série CTPS', value: 'Série CTPS' },
+  { label: 'Função', value: 'Função' },
+  { label: 'Obra', value: 'Obra' },
+  { label: 'Data Admissão', value: 'Data Admissão' },
+  { label: 'Salário', value: 'Salário' },
+  { label: 'Endereço', value: 'Endereço' },
+  { label: 'Cidade', value: 'Cidade' },
+  { label: 'Estado Civil', value: 'Estado Civil' },
+  { label: 'Nacionalidade', value: 'Nacionalidade' },
+]
+const VARS_EMPRESA = [
+  { label: 'Nome Empresa', value: 'Nome Empresa' },
+  { label: 'CNPJ', value: 'CNPJ' },
+  { label: 'Endereço Empresa', value: 'Endereço Empresa' },
+]
+const VARS_DATA = [
+  { label: 'Dia', value: 'Dia' },
+  { label: 'Mês', value: 'Mês' },
+  { label: 'Ano', value: 'Ano' },
+  { label: 'Cidade', value: 'CIDADE' },
+]
+
+// ─── Componente principal ─────────────────────────────────────────────────────
 export default function Contratos() {
+  const editorRef = useRef<HTMLDivElement>(null)
+
   // listas
-  const [modelos, setModelos]           = useState<Modelo[]>([])
-  const [colaboradores, setColabs]      = useState<ColaboradorRow[]>([])
-  const [loading, setLoading]           = useState(true)
+  const [modelos, setModelos]         = useState<Modelo[]>([])
+  const [colaboradores, setColabs]    = useState<ColaboradorRow[]>([])
+  const [funcoes, setFuncoes]         = useState<FuncaoRow[]>([])
+  const [loading, setLoading]         = useState(true)
 
   // filtros / seleção
-  const [busca, setBusca]               = useState('')
-  const [catFiltro, setCatFiltro]       = useState('todos')
-  const [modeloSel, setModeloSel]       = useState<Modelo | null>(null)
-  const [colabSel, setColabSel]         = useState<ColaboradorRow | null>(null)
-  const [buscaColab, setBuscaColab]     = useState('')
+  const [busca, setBusca]             = useState('')
+  const [catFiltro, setCatFiltro]     = useState('todos')
+  const [modeloSel, setModeloSel]     = useState<Modelo | null>(null)
+  const [colabSel, setColabSel]       = useState<ColaboradorRow | null>(null)
+  const [buscaColab, setBuscaColab]   = useState('')
 
   // empresa
-  const [empData, setEmpData]           = useState({ nome: '', cnpj: '', endereco: '', cidade: '', razaoSocial: '' })
+  const [empData, setEmpData]         = useState<EmpresaData>({ nome: '', razaoSocial: '', cnpj: '', endereco: '', cidade: '', cep: '', telefone: '', email: '', logoUrl: '' })
 
   // editor de modelo
-  const [modalEditor, setModalEditor]   = useState(false)
-  const [editModelo, setEditModelo]     = useState<Partial<Modelo> | null>(null)
-  const [saving, setSaving]             = useState(false)
+  const [modalEditor, setModalEditor] = useState(false)
+  const [editModelo, setEditModelo]   = useState<Partial<Modelo> | null>(null)
+  const [saving, setSaving]           = useState(false)
+  const [editorTab, setEditorTab]     = useState<'variaveis' | 'funcoes'>('variaveis')
+  const [funcaoSel, setFuncaoSel]     = useState('')
 
-  // preview / confirmação exclusão
-  const [showPreview, setShowPreview]   = useState(false)
-  const [confirmDel, setConfirmDel]     = useState<Modelo | null>(null)
+  // aba banco de funções
+  const [abaAtiva, setAbaAtiva]       = useState<'contratos' | 'funcoes'>('contratos')
+  const [descricaoEdit, setDescricaoEdit] = useState<Record<string, string>>({})
+  const [savingFunc, setSavingFunc]   = useState<string | null>(null)
+
+  // confirmação exclusão
+  const [confirmDel, setConfirmDel]   = useState<Modelo | null>(null)
 
   // ── fetch ──────────────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    const [modRes, colRes] = await Promise.all([
+    const [modRes, colRes, fnRes] = await Promise.all([
       supabase.from('contratos_modelos').select('*').eq('ativo', true).order('ordem'),
       supabase.from('colaboradores')
         .select('id,nome,chapa,cpf,rg,pis_nit,ctps_numero,ctps_serie,genero,estado_civil,funcao_id,obra_id,salario,tipo_contrato,data_admissao,endereco,cidade,estado,cep,telefone,email,funcoes(nome,sigla),obras(nome,codigo)')
         .eq('status', 'ativo').order('nome'),
+      supabase.from('funcoes').select('id,nome,sigla,descricao,cbo').eq('ativo', true).order('nome'),
     ])
     if (modRes.data) setModelos(modRes.data as Modelo[])
     if (colRes.data) setColabs(colRes.data as ColaboradorRow[])
+    if (fnRes.data)  setFuncoes(fnRes.data as FuncaoRow[])
     try {
       const emp = await fetchEmpresaData()
-      setEmpData({ nome: emp.nome, cnpj: emp.cnpj, endereco: emp.endereco, cidade: emp.cidade, razaoSocial: emp.razaoSocial })
+      setEmpData(emp)
     } catch { /* silencioso */ }
     setLoading(false)
   }, [])
@@ -186,8 +214,7 @@ export default function Contratos() {
   const modelosFiltrados = modelos.filter(m => {
     const matchCat = catFiltro === 'todos' || m.categoria === catFiltro
     const q = busca.toLowerCase()
-    const matchQ = !q || m.titulo.toLowerCase().includes(q) || (m.descricao ?? '').toLowerCase().includes(q)
-    return matchCat && matchQ
+    return matchCat && (!q || m.titulo.toLowerCase().includes(q) || (m.descricao ?? '').toLowerCase().includes(q))
   })
 
   const colabsFiltrados = colaboradores.filter(c => {
@@ -195,24 +222,74 @@ export default function Contratos() {
     return !q || c.nome.toLowerCase().includes(q) || (c.chapa ?? '').toLowerCase().includes(q)
   })
 
+  // ── toolbar WYSIWYG ────────────────────────────────────────────────────────
+  function exec(cmd: string, value?: string) {
+    document.execCommand(cmd, false, value ?? undefined)
+    editorRef.current?.focus()
+  }
+
+  function inserirVariavel(texto: string) {
+    editorRef.current?.focus()
+    document.execCommand('insertText', false, `{{${texto}}}`)
+  }
+
+  function inserirFuncao() {
+    if (!funcaoSel) return
+    const fn = funcoes.find(f => f.id === funcaoSel)
+    if (!fn) return
+    editorRef.current?.focus()
+    const bloco = `\n**${fn.nome}**${fn.descricao ? '\n' + fn.descricao : ''}\n`
+    document.execCommand('insertText', false, bloco)
+    setFuncaoSel('')
+  }
+
+  function getConteudo() {
+    return editorRef.current?.innerHTML ?? ''
+  }
+
+  // ── abrir editor ───────────────────────────────────────────────────────────
+  function abrirEditor(modelo?: Modelo) {
+    const m: Partial<Modelo> = modelo
+      ? { ...modelo }
+      : { titulo: '', categoria: 'outro', conteudo: '', descricao: '' }
+    setEditModelo(m)
+    setModalEditor(true)
+    // Carrega conteúdo no editor depois do render
+    setTimeout(() => {
+      if (!editorRef.current) return
+      let html = m.conteudo ?? ''
+      // Backward compat: Markdown → HTML
+      if (html.trimStart().startsWith('#') || (!html.includes('<') && html.includes('\n'))) {
+        html = markdownToHtml(html)
+      }
+      editorRef.current.innerHTML = html
+    }, 50)
+  }
+
   // ── salvar modelo ──────────────────────────────────────────────────────────
   async function salvarModelo() {
     if (!editModelo?.titulo?.trim()) { toast.error('Título obrigatório'); return }
-    if (!editModelo?.conteudo?.trim()) { toast.error('Conteúdo obrigatório'); return }
+    const html = getConteudo().trim()
+    if (!html) { toast.error('Conteúdo obrigatório'); return }
     setSaving(true)
     const payload = {
-      titulo:    editModelo.titulo.trim(),
-      categoria: editModelo.categoria ?? 'outro',
-      conteudo:  editModelo.conteudo.trim(),
-      descricao: editModelo.descricao ?? null,
-      ativo:     true,
+      titulo:     editModelo.titulo.trim(),
+      categoria:  editModelo.categoria ?? 'outro',
+      conteudo:   html,
+      descricao:  editModelo.descricao ?? null,
+      ativo:      true,
       updated_at: new Date().toISOString(),
     }
     const { error } = editModelo.id
       ? await supabase.from('contratos_modelos').update(payload).eq('id', editModelo.id)
       : await supabase.from('contratos_modelos').insert({ ...payload, ordem: modelos.length + 1 })
     if (error) toast.error('Erro ao salvar: ' + error.message)
-    else { toast.success(editModelo.id ? 'Modelo atualizado!' : 'Modelo criado!'); setModalEditor(false); fetchAll() }
+    else {
+      toast.success(editModelo.id ? 'Modelo atualizado!' : 'Modelo criado!')
+      setModalEditor(false)
+      setEditModelo(null)
+      fetchAll()
+    }
     setSaving(false)
   }
 
@@ -220,19 +297,75 @@ export default function Contratos() {
   async function excluirModelo(m: Modelo) {
     const { error } = await supabase.from('contratos_modelos').update({ ativo: false }).eq('id', m.id)
     if (error) toast.error('Erro ao excluir')
-    else { toast.success('Modelo removido'); setConfirmDel(null); if (modeloSel?.id === m.id) setModeloSel(null); fetchAll() }
+    else {
+      toast.success('Modelo removido')
+      setConfirmDel(null)
+      if (modeloSel?.id === m.id) setModeloSel(null)
+      fetchAll()
+    }
   }
 
-  // ── gerar PDF ──────────────────────────────────────────────────────────────
+  // ── salvar descrição de função ─────────────────────────────────────────────
+  async function salvarDescricaoFuncao(id: string) {
+    setSavingFunc(id)
+    const { error } = await supabase.from('funcoes').update({ descricao: descricaoEdit[id] ?? '' }).eq('id', id)
+    if (error) toast.error('Erro ao salvar')
+    else {
+      toast.success('Descrição salva!')
+      setFuncoes(prev => prev.map(f => f.id === id ? { ...f, descricao: descricaoEdit[id] ?? f.descricao } : f))
+    }
+    setSavingFunc(null)
+  }
+
+  // ── preview em nova janela ─────────────────────────────────────────────────
+  function abrirPreview() {
+    if (!modeloSel) return
+    const varMap = buildVarMap(colabSel, empData)
+    let htmlConteudo = modeloSel.conteudo
+    if (htmlConteudo.trimStart().startsWith('#') || (!htmlConteudo.includes('<') && htmlConteudo.includes('\n'))) {
+      htmlConteudo = markdownToHtml(htmlConteudo)
+    }
+    htmlConteudo = aplicarVariaveis(htmlConteudo, varMap)
+    const cat = CATEGORIAS[modeloSel.categoria] ?? CATEGORIAS.outro
+
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
+<title>Preview — ${modeloSel.titulo}</title>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:#f0f4f8; font-family:'Times New Roman',Georgia,serif; }
+.page { max-width:700px; margin:30px auto; background:#fff; border-radius:8px; padding:40px 44px; box-shadow:0 2px 20px rgba(0,0,0,.12); font-size:12px; line-height:1.8; color:#1a1a1a; }
+.badge { display:inline-block; background:${cat.bg}; color:${cat.cor}; border-radius:20px; padding:2px 10px; font-size:10px; font-weight:700; margin-bottom:12px; }
+h1 { font-size:16px; font-weight:800; text-align:center; margin:0 0 18px; text-transform:uppercase; letter-spacing:.04em; }
+h2 { font-size:13px; font-weight:700; margin:18px 0 8px; text-transform:uppercase; border-bottom:1px solid #e2e8f0; padding-bottom:4px; }
+h3 { font-size:12px; font-weight:700; margin:14px 0 5px; }
+p  { margin:8px 0; text-align:justify; }
+table { width:100%; border-collapse:collapse; margin:10px 0; font-size:11px; }
+table td,table th { border:1px solid #d1d5db; padding:5px 8px; }
+table th { background:#f8fafc; font-weight:700; }
+</style></head><body>
+<div class="page">
+  <div class="badge">${cat.emoji} ${cat.label}</div>
+  <div>${htmlConteudo}</div>
+</div>
+</body></html>`
+
+    const win = window.open('', '_blank', 'width=900,height=750')
+    if (win) { win.document.write(html); win.document.close() }
+    else toast.error('Bloqueio de pop-up detectado — libere pop-ups para este site.')
+  }
+
+  // ── gerar PDF com papel timbrado ───────────────────────────────────────────
   async function gerarPDF() {
     if (!modeloSel) return
     const varMap = buildVarMap(colabSel, empData)
-    const htmlConteudo = aplicarVariaveis(markdownToHtml(modeloSel.conteudo), varMap)
-    const cat  = CATEGORIAS[modeloSel.categoria] ?? CATEGORIAS.outro
-    const nomeColab = colabSel?.nome ?? 'Documento'
+    let htmlConteudo = modeloSel.conteudo
+    if (htmlConteudo.trimStart().startsWith('#') || (!htmlConteudo.includes('<') && htmlConteudo.includes('\n'))) {
+      htmlConteudo = markdownToHtml(htmlConteudo)
+    }
+    htmlConteudo = aplicarVariaveis(htmlConteudo, varMap)
+    const cat       = CATEGORIAS[modeloSel.categoria] ?? CATEGORIAS.outro
     const dataGer   = new Date().toLocaleDateString('pt-BR')
 
-    // Salva no histórico se tiver colaborador
     if (colabSel) {
       await supabase.from('contratos_gerados').insert({
         modelo_id:      modeloSel.id,
@@ -242,6 +375,11 @@ export default function Contratos() {
       })
     }
 
+    let logoBlock = `<div class="logo-fallback">🏗️</div>`
+    if (empData.logoUrl) {
+      logoBlock = `<img src="${empData.logoUrl}" class="logo" alt="Logo" onerror="this.style.display='none'" />`
+    }
+
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -249,66 +387,110 @@ export default function Contratos() {
 <title>${modeloSel.titulo}${colabSel ? ' — ' + colabSel.nome : ''}</title>
 <style>
   * { box-sizing:border-box; margin:0; padding:0; }
-  @page { size:A4; margin:20mm 18mm; }
-  body { font-family:'Times New Roman',Georgia,serif; font-size:12px; color:#1a1a1a; background:#fff; line-height:1.7; }
+  @page { size:A4; margin:0; }
+  body { font-family:'Times New Roman',Georgia,serif; font-size:12px; color:#1a1a1a; background:#fff; }
   @media print { .no-print { display:none!important; } }
-  .page { max-width:700px; margin:0 auto; padding:20px 0; }
-  .doc-header { border-bottom:2px solid #1e3a5f; padding-bottom:14px; margin-bottom:22px; display:flex; justify-content:space-between; align-items:flex-end; }
-  .doc-header-left .emp { font-size:15px; font-weight:800; color:#1e3a5f; letter-spacing:-.01em; }
-  .doc-header-left .sub { font-size:10px; color:#64748b; margin-top:2px; }
-  .doc-header-right { text-align:right; font-size:10px; color:#64748b; }
-  .badge { display:inline-block; background:${cat.bg}; color:${cat.cor}; border-radius:20px; padding:2px 10px; font-size:10px; font-weight:700; margin-bottom:6px; font-family:'Segoe UI',Arial,sans-serif; }
-  .content h1 { font-size:16px; font-weight:800; text-align:center; margin:0 0 18px; text-transform:uppercase; letter-spacing:.04em; }
-  .content h2 { font-size:13px; font-weight:700; margin:18px 0 8px; text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid #e2e8f0; padding-bottom:4px; }
-  .content h3 { font-size:12px; font-weight:700; margin:14px 0 5px; }
-  .content p  { margin:8px 0; text-align:justify; }
-  .content table { width:100%; border-collapse:collapse; margin:10px 0; font-size:11px; }
-  .content table td, .content table th { border:1px solid #d1d5db; padding:5px 8px; }
-  .content table th { background:#f8fafc; font-weight:700; }
-  .sign-block { margin-top:40px; display:flex; gap:40px; }
-  .sign-line { flex:1; border-top:1px solid #0f172a; padding-top:6px; text-align:center; font-size:11px; }
-  .no-print { position:fixed; bottom:16px; right:16px; background:#1d4ed8; color:#fff; border:none; border-radius:9px; padding:10px 22px; font-size:13px; font-weight:700; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,.25); z-index:9999; }
+
+  /* ── Cabeçalho timbrado ── */
+  .header-timbrado { background:#1e3a5f; color:#fff; padding:16px 28px; display:flex; align-items:center; gap:16px; }
+  .logo { height:60px; max-width:180px; object-fit:contain; filter:brightness(0) invert(1); border-radius:4px; }
+  .logo-fallback { width:52px; height:52px; border-radius:10px; background:rgba(255,255,255,.15); display:flex; align-items:center; justify-content:center; font-size:26px; }
+  .empresa-nome { font-size:18px; font-weight:900; letter-spacing:0.05em; }
+  .empresa-detalhes { font-size:11px; color:#93c5fd; margin-top:4px; }
+
+  /* ── Linha dupla ── */
+  .linha-dupla { border-top:3px solid #1e3a5f; border-bottom:1px solid #93c5fd; margin-bottom:0; }
+
+  /* ── Área de conteúdo ── */
+  .content-area { padding:28px 36px 36px; font-family:'Times New Roman',serif; font-size:12px; line-height:1.8; position:relative; }
+
+  /* ── Marca d'água ── */
+  .watermark { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) rotate(-45deg); font-size:72px; color:rgba(30,58,95,.04); font-weight:900; pointer-events:none; z-index:0; white-space:nowrap; font-family:Arial,sans-serif; letter-spacing:.1em; }
+
+  /* ── Conteúdo do doc ── */
+  h1 { font-size:16px; font-weight:800; text-align:center; margin:0 0 18px; text-transform:uppercase; letter-spacing:.04em; }
+  h2 { font-size:13px; font-weight:700; margin:18px 0 8px; text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid #e2e8f0; padding-bottom:4px; }
+  h3 { font-size:12px; font-weight:700; margin:14px 0 5px; }
+  p  { margin:8px 0; text-align:justify; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:11px; }
+  table td,table th { border:1px solid #d1d5db; padding:5px 8px; }
+  table th { background:#f8fafc; font-weight:700; }
+
+  /* ── Badge categoria ── */
+  .badge { display:inline-block; background:${cat.bg}; color:${cat.cor}; border-radius:20px; padding:2px 10px; font-size:10px; font-weight:700; margin-bottom:12px; font-family:Arial,sans-serif; }
+
+  /* ── Info doc ── */
+  .doc-meta { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:18px; }
+  .doc-meta-right { font-size:10px; color:#64748b; text-align:right; font-family:Arial,sans-serif; }
+
+  /* ── Assinaturas ── */
+  .sign-block { margin-top:48px; display:flex; gap:40px; }
+  .sign-line { flex:1; border-top:1px solid #0f172a; padding-top:8px; text-align:center; font-size:11px; }
+
+  /* ── Botão imprimir ── */
+  .no-print { position:fixed; bottom:20px; right:20px; background:#1d4ed8; color:#fff; border:none; border-radius:9px; padding:11px 22px; font-size:13px; font-weight:700; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,.25); z-index:9999; font-family:Arial,sans-serif; }
   .no-print:hover { background:#1e40af; }
 </style>
 </head>
 <body>
-<div class="page">
-  <div class="doc-header">
-    <div class="doc-header-left">
-      <div class="emp">${empData.nome || 'EMPRESA'}</div>
-      <div class="sub">${empData.cnpj ? 'CNPJ: ' + empData.cnpj : ''}${empData.cidade ? ' · ' + empData.cidade : ''}</div>
-    </div>
-    <div class="doc-header-right">
-      <div class="badge">${cat.emoji} ${cat.label}</div><br/>
-      <span>Emitido em ${dataGer}</span>
-      ${colabSel ? `<br/><strong>${colabSel.nome}</strong> · ${colabSel.chapa ?? ''}` : ''}
-    </div>
-  </div>
-  <div class="content">${htmlConteudo}</div>
-  <div class="sign-block">
-    <div class="sign-line">${empData.nome || 'Empresa'}<br/>Representante Legal</div>
-    ${colabSel ? `<div class="sign-line">${colabSel.nome}<br/>${(colabSel.funcoes as any)?.nome ?? 'Colaborador(a)'}</div>` : '<div class="sign-line">Colaborador(a)<br/>Assinatura</div>'}
+<div class="watermark">${empData.nome || 'EMPRESA'}</div>
+
+<!-- Cabeçalho timbrado -->
+<div class="header-timbrado">
+  ${logoBlock}
+  <div>
+    <div class="empresa-nome">${empData.nome || 'EMPRESA'}</div>
+    <div class="empresa-detalhes">${empData.cnpj ? 'CNPJ: ' + empData.cnpj : ''}${empData.cnpj && empData.endereco ? ' | ' : ''}${empData.endereco}${empData.cidade ? ' | ' + empData.cidade : ''}</div>
   </div>
 </div>
+<div class="linha-dupla"></div>
+
+<!-- Conteúdo -->
+<div class="content-area">
+  <div class="doc-meta">
+    <span class="badge">${cat.emoji} ${cat.label}</span>
+    <div class="doc-meta-right">
+      Emitido em ${dataGer}${colabSel ? '<br/><strong>' + colabSel.nome + '</strong>' + (colabSel.chapa ? ' · ' + colabSel.chapa : '') : ''}
+    </div>
+  </div>
+
+  ${htmlConteudo}
+
+  <div class="sign-block">
+    <div class="sign-line">${empData.nome || 'Empresa'}<br/>Representante Legal</div>
+    ${colabSel
+      ? `<div class="sign-line">${colabSel.nome}<br/>${(colabSel.funcoes as any)?.nome ?? 'Colaborador(a)'}</div>`
+      : '<div class="sign-line">Colaborador(a)<br/>Assinatura</div>'}
+  </div>
+</div>
+
 <button class="no-print" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
-<script>window.onload=()=>setTimeout(()=>window.print(),350)<\/script>
+<script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
 </body>
 </html>`
 
-    const win = window.open('', '_blank', 'width=920,height=740')
+    const win = window.open('', '_blank', 'width=940,height=780')
     if (win) { win.document.write(html); win.document.close() }
-    else toast.error('Bloqueio de pop-up detectado.')
+    else toast.error('Bloqueio de pop-up detectado — libere pop-ups para este site.')
   }
 
-  // ── preview inline ─────────────────────────────────────────────────────────
-  const previewHtml = modeloSel ? aplicarVariaveis(markdownToHtml(modeloSel.conteudo), buildVarMap(colabSel, empData)) : ''
+  // ── preview inline (col 3) ────────────────────────────────────────────────
+  const previewHtml = modeloSel ? (() => {
+    let html = modeloSel.conteudo
+    if (html.trimStart().startsWith('#') || (!html.includes('<') && html.includes('\n'))) {
+      html = markdownToHtml(html)
+    }
+    return aplicarVariaveis(html, buildVarMap(colabSel, empData))
+  })() : ''
 
-  // ── render ─────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // ── RENDER ───────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--background)' }}>
 
       {/* ── Topo ── */}
-      <div style={{ padding: '14px 24px 10px', borderBottom: '1px solid var(--border)', background: 'var(--card)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+      <div style={{ padding: '12px 24px 10px', borderBottom: '1px solid var(--border)', background: 'var(--card)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
         <div>
           <h1 style={{ fontSize: 18, fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
             📜 Contratos e Documentos
@@ -317,255 +499,498 @@ export default function Contratos() {
             Selecione o modelo, escolha o colaborador e gere o documento preenchido automaticamente
           </p>
         </div>
-        <button
-          onClick={() => { setEditModelo({ titulo: '', categoria: 'outro', conteudo: '' }); setModalEditor(true) }}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, border: '2px solid #059669', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>
-          <Plus size={15} /> Novo Modelo
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* Abas */}
+          <div style={{ display: 'flex', gap: 2, background: '#f1f5f9', borderRadius: 8, padding: 3 }}>
+            {(['contratos', 'funcoes'] as const).map(aba => (
+              <button key={aba} onClick={() => setAbaAtiva(aba)}
+                style={{ padding: '5px 14px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  background: abaAtiva === aba ? '#fff' : 'transparent',
+                  color: abaAtiva === aba ? '#1e3a5f' : '#64748b',
+                  boxShadow: abaAtiva === aba ? '0 1px 4px rgba(0,0,0,.1)' : 'none' }}>
+                {aba === 'contratos' ? '📜 Contratos' : '📋 Funções'}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => abrirEditor()}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, border: '2px solid #059669', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>
+            <Plus size={15} /> Novo Modelo
+          </button>
+        </div>
       </div>
 
-      {/* ── Layout 3 colunas ── */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-
-        {/* ── COL 1: Lista de modelos ── */}
-        <div style={{ width: 280, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#f8fafc' }}>
-
-          <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {/* Busca */}
-            <div style={{ position: 'relative' }}>
-              <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-              <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar modelo…"
-                style={{ width: '100%', height: 32, paddingLeft: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 12, color: 'var(--foreground)', outline: 'none' }} />
+      {/* ══════════════════════════════════════════════════════ */}
+      {/* ── ABA: BANCO DE FUNÇÕES ── */}
+      {/* ══════════════════════════════════════════════════════ */}
+      {abaAtiva === 'funcoes' && (
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
+          <div style={{ maxWidth: 900, margin: '0 auto' }}>
+            <div style={{ marginBottom: 20 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 800, margin: '0 0 4px' }}>📋 Banco de Funções</h2>
+              <p style={{ fontSize: 12, color: '#64748b' }}>
+                Edite a descrição de cada função para que ela apareça como bloco inserível no editor de contratos.
+              </p>
             </div>
-            {/* Filtro categorias */}
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-              {ALL_CATS.map(cat => {
-                const info = CATEGORIAS[cat]
-                const ativo = catFiltro === cat
+            {loading ? (
+              <div style={{ color: '#94a3b8', fontSize: 13 }}>Carregando funções…</div>
+            ) : funcoes.length === 0 ? (
+              <div style={{ color: '#94a3b8', fontSize: 13 }}>Nenhuma função cadastrada.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {funcoes.map(fn => (
+                  <div key={fn.id} style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 18px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                      <div style={{ fontWeight: 800, fontSize: 14 }}>{fn.nome}</div>
+                      {fn.sigla && <span style={{ background: '#e0f2fe', color: '#0369a1', borderRadius: 6, padding: '1px 8px', fontSize: 11, fontWeight: 700 }}>{fn.sigla}</span>}
+                      {fn.cbo && <span style={{ background: '#f1f5f9', color: '#64748b', borderRadius: 6, padding: '1px 8px', fontSize: 11 }}>CBO: {fn.cbo}</span>}
+                    </div>
+                    <textarea
+                      value={descricaoEdit[fn.id] !== undefined ? descricaoEdit[fn.id] : (fn.descricao ?? '')}
+                      onChange={e => setDescricaoEdit(prev => ({ ...prev, [fn.id]: e.target.value }))}
+                      rows={3}
+                      placeholder="Descreva as atividades e atribuições desta função…"
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 12, fontFamily: 'inherit', lineHeight: 1.6, resize: 'vertical', outline: 'none' }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                      <button
+                        onClick={() => salvarDescricaoFuncao(fn.id)}
+                        disabled={savingFunc === fn.id}
+                        style={{ padding: '5px 16px', borderRadius: 7, border: '1.5px solid #059669', background: '#f0fdf4', color: '#15803d', fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: savingFunc === fn.id ? 0.6 : 1 }}>
+                        {savingFunc === fn.id ? 'Salvando…' : '💾 Salvar'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════ */}
+      {/* ── ABA: CONTRATOS — 3 colunas ── */}
+      {/* ══════════════════════════════════════════════════════ */}
+      {abaAtiva === 'contratos' && (
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+
+          {/* ── COL 1: Lista de modelos ── */}
+          <div style={{ width: 280, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#f8fafc' }}>
+            <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ position: 'relative' }}>
+                <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar modelo…"
+                  style={{ width: '100%', height: 32, paddingLeft: 28, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 12, color: 'var(--foreground)', outline: 'none' }} />
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {ALL_CATS.map(cat => {
+                  const info = CATEGORIAS[cat]
+                  const ativo = catFiltro === cat
+                  return (
+                    <button key={cat} onClick={() => setCatFiltro(cat)}
+                      style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: 'pointer', border: `1.5px solid ${ativo ? (info?.cor ?? '#1e3a5f') : 'transparent'}`, background: ativo ? (info?.bg ?? '#e2e8f0') : 'transparent', color: ativo ? (info?.cor ?? '#1e3a5f') : '#64748b' }}>
+                      {cat === 'todos' ? 'Todos' : info?.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <div style={{ fontSize: 10, color: '#94a3b8' }}>{modelosFiltrados.length} modelo(s)</div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              {loading ? (
+                <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Carregando…</div>
+              ) : modelosFiltrados.length === 0 ? (
+                <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Nenhum modelo encontrado</div>
+              ) : modelosFiltrados.map(m => {
+                const cat = CATEGORIAS[m.categoria] ?? CATEGORIAS.outro
+                const sel = modeloSel?.id === m.id
                 return (
-                  <button key={cat} onClick={() => setCatFiltro(cat)}
-                    style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: 'pointer', border: `1.5px solid ${ativo ? (info?.cor ?? '#1e3a5f') : 'transparent'}`, background: ativo ? (info?.bg ?? '#e2e8f0') : 'transparent', color: ativo ? (info?.cor ?? '#1e3a5f') : '#64748b' }}>
-                    {cat === 'todos' ? 'Todos' : info?.label}
-                  </button>
+                  <div key={m.id} onClick={() => setModeloSel(m)}
+                    style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)', background: sel ? 'hsl(var(--primary)/.08)' : 'transparent', borderLeft: `3px solid ${sel ? 'hsl(var(--primary))' : 'transparent'}`, transition: 'background .1s' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6 }}>
+                      <div style={{ minWidth: 0 }}>
+                        {m.numero && <span style={{ fontSize: 9, color: '#94a3b8', fontWeight: 700 }}>#{String(m.numero).padStart(2,'0')} </span>}
+                        <span style={{ display: 'inline-block', background: cat.bg, color: cat.cor, borderRadius: 10, padding: '1px 6px', fontSize: 9, fontWeight: 700, marginBottom: 2 }}>{cat.emoji} {cat.label}</span>
+                        <div style={{ fontSize: 12, fontWeight: sel ? 700 : 600, color: sel ? 'hsl(var(--primary))' : 'var(--foreground)', lineHeight: 1.3, marginTop: 1 }}>{m.titulo}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                        <button onClick={e => { e.stopPropagation(); abrirEditor(m) }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 2 }} title="Editar">
+                          <Pencil size={11} />
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); setConfirmDel(m) }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 2 }} title="Excluir">
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )
               })}
             </div>
-            <div style={{ fontSize: 10, color: '#94a3b8' }}>{modelosFiltrados.length} modelo(s)</div>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            {loading ? (
-              <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Carregando…</div>
-            ) : modelosFiltrados.length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Nenhum modelo encontrado</div>
-            ) : modelosFiltrados.map(m => {
-              const cat  = CATEGORIAS[m.categoria] ?? CATEGORIAS.outro
-              const sel  = modeloSel?.id === m.id
-              return (
-                <div key={m.id}
-                  onClick={() => { setModeloSel(m); setShowPreview(false) }}
-                  style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)', background: sel ? 'hsl(var(--primary)/.08)' : 'transparent', borderLeft: `3px solid ${sel ? 'hsl(var(--primary))' : 'transparent'}`, transition: 'background .1s' }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6 }}>
-                    <div style={{ minWidth: 0 }}>
-                      {m.numero && <span style={{ fontSize: 9, color: '#94a3b8', fontWeight: 700 }}>#{String(m.numero).padStart(2,'0')} </span>}
-                      <span style={{ display: 'inline-block', background: cat.bg, color: cat.cor, borderRadius: 10, padding: '1px 6px', fontSize: 9, fontWeight: 700, marginBottom: 2 }}>{cat.emoji} {cat.label}</span>
-                      <div style={{ fontSize: 12, fontWeight: sel ? 700 : 600, color: sel ? 'hsl(var(--primary))' : 'var(--foreground)', lineHeight: 1.3, marginTop: 1 }}>{m.titulo}</div>
+          {/* ── COL 2: Painel central ── */}
+          <div style={{ width: 260, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {!modeloSel ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 10, color: '#94a3b8', padding: 24, textAlign: 'center' }}>
+                <FileText size={40} strokeWidth={1.2} />
+                <div style={{ fontSize: 13 }}>Selecione um modelo na lista ao lado</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', background: 'var(--card)' }}>
+                  {(() => { const cat = CATEGORIAS[modeloSel.categoria] ?? CATEGORIAS.outro; return (
+                    <span style={{ display: 'inline-block', background: cat.bg, color: cat.cor, borderRadius: 10, padding: '2px 8px', fontSize: 10, fontWeight: 700, marginBottom: 4 }}>{cat.emoji} {cat.label}</span>
+                  )})()}
+                  <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3 }}>{modeloSel.titulo}</div>
+                  {modeloSel.descricao && <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>{modeloSel.descricao}</div>}
+                </div>
+
+                <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>👤 Colaborador (opcional)</div>
+                  <div style={{ position: 'relative', marginBottom: 8 }}>
+                    <Search size={12} style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                    <input value={buscaColab} onChange={e => setBuscaColab(e.target.value)} placeholder="Nome ou chapa…"
+                      style={{ width: '100%', height: 30, paddingLeft: 24, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 12, outline: 'none' }} />
+                  </div>
+                  {colabSel && (
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 7, padding: '6px 10px', marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>{colabSel.nome}</div>
+                        <div style={{ fontSize: 10, color: '#64748b' }}>{colabSel.chapa} · {(colabSel.funcoes as any)?.nome ?? '—'}</div>
+                      </div>
+                      <button onClick={() => setColabSel(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={13} /></button>
                     </div>
-                    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-                      <button onClick={e => { e.stopPropagation(); setEditModelo(m); setModalEditor(true) }}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 2 }} title="Editar">
-                        <Pencil size={11} />
-                      </button>
-                      <button onClick={e => { e.stopPropagation(); setConfirmDel(m) }}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 2 }} title="Excluir">
-                        <Trash2 size={11} />
-                      </button>
-                    </div>
+                  )}
+                  <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6 }}>
+                    {colabsFiltrados.slice(0, 50).map(c => (
+                      <div key={c.id} onClick={() => { setColabSel(c); setBuscaColab('') }}
+                        style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', background: colabSel?.id === c.id ? 'hsl(var(--primary)/.08)' : 'transparent', fontSize: 12 }}>
+                        <div style={{ fontWeight: 600 }}>{c.nome}</div>
+                        <div style={{ fontSize: 10, color: '#94a3b8' }}>{c.chapa} · {(c.funcoes as any)?.nome ?? '—'}</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              )
-            })}
-          </div>
-        </div>
 
-        {/* ── COL 2: Painel central — colaborador + ações ── */}
-        <div style={{ width: 260, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-          {!modeloSel ? (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 10, color: '#94a3b8', padding: 24, textAlign: 'center' }}>
-              <FileText size={40} strokeWidth={1.2} />
-              <div style={{ fontSize: 13 }}>Selecione um modelo na lista ao lado</div>
-            </div>
-          ) : (
-            <>
-              {/* Info do modelo */}
-              <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', background: 'var(--card)' }}>
-                {(() => { const cat = CATEGORIAS[modeloSel.categoria] ?? CATEGORIAS.outro; return (
-                  <span style={{ display: 'inline-block', background: cat.bg, color: cat.cor, borderRadius: 10, padding: '2px 8px', fontSize: 10, fontWeight: 700, marginBottom: 4 }}>{cat.emoji} {cat.label}</span>
-                )})()}
-                <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3, color: 'var(--foreground)' }}>{modeloSel.titulo}</div>
-                {modeloSel.descricao && <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>{modeloSel.descricao}</div>}
-              </div>
-
-              {/* Colaborador */}
-              <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>👤 Colaborador (opcional)</div>
-                <div style={{ position: 'relative', marginBottom: 8 }}>
-                  <Search size={12} style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                  <input value={buscaColab} onChange={e => setBuscaColab(e.target.value)} placeholder="Nome ou chapa…"
-                    style={{ width: '100%', height: 30, paddingLeft: 24, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 12, outline: 'none' }} />
-                </div>
-                {colabSel && (
-                  <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 7, padding: '6px 10px', marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>{colabSel.nome}</div>
-                      <div style={{ fontSize: 10, color: '#64748b' }}>{colabSel.chapa} · {(colabSel.funcoes as any)?.nome ?? '—'}</div>
-                    </div>
-                    <button onClick={() => setColabSel(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={13} /></button>
+                {!colabSel && (
+                  <div style={{ margin: '8px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 7, padding: '8px 10px', fontSize: 11, color: '#92400e' }}>
+                    ⚠️ Sem colaborador, os campos <span style={{ background: '#fef9c3', borderBottom: '1px solid #ca8a04', padding: '0 2px' }}>{'{{variáveis}}'}</span> ficarão em destaque.
                   </div>
                 )}
-                <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6 }}>
-                  {colabsFiltrados.slice(0, 50).map(c => (
-                    <div key={c.id} onClick={() => { setColabSel(c); setBuscaColab('') }}
-                      style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', background: colabSel?.id === c.id ? 'hsl(var(--primary)/.08)' : 'transparent', fontSize: 12 }}>
-                      <div style={{ fontWeight: 600 }}>{c.nome}</div>
-                      <div style={{ fontSize: 10, color: '#94a3b8' }}>{c.chapa} · {(c.funcoes as any)?.nome ?? '—'}</div>
-                    </div>
-                  ))}
+
+                <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: 8, marginTop: 'auto' }}>
+                  <button onClick={abrirPreview}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px', borderRadius: 8, border: '1px solid #0369a1', background: '#eff6ff', color: '#0369a1', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                    <Eye size={14} /> Pré-visualizar
+                  </button>
+                  <button onClick={gerarPDF}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px', borderRadius: 8, border: '2px solid #059669', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', fontSize: 13, fontWeight: 800, cursor: 'pointer', boxShadow: '0 2px 8px rgba(5,150,105,.3)' }}>
+                    <Printer size={14} /> Gerar PDF com Timbre
+                  </button>
                 </div>
+              </>
+            )}
+          </div>
+
+          {/* ── COL 3: Preview do documento ── */}
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {!modeloSel ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#94a3b8' }}>
+                <FileText size={56} strokeWidth={1} />
+                <div style={{ fontSize: 14, textAlign: 'center' }}>Selecione um modelo para ver o preview</div>
               </div>
-
-              {/* Aviso de variáveis não preenchidas */}
-              {!colabSel && (
-                <div style={{ margin: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 7, padding: '8px 10px', fontSize: 11, color: '#92400e' }}>
-                  ⚠️ Sem colaborador selecionado, os campos <span style={{ background: '#fef9c3', borderBottom: '1px solid #ca8a04', padding: '0 2px' }}>{'{{variáveis}}'}</span> ficarão em destaque para preenchimento manual.
-                </div>
-              )}
-
-              {/* Ações */}
-              <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: 8, marginTop: 'auto' }}>
-                <button onClick={() => setShowPreview(true)}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px', borderRadius: 8, border: '1px solid #0369a1', background: '#eff6ff', color: '#0369a1', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-                  <Eye size={14} /> Pré-visualizar
-                </button>
-                <button onClick={gerarPDF}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px', borderRadius: 8, border: '2px solid #059669', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', fontSize: 13, fontWeight: 800, cursor: 'pointer', boxShadow: '0 2px 8px rgba(5,150,105,.3)' }}>
-                  <Printer size={14} /> Gerar e Imprimir PDF
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* ── COL 3: Preview do documento ── */}
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {!modeloSel ? (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#94a3b8' }}>
-              <FileText size={56} strokeWidth={1} />
-              <div style={{ fontSize: 14, textAlign: 'center' }}>Selecione um modelo para ver o preview</div>
-            </div>
-          ) : (
-            <>
-              <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>
-                  📄 Preview — {modeloSel.titulo}{colabSel ? ` · ${colabSel.nome}` : ' · (sem colaborador)'}
-                </span>
-                <div style={{ display: 'flex', gap: 6 }}>
+            ) : (
+              <>
+                <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>
+                    📄 Preview — {modeloSel.titulo}{colabSel ? ` · ${colabSel.nome}` : ' · (sem colaborador)'}
+                  </span>
                   <span style={{ fontSize: 11, color: '#94a3b8', padding: '2px 8px', background: '#f1f5f9', borderRadius: 4 }}>
-                    Os campos em <span style={{ background: '#fef9c3', borderBottom: '1px solid #ca8a04', padding: '0 2px' }}>amarelo</span> precisam de preenchimento manual
+                    Campos <span style={{ background: '#fef9c3', borderBottom: '1px solid #ca8a04', padding: '0 2px' }}>amarelos</span> = preenchimento manual
                   </span>
                 </div>
-              </div>
-              <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px', background: '#f8fafc' }}>
-                <div style={{ background: '#fff', maxWidth: 680, margin: '0 auto', borderRadius: 8, padding: '32px 36px', boxShadow: '0 1px 8px rgba(0,0,0,.08)', fontFamily: "'Times New Roman',Georgia,serif", fontSize: 12, lineHeight: 1.8, color: '#1a1a1a' }}
-                  dangerouslySetInnerHTML={{ __html: previewHtml }} />
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* ══ MODAL: Editor de modelo ══ */}
-      {modalEditor && editModelo !== null && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-          onClick={e => { if (e.target === e.currentTarget) setModalEditor(false) }}>
-          <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 820, maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 40px rgba(0,0,0,.35)' }}>
-
-            {/* Header modal */}
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-              <div style={{ fontSize: 16, fontWeight: 800 }}>{editModelo.id ? '✏️ Editar Modelo' : '➕ Novo Modelo'}</div>
-              <button onClick={() => setModalEditor(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#64748b' }}>✕</button>
-            </div>
-
-            <div style={{ overflow: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Título *</label>
-                  <Input value={editModelo.titulo ?? ''} onChange={e => setEditModelo(p => ({ ...p, titulo: e.target.value }))} placeholder="Ex.: Contrato de Trabalho CLT" />
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Categoria *</label>
-                  <select value={editModelo.categoria ?? 'outro'} onChange={e => setEditModelo(p => ({ ...p, categoria: e.target.value }))}
-                    style={{ width: '100%', height: 36, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 13, paddingLeft: 8 }}>
-                    {Object.entries(CATEGORIAS).map(([key, v]) => (
-                      <option key={key} value={key}>{v.emoji} {v.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Descrição (opcional)</label>
-                <Input value={editModelo.descricao ?? ''} onChange={e => setEditModelo(p => ({ ...p, descricao: e.target.value }))} placeholder="Breve descrição do documento…" />
-              </div>
-
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Conteúdo * (Markdown com {'{{variáveis}}'})</label>
-                  <div style={{ fontSize: 10, color: '#94a3b8', background: '#f1f5f9', padding: '2px 8px', borderRadius: 4, fontFamily: 'monospace' }}>
-                    Ex: {'{{Nome Completo do Empregado}}'}, {'{{Número do CPF}}'}, {'{{FUNÇÃO}}'}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px', background: '#f0f4f8' }}>
+                  {/* Papel A4 simulado */}
+                  <div style={{ background: '#fff', maxWidth: 680, margin: '0 auto', borderRadius: 6, boxShadow: '0 2px 12px rgba(0,0,0,.1)', overflow: 'hidden' }}>
+                    {/* Mini cabeçalho timbrado */}
+                    <div style={{ background: '#1e3a5f', color: '#fff', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {empData.logoUrl
+                        ? <img src={empData.logoUrl} alt="Logo" style={{ height: 32, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} onError={e => (e.currentTarget.style.display='none')} />
+                        : <span style={{ fontSize: 20 }}>🏗️</span>}
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: '.04em' }}>{empData.nome || 'EMPRESA'}</div>
+                        {empData.cnpj && <div style={{ fontSize: 9, color: '#93c5fd' }}>CNPJ: {empData.cnpj}</div>}
+                      </div>
+                    </div>
+                    <div style={{ height: 3, background: '#1e3a5f', borderBottom: '1px solid #93c5fd' }} />
+                    {/* Conteúdo */}
+                    <div style={{ padding: '24px 28px', fontFamily: "'Times New Roman',Georgia,serif", fontSize: 12, lineHeight: 1.8, color: '#1a1a1a' }}
+                      dangerouslySetInnerHTML={{ __html: previewHtml }} />
                   </div>
                 </div>
-                <textarea
-                  value={editModelo.conteudo ?? ''}
-                  onChange={e => setEditModelo(p => ({ ...p, conteudo: e.target.value }))}
-                  rows={18}
-                  placeholder={`# TÍTULO DO DOCUMENTO\n\nO(A) EMPREGADO(A) {{Nome Completo do Empregado}}, portador(a) do CPF nº {{Número do CPF}}...\n\n{{CIDADE}}, {{DIA}} de {{MÊS}} de {{ANO}}.`}
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 12, fontFamily: 'monospace', lineHeight: 1.6, resize: 'vertical', outline: 'none' }}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══ MODAL: Editor WYSIWYG fullscreen ══ */}
+      {modalEditor && editModelo !== null && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', zIndex: 9000, display: 'flex', alignItems: 'stretch', justifyContent: 'stretch', padding: 0 }}>
+          <div style={{ background: 'var(--card)', width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+
+            {/* ── Header do modal ── */}
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--card)' }}>
+              <span style={{ fontSize: 15, fontWeight: 800 }}>{editModelo.id ? '✏️ Editar Modelo' : '➕ Novo Modelo'}</span>
+              <div style={{ display: 'flex', gap: 8, flex: 1 }}>
+                <Input
+                  value={editModelo.titulo ?? ''}
+                  onChange={e => setEditModelo(p => ({ ...p, titulo: e.target.value }))}
+                  placeholder="Título do documento *"
+                  style={{ maxWidth: 340, height: 34, fontSize: 13 }}
+                />
+                <select value={editModelo.categoria ?? 'outro'} onChange={e => setEditModelo(p => ({ ...p, categoria: e.target.value }))}
+                  style={{ height: 34, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 13, paddingLeft: 8, paddingRight: 8 }}>
+                  {Object.entries(CATEGORIAS).map(([key, v]) => (
+                    <option key={key} value={key}>{v.emoji} {v.label}</option>
+                  ))}
+                </select>
+                <Input
+                  value={editModelo.descricao ?? ''}
+                  onChange={e => setEditModelo(p => ({ ...p, descricao: e.target.value }))}
+                  placeholder="Descrição (opcional)"
+                  style={{ maxWidth: 260, height: 34, fontSize: 12 }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+                <button onClick={salvarModelo} disabled={saving}
+                  style={{ padding: '7px 20px', borderRadius: 8, border: '2px solid #059669', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', fontSize: 13, fontWeight: 800, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+                  {saving ? 'Salvando…' : '💾 Salvar'}
+                </button>
+                <button onClick={() => { setModalEditor(false); setEditModelo(null) }}
+                  style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#64748b' }}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+
+            {/* ── Toolbar WYSIWYG ── */}
+            <div style={{ padding: '6px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', background: '#f8fafc', flexShrink: 0 }}>
+              {/* Fonte */}
+              <select onChange={e => exec('fontName', e.target.value)} defaultValue=""
+                style={{ height: 28, borderRadius: 5, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 11, paddingLeft: 4, paddingRight: 4, cursor: 'pointer' }}>
+                <option value="" disabled>Fonte</option>
+                {FONTS.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+              {/* Tamanho */}
+              <select onChange={e => exec('fontSize', e.target.value)} defaultValue=""
+                style={{ height: 28, borderRadius: 5, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 11, paddingLeft: 4, paddingRight: 4, cursor: 'pointer' }}>
+                <option value="" disabled>Tam</option>
+                {SIZES.map(s => <option key={s} value={s}>{s}pt</option>)}
+              </select>
+
+              <div style={{ width: 1, height: 22, background: '#e2e8f0', margin: '0 2px' }} />
+
+              {/* B I U S */}
+              {[
+                { cmd: 'bold',          label: <strong>B</strong> },
+                { cmd: 'italic',        label: <em>I</em> },
+                { cmd: 'underline',     label: <span style={{ textDecoration: 'underline' }}>U</span> },
+                { cmd: 'strikeThrough', label: <span style={{ textDecoration: 'line-through' }}>S</span> },
+              ].map(({ cmd, label }) => (
+                <button key={cmd} onMouseDown={e => { e.preventDefault(); exec(cmd) }}
+                  style={{ width: 28, height: 28, borderRadius: 5, border: '1px solid var(--border)', background: 'var(--background)', cursor: 'pointer', fontFamily: 'serif', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {label}
+                </button>
+              ))}
+
+              <div style={{ width: 1, height: 22, background: '#e2e8f0', margin: '0 2px' }} />
+
+              {/* Alinhamentos */}
+              {[
+                { cmd: 'justifyLeft',   label: '⬅' },
+                { cmd: 'justifyCenter', label: '↔' },
+                { cmd: 'justifyRight',  label: '➡' },
+                { cmd: 'justifyFull',   label: '≡' },
+              ].map(({ cmd, label }) => (
+                <button key={cmd} onMouseDown={e => { e.preventDefault(); exec(cmd) }}
+                  style={{ width: 28, height: 28, borderRadius: 5, border: '1px solid var(--border)', background: 'var(--background)', cursor: 'pointer', fontSize: 13 }}>
+                  {label}
+                </button>
+              ))}
+
+              <div style={{ width: 1, height: 22, background: '#e2e8f0', margin: '0 2px' }} />
+
+              {/* Listas */}
+              <button onMouseDown={e => { e.preventDefault(); exec('insertUnorderedList') }}
+                style={{ height: 28, padding: '0 8px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--background)', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                • Lista
+              </button>
+              <button onMouseDown={e => { e.preventDefault(); exec('insertOrderedList') }}
+                style={{ height: 28, padding: '0 8px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--background)', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                1. Lista
+              </button>
+
+              <div style={{ width: 1, height: 22, background: '#e2e8f0', margin: '0 2px' }} />
+
+              {/* Cor texto */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#64748b', cursor: 'pointer' }}>
+                <span>🎨</span>
+                <input type="color" defaultValue="#000000"
+                  onChange={e => exec('foreColor', e.target.value)}
+                  style={{ width: 22, height: 22, border: 'none', borderRadius: 4, cursor: 'pointer', padding: 0 }} />
+              </label>
+              {/* Cor fundo */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#64748b', cursor: 'pointer' }}>
+                <span>🖊</span>
+                <input type="color" defaultValue="#ffffff"
+                  onChange={e => exec('hiliteColor', e.target.value)}
+                  style={{ width: 22, height: 22, border: 'none', borderRadius: 4, cursor: 'pointer', padding: 0 }} />
+              </label>
+
+              <div style={{ width: 1, height: 22, background: '#e2e8f0', margin: '0 2px' }} />
+
+              {/* Linha HR */}
+              <button onMouseDown={e => { e.preventDefault(); exec('insertHTML', '<hr style="border:none;border-top:1px solid #e2e8f0;margin:14px 0"/>') }}
+                style={{ height: 28, padding: '0 8px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--background)', cursor: 'pointer', fontSize: 11 }}>
+                ─ Linha
+              </button>
+
+              {/* Desfazer / Refazer */}
+              <button onMouseDown={e => { e.preventDefault(); exec('undo') }}
+                style={{ width: 28, height: 28, borderRadius: 5, border: '1px solid var(--border)', background: 'var(--background)', cursor: 'pointer', fontSize: 13 }} title="Desfazer">↩</button>
+              <button onMouseDown={e => { e.preventDefault(); exec('redo') }}
+                style={{ width: 28, height: 28, borderRadius: 5, border: '1px solid var(--border)', background: 'var(--background)', cursor: 'pointer', fontSize: 13 }} title="Refazer">↪</button>
+            </div>
+
+            {/* ── Área principal: Editor + Painel lateral ── */}
+            <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+
+              {/* Área de edição */}
+              <div style={{ flex: 1, overflow: 'auto', padding: '24px 32px', background: '#f0f4f8' }}>
+                {/* Papel A4 */}
+                <div
+                  ref={editorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  spellCheck={false}
+                  style={{
+                    minHeight: 'calc(297mm)',
+                    maxWidth: 700,
+                    margin: '0 auto',
+                    background: '#fff',
+                    borderRadius: 6,
+                    padding: '36px 44px',
+                    boxShadow: '0 2px 16px rgba(0,0,0,.1)',
+                    fontFamily: "'Times New Roman',Georgia,serif",
+                    fontSize: 12,
+                    lineHeight: 1.8,
+                    color: '#1a1a1a',
+                    outline: 'none',
+                    cursor: 'text',
+                  }}
                 />
               </div>
 
-              {/* Guia de variáveis */}
-              <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 14px' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#0369a1', marginBottom: 6 }}>📌 Variáveis disponíveis (serão substituídas automaticamente pelo sistema)</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {[
-                    'Nome Completo do Empregado','Número do CPF','Número do RG','Número do PIS/PASEP',
-                    'Número da CTPS','Série da CTPS','Nacionalidade','Estado Civil','Profissão/Função',
-                    'NOME DA FUNÇÃO','Endereço Completo do Empregado','CIDADE','DIA','MÊS','ANO',
-                    'Nome Completo ou Razão Social do Empregador','Número do CNPJ',
-                    'Endereço Completo do Empregador','valor numérico','Data de Início',
-                  ].map(v => (
-                    <code key={v} onClick={() => setEditModelo(p => ({ ...p, conteudo: (p?.conteudo ?? '') + `{{${v}}}` }))}
-                      style={{ background: '#e0f2fe', color: '#0369a1', borderRadius: 4, padding: '1px 6px', fontSize: 10, cursor: 'pointer', fontFamily: 'monospace' }}
-                      title="Clique para inserir">
-                      {`{{${v}}}`}
-                    </code>
+              {/* ── Painel lateral: Variáveis / Funções ── */}
+              <div style={{ width: 260, flexShrink: 0, borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#f8fafc' }}>
+
+                {/* Tabs do painel */}
+                <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--card)' }}>
+                  {(['variaveis', 'funcoes'] as const).map(tab => (
+                    <button key={tab} onClick={() => setEditorTab(tab)}
+                      style={{ flex: 1, padding: '8px 4px', border: 'none', borderBottom: `2px solid ${editorTab === tab ? 'hsl(var(--primary))' : 'transparent'}`, background: 'transparent', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: editorTab === tab ? 'hsl(var(--primary))' : '#64748b' }}>
+                      {tab === 'variaveis' ? '📌 Variáveis' : '💼 Funções'}
+                    </button>
                   ))}
                 </div>
-              </div>
-            </div>
 
-            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-              <button onClick={() => setModalEditor(false)}
-                style={{ padding: '8px 20px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                Cancelar
-              </button>
-              <button onClick={salvarModelo} disabled={saving}
-                style={{ padding: '8px 22px', borderRadius: 8, border: '2px solid #059669', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', fontSize: 13, fontWeight: 800, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
-                {saving ? 'Salvando…' : editModelo.id ? '💾 Salvar Alterações' : '✅ Criar Modelo'}
-              </button>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '10px 10px' }}>
+
+                  {editorTab === 'variaveis' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {/* Colaborador */}
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>👤 Colaborador</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {VARS_COLABORADOR.map(v => (
+                            <button key={v.value} onMouseDown={e => { e.preventDefault(); inserirVariavel(v.value) }}
+                              style={{ padding: '3px 8px', borderRadius: 5, border: '1px solid #bae6fd', background: '#e0f2fe', color: '#0369a1', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'monospace' }}>
+                              {v.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Empresa */}
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>🏢 Empresa</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {VARS_EMPRESA.map(v => (
+                            <button key={v.value} onMouseDown={e => { e.preventDefault(); inserirVariavel(v.value) }}
+                              style={{ padding: '3px 8px', borderRadius: 5, border: '1px solid #bbf7d0', background: '#dcfce7', color: '#15803d', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'monospace' }}>
+                              {v.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Data */}
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>📅 Data</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {VARS_DATA.map(v => (
+                            <button key={v.value} onMouseDown={e => { e.preventDefault(); inserirVariavel(v.value) }}
+                              style={{ padding: '3px 8px', borderRadius: 5, border: '1px solid #fde68a', background: '#fef3c7', color: '#b45309', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'monospace' }}>
+                              {v.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Funções (dropdown) */}
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>💼 Funções</div>
+                        <select value={funcaoSel} onChange={e => setFuncaoSel(e.target.value)}
+                          style={{ width: '100%', height: 30, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 11, paddingLeft: 6 }}>
+                          <option value="">Selecionar função…</option>
+                          {funcoes.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                        </select>
+                        <button onMouseDown={e => { e.preventDefault(); inserirFuncao() }}
+                          disabled={!funcaoSel}
+                          style={{ marginTop: 5, width: '100%', padding: '5px', borderRadius: 6, border: '1.5px solid #7c3aed', background: funcaoSel ? '#ede9fe' : '#f1f5f9', color: funcaoSel ? '#7c3aed' : '#94a3b8', fontSize: 11, fontWeight: 700, cursor: funcaoSel ? 'pointer' : 'not-allowed' }}>
+                          ↗ Inserir nome + descrição
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {editorTab === 'funcoes' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>
+                        Clique em uma função para inserir o bloco com nome e descrição no documento.
+                      </div>
+                      {funcoes.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8' }}>Nenhuma função cadastrada.</div>}
+                      {funcoes.map(fn => (
+                        <div key={fn.id}
+                          style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', cursor: 'pointer' }}
+                          onClick={() => {
+                            editorRef.current?.focus()
+                            const bloco = `<p><strong>${fn.nome}</strong>${fn.sigla ? ` (${fn.sigla})` : ''}</p>${fn.descricao ? `<p>${fn.descricao}</p>` : ''}`
+                            document.execCommand('insertHTML', false, bloco)
+                          }}>
+                          <div style={{ fontSize: 12, fontWeight: 700 }}>{fn.nome}</div>
+                          {fn.sigla && <span style={{ fontSize: 10, color: '#0369a1' }}>{fn.sigla}</span>}
+                          {fn.descricao && <div style={{ fontSize: 10, color: '#64748b', marginTop: 2, lineClamp: 2 }}>{fn.descricao.slice(0, 80)}{fn.descricao.length > 80 ? '…' : ''}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>

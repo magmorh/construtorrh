@@ -507,80 +507,234 @@ export default function Pagamentos() {
     if (win) { win.document.write(html); win.document.close(); win.print() }
   }
 
-  // ── FOLHA BANCO INTER — CSV para pagamento em lote via PIX ─────────────────
-  function gerarFolhaInter(lancamentos: any[], descricaoBase: string) {
+  // ── RELATÓRIO PIX — PDF formatado para lançamento manual ─────────────────
+  async function gerarFolhaInter(lancamentos: any[], descricaoBase: string) {
     if (lancamentos.length === 0) {
-      toast.info('Nenhum lançamento disponível para gerar a folha.'); return
+      toast.info('Nenhum lançamento disponível para gerar o relatório.'); return
     }
 
-    // Mapeamento de tipo de chave PIX para o formato Inter
-    function tipoParaInter(tipo: string | null): string {
-      if (!tipo) return 'CPF'
-      const t = tipo.toLowerCase()
-      if (t === 'cpf')      return 'CPF'
-      if (t === 'cnpj')     return 'CNPJ'
-      if (t === 'email')    return 'EMAIL'
-      if (t === 'telefone' || t === 'celular' || t === 'phone') return 'TELEFONE'
-      if (t === 'aleatoria' || t === 'evp' || t === 'aleatório') return 'ALEATORIA'
-      return 'CPF'
-    }
-
-    // Gera número sequencial único: PDE + AAMM + seq
-    const aamm = new Date().toISOString().slice(2,4) + new Date().toISOString().slice(5,7)
-    const dataPagamento = new Date().toISOString().slice(0,10)
-
-    const header = 'TipoChave,ChavePix,NomeFavorecido,CPF_CNPJ,Valor,Descricao,DataPagamento,SeuNumero'
-
-    const linhas: string[] = []
-    let seq = 1
-
-    // Agrupa por colaborador (somando múltiplos lançamentos do mesmo colaborador)
+    // ── agrupa por colaborador (mesmo lógico do CSV anterior) ──────────────
     const agrupado = new Map<string, {
-      nome: string; cpf: string; pixChave: string; pixTipo: string | null; total: number
+      nome: string; cpf: string; pixChave: string; pixTipo: string | null
+      banco: string | null; agencia: string | null; conta: string | null
+      total: number; seq: number
     }>()
+
+    const aamm = new Date().toISOString().slice(2,4) + new Date().toISOString().slice(5,7)
+    let seq = 1
 
     for (const l of lancamentos) {
       const cid    = l.colaborador_id ?? l.id
       const nome   = (l.colaboradores?.nome ?? '—').toUpperCase()
-      const cpf    = (l.colaboradores?.cpf  ?? '').replace(/\D/g,'')
-      const pixCh  = (l.colaboradores?.pix_chave ?? l.colaboradores?.pix  ?? cpf).replace(/\s/g,'')
+      const cpf    = (l.colaboradores?.cpf ?? '').replace(/\D/g,'')
+      const pixCh  = (l.colaboradores?.pix_chave ?? l.colaboradores?.pix ?? cpf).replace(/\s/g,'')
       const pixTp  = l.colaboradores?.pix_tipo ?? (cpf ? 'cpf' : null)
+      const banco  = l.colaboradores?.banco ?? null
+      const agencia = l.colaboradores?.agencia ?? null
+      const conta  = l.colaboradores?.conta ?? null
       const valor  = l.snap_liquido ?? l.valor_liquido ?? 0
       if (valor <= 0) continue
       if (!agrupado.has(cid)) {
-        agrupado.set(cid, { nome, cpf, pixChave: pixCh, pixTipo: pixTp, total: 0 })
+        agrupado.set(cid, { nome, cpf, pixChave: pixCh, pixTipo: pixTp, banco, agencia, conta, total: 0, seq: seq++ })
       }
       agrupado.get(cid)!.total += valor
     }
 
-    for (const [, c] of agrupado) {
-      if (c.total <= 0) continue
-      const tipoChave = tipoParaInter(c.pixTipo)
-      const chavePix  = c.pixChave || c.cpf
-      if (!chavePix) continue    // sem chave PIX nem CPF → pula
-      const cpfLimpo  = c.cpf || chavePix.replace(/\D/g,'')
-      const seuNum    = `PDE${aamm}-${String(seq).padStart(4,'0')}`
-      const valor     = c.total.toFixed(2)
-      const descricao = descricaoBase.replace(/,/g,';')  // garante que vírgulas não quebrem o CSV
-      linhas.push([tipoChave, chavePix, c.nome, cpfLimpo, valor, descricao, dataPagamento, seuNum].join(','))
-      seq++
-    }
-
-    if (linhas.length === 0) {
-      toast.warning('Nenhum colaborador com chave PIX ou CPF cadastrado. Cadastre os dados bancários no módulo Colaboradores.')
+    if (agrupado.size === 0) {
+      toast.warning('Nenhum colaborador com valor positivo encontrado.')
       return
     }
 
-    const totalCSV = Array.from(agrupado.values()).reduce((s,c) => s + c.total, 0)
-    const csv  = header + '\n' + linhas.join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href     = url
-    a.download = `folha_inter_${dataPagamento}_${linhas.length}colab.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast.success(`✅ Folha Inter gerada! ${linhas.length} colaboradores · R$ ${totalCSV.toLocaleString('pt-BR',{minimumFractionDigits:2})}`)
+    const itens = Array.from(agrupado.values()).sort((a,b) => a.nome.localeCompare(b.nome))
+    const totalGeral = itens.reduce((s, c) => s + c.total, 0)
+    const dataGer    = new Date().toLocaleDateString('pt-BR')
+    const dataPgto   = new Date().toLocaleDateString('pt-BR')
+
+    const pixLabel: Record<string, string> = {
+      cpf: 'CPF', cnpj: 'CNPJ', email: 'E-mail',
+      telefone: 'Telefone', celular: 'Telefone',
+      aleatoria: 'Chave Aleatória', evp: 'Chave Aleatória',
+    }
+
+    // ── busca dados da empresa ──────────────────────────────────────────────
+    let empNome = 'Empresa'
+    try {
+      const { fetchEmpresaData } = await import('@/lib/relatorioHeader')
+      const emp = await fetchEmpresaData()
+      empNome = emp.nome || 'Empresa'
+    } catch { /* silencioso */ }
+
+    // ── HTML do relatório ───────────────────────────────────────────────────
+    const linhasHTML = itens.map((c, i) => {
+      const chave = c.pixChave || c.cpf || '—'
+      const tipo  = c.pixTipo ? (pixLabel[c.pixTipo.toLowerCase()] ?? c.pixTipo.toUpperCase()) : (c.cpf ? 'CPF' : '—')
+      const cpfFmt = c.cpf ? c.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : '—'
+      const seuNum = `PDE${aamm}-${String(c.seq).padStart(4,'0')}`
+      const bancoDados = [c.banco, c.agencia ? `Ag: ${c.agencia}` : '', c.conta ? `CC: ${c.conta}` : ''].filter(Boolean).join(' · ')
+      return `
+<tr style="background:${i % 2 === 0 ? '#ffffff' : '#f8fafc'}">
+  <td style="padding:8px 10px;font-size:12px;color:#64748b;text-align:center;white-space:nowrap">${String(i+1).padStart(2,'0')}</td>
+  <td style="padding:8px 10px">
+    <div style="font-size:12px;font-weight:700;color:#0f172a">${c.nome}</div>
+    <div style="font-size:11px;color:#64748b;margin-top:2px">CPF: ${cpfFmt}</div>
+  </td>
+  <td style="padding:8px 10px">
+    <div style="font-size:11px;color:#0369a1;font-weight:700">${tipo}</div>
+    <div style="font-size:12px;color:#0f172a;font-family:monospace;word-break:break-all;margin-top:2px">${chave}</div>
+    ${bancoDados ? `<div style="font-size:10px;color:#94a3b8;margin-top:2px">${bancoDados}</div>` : ''}
+  </td>
+  <td style="padding:8px 10px;text-align:right">
+    <div style="font-size:14px;font-weight:900;color:#15803d">R$ ${c.total.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+  </td>
+  <td style="padding:8px 10px;text-align:center">
+    <div style="font-size:10px;color:#7c3aed;font-weight:700;font-family:monospace">${seuNum}</div>
+    <div style="font-size:10px;color:#94a3b8;margin-top:2px">${dataPgto}</div>
+  </td>
+  <td style="padding:8px 10px;text-align:center">
+    <div style="width:18px;height:18px;border:2px solid #cbd5e1;border-radius:4px;margin:0 auto"></div>
+  </td>
+</tr>`
+    }).join('')
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<title>Relatório PIX — ${descricaoBase}</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  @page { size:A4; margin:14mm 12mm; }
+  body { font-family:'Segoe UI',Arial,sans-serif; background:#f1f5f9; color:#0f172a; }
+  @media print { body { background:#fff; } .no-print { display:none !important; } }
+
+  .page { background:#fff; max-width:780px; margin:0 auto; border-radius:10px; overflow:hidden; box-shadow:0 2px 16px rgba(0,0,0,.10); }
+
+  /* cabeçalho */
+  .hdr { background:#1e3a5f; color:#fff; padding:18px 24px 14px; display:flex; justify-content:space-between; align-items:flex-start; }
+  .hdr-title { font-size:18px; font-weight:900; letter-spacing:-.02em; }
+  .hdr-sub { font-size:12px; color:#93c5fd; margin-top:4px; }
+  .hdr-right { text-align:right; }
+  .hdr-emp { font-size:13px; font-weight:700; }
+  .hdr-date { font-size:11px; color:#93c5fd; margin-top:3px; }
+
+  /* resumo */
+  .summary { display:flex; gap:0; border-bottom:2px solid #e2e8f0; }
+  .sum-item { flex:1; padding:12px 20px; border-right:1px solid #e2e8f0; }
+  .sum-item:last-child { border-right:none; }
+  .sum-label { font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:.07em; margin-bottom:4px; }
+  .sum-val { font-size:20px; font-weight:900; }
+  .sum-val.green { color:#15803d; }
+  .sum-val.blue  { color:#1d4ed8; }
+  .sum-val.amber { color:#b45309; }
+
+  /* tabela */
+  table { width:100%; border-collapse:collapse; }
+  thead th {
+    padding:9px 10px; font-size:10px; font-weight:800; color:#475569;
+    background:#f8fafc; border-bottom:2px solid #e2e8f0;
+    text-transform:uppercase; letter-spacing:.06em; white-space:nowrap;
+  }
+  tbody tr { border-bottom:1px solid #f1f5f9; }
+  tbody tr:last-child { border-bottom:none; }
+
+  /* rodapé */
+  tfoot td { padding:10px 10px; background:#f0fdf4; border-top:2px solid #bbf7d0; }
+  .foot-total { font-size:15px; font-weight:900; color:#15803d; text-align:right; }
+
+  /* aviso */
+  .notice { margin:0; padding:12px 20px; background:#fffbeb; border-top:1px solid #fde68a; font-size:11px; color:#92400e; display:flex; gap:8px; align-items:flex-start; line-height:1.6; }
+
+  /* botão impressão */
+  .no-print {
+    position:fixed; bottom:16px; right:16px; background:#1d4ed8; color:#fff;
+    border:none; border-radius:9px; padding:11px 24px; font-size:14px;
+    font-weight:700; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,.25); z-index:9999;
+    display:flex; align-items:center; gap:8px;
+  }
+  .no-print:hover { background:#1e40af; }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- Cabeçalho -->
+  <div class="hdr">
+    <div>
+      <div class="hdr-title">💸 Relatório de Pagamento PIX</div>
+      <div class="hdr-sub">${descricaoBase} · Lançamento Manual</div>
+    </div>
+    <div class="hdr-right">
+      <div class="hdr-emp">${empNome}</div>
+      <div class="hdr-date">Emitido em ${dataGer}</div>
+    </div>
+  </div>
+
+  <!-- Resumo -->
+  <div class="summary">
+    <div class="sum-item">
+      <div class="sum-label">Total a Pagar</div>
+      <div class="sum-val green">R$ ${totalGeral.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+    </div>
+    <div class="sum-item">
+      <div class="sum-label">Colaboradores</div>
+      <div class="sum-val blue">${itens.length}</div>
+    </div>
+    <div class="sum-item">
+      <div class="sum-label">Data de Pagamento</div>
+      <div class="sum-val amber">${dataPgto}</div>
+    </div>
+    <div class="sum-item">
+      <div class="sum-label">Referência</div>
+      <div class="sum-val" style="font-size:13px;color:#7c3aed;font-family:monospace">PDE${aamm}</div>
+    </div>
+  </div>
+
+  <!-- Tabela -->
+  <table>
+    <thead>
+      <tr>
+        <th style="text-align:center;width:32px">#</th>
+        <th>Colaborador / CPF</th>
+        <th>Chave PIX</th>
+        <th style="text-align:right">Valor</th>
+        <th style="text-align:center">Nº / Data</th>
+        <th style="text-align:center;width:36px">✓</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${linhasHTML}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="3" style="font-size:12px;font-weight:700;color:#166534">
+          Total — ${itens.length} colaborador(es)
+        </td>
+        <td class="foot-total">R$ ${totalGeral.toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+        <td colspan="2"></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <!-- Aviso -->
+  <div class="notice">
+    <span style="font-size:16px;flex-shrink:0">ℹ️</span>
+    <span>Este documento é para <strong>conferência e lançamento manual</strong> no internet banking. Verifique a chave PIX de cada colaborador antes de efetuar o pagamento. A coluna <strong>✓</strong> pode ser usada para marcar os pagamentos já realizados.</span>
+  </div>
+
+</div>
+
+<button class="no-print" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+
+<script>window.onload = () => setTimeout(() => window.print(), 350)<\/script>
+</body>
+</html>`
+
+    const win = window.open('', '_blank', 'width=900,height=720')
+    if (win) { win.document.write(html); win.document.close() }
+    else toast.error('Bloqueio de pop-up detectado. Permita pop-ups para este site.')
+
+    toast.success(`📄 Relatório PIX gerado! ${itens.length} colaboradores · R$ ${totalGeral.toLocaleString('pt-BR',{minimumFractionDigits:2})}`)
   }
 
   async function gerarRelatorioAgendados() {
@@ -940,7 +1094,7 @@ export default function Pagamentos() {
                         gerarFolhaInter(lancsAgendados, `Folha ${mesLabel}`)
                       }}
                       style={{ padding:'5px 14px', borderRadius:7, border:'2px solid #059669', background:'linear-gradient(135deg,#059669,#047857)', color:'#fff', fontSize:12, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:5, boxShadow:'0 2px 6px rgba(5,150,105,0.35)' }}>
-                      🏦 Gerar Folha Inter
+                      💸 Rel. PIX
                     </button>
                   </>
                 )}
@@ -962,7 +1116,7 @@ export default function Pagamentos() {
                         gerarFolhaInter(vtParaInter, `Vale Transporte ${mesLabel}`)
                       }}
                       style={{ padding:'5px 14px', borderRadius:7, border:'2px solid #059669', background:'linear-gradient(135deg,#059669,#047857)', color:'#fff', fontSize:12, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:5, boxShadow:'0 2px 6px rgba(5,150,105,0.35)' }}>
-                      🏦 Gerar Folha Inter
+                      💸 Rel. PIX
                     </button>
                   </>
                 )}
@@ -992,7 +1146,7 @@ export default function Pagamentos() {
                         gerarFolhaInter(outrosParaInter, `Outros ${mesLabel}`)
                       }}
                       style={{ padding:'5px 14px', borderRadius:7, border:'2px solid #059669', background:'linear-gradient(135deg,#059669,#047857)', color:'#fff', fontSize:12, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:5, boxShadow:'0 2px 6px rgba(5,150,105,0.35)' }}>
-                      🏦 Gerar Folha Inter
+                      💸 Rel. PIX
                     </button>
                   </>
                 )}

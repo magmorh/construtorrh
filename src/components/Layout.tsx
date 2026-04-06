@@ -14,7 +14,7 @@ import {
   Smartphone, Inbox, Scale, MessageSquare,
   Search, Bell, ChevronDown,
   LayoutGrid, FolderKanban, HeartPulse, Banknote, Gavel, Cog,
-  BookOpen, CreditCard, Layers, ClipboardCheck, ShoppingBasket, FolderOpen, ScrollText, Receipt,
+  BookOpen, CreditCard, Layers, ClipboardCheck, ShoppingBasket, FolderOpen, ScrollText, Receipt, KeyRound,
 } from 'lucide-react'
 
 // ─── Cor principal da sidebar ───────────────────────────────────────────────
@@ -149,11 +149,12 @@ const NAV_GROUPS = [
     short: 'Sistema',
     icon:  Cog,
     items: [
-      { to: '/usuarios',      label: 'Usuários',         icon: UserCog,   color: '#38bdf8', adminOnly: true },
-      { to: '/portal-admin',  label: 'Portal da Obra',   icon: Smartphone,color: '#34d399', adminOnly: true },
-      { to: '/gestor-admin',  label: 'Gestores',         icon: BarChart3, color: '#f59e0b', adminOnly: true },
-      { to: '/gestor',        label: 'Portal do Gestor', icon: BarChart3, color: '#f59e0b' },
-      { to: '/configuracoes', label: 'Configurações',    icon: Settings,  color: '#94a3b8' },
+      { to: '/usuarios',      label: 'Usuários',              icon: UserCog,   color: '#38bdf8', adminOnly: true },
+      { to: '/portal-admin',  label: 'Portal da Obra',        icon: Smartphone,color: '#34d399', adminOnly: true },
+      { to: '/gestor-admin',  label: 'Gestores',              icon: BarChart3, color: '#f59e0b', adminOnly: true },
+      { to: '/gestor',        label: 'Portal do Gestor',      icon: BarChart3, color: '#f59e0b' },
+      { to: '/configuracoes', label: 'Configurações',         icon: Settings,  color: '#94a3b8' },
+      { to: '/configuracoes#acessos', label: 'Acesso Colaboradores',  icon: KeyRound,  color: '#f59e0b', adminOnly: true },
     ],
   },
 ]

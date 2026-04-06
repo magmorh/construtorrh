@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { PageHeader } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
@@ -15,6 +16,7 @@ import {
 } from '@/components/ui/table'
 import { toast } from 'sonner'
 import { Settings, Save, Building2, Sliders, Users, Loader2, Shield, Percent, Upload, Trash2, ImageIcon, Plus, FileText, GripVertical, X, Key, Lock, Unlock, RefreshCw, UserCheck, UserX, Search, Eye, EyeOff } from 'lucide-react'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
 interface ConfigMap {
@@ -258,7 +260,20 @@ export default function Configuracoes() {
   const [savingEncargos, setSavingEncargos] = useState(false)
   const [tabelaRescisao, setTabelaRescisao] = useState<VerbaRescisoria[]>(DEFAULT_RESCISAO)
   const [savingRescisao, setSavingRescisao] = useState(false)
-  const [cfgTab, setCfgTab]               = useState<CfgTab>('empresa')
+  const location = useLocation()
+  const [cfgTab, setCfgTab]               = useState<CfgTab>(() => {
+    // abre aba 'acessos' se vier da URL com hash #acessos
+    if (typeof window !== 'undefined' && window.location.hash === '#acessos') return 'acessos'
+    return 'empresa'
+  })
+
+  useEffect(() => {
+    if (location.hash === '#acessos') {
+      setCfgTab('acessos')
+      fetchAcessos()
+      fetchColabsDisponiveis()
+    }
+  }, [location.hash])
   // "Outros" encargos de rescisão adicionados pelo usuário
   const [outrosRescisao, setOutrosRescisao] = useState<VerbaRescisoria[]>([])
   const [uploadingLogo, setUploadingLogo]   = useState(false)
@@ -444,12 +459,13 @@ export default function Configuracoes() {
     setLoadingAcessos(false)
   }, [])
 
-  // fetch colaboradores disponíveis (sem acesso cadastrado)
+  // fetch colaboradores disponíveis — somente CLT ativos
   const fetchColabsDisponiveis = useCallback(async () => {
     const { data } = await supabase
       .from('colaboradores')
-      .select('id, nome, cpf')
+      .select('id, nome, cpf, tipo_contrato')
       .eq('status', 'ativo')
+      .eq('tipo_contrato', 'clt')
       .order('nome')
     setColabsDisponiveis(
       (data ?? []).map((c: any) => ({ id: c.id, nome: c.nome, cpf: c.cpf }))
@@ -1491,25 +1507,24 @@ export default function Configuracoes() {
                 <h3 style={{ fontWeight:700, fontSize:14, margin:0 }}>Liberar Novo Acesso</h3>
               </div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:10, alignItems:'flex-end' }}>
-                {/* Seletor de colaborador */}
+                {/* Seletor de colaborador — SearchableSelect CLT */}
                 <div>
-                  <label style={{ fontSize:12, fontWeight:600, color:'#475569', display:'block', marginBottom:4 }}>Colaborador</label>
-                  <select
+                  <label style={{ fontSize:12, fontWeight:600, color:'#475569', display:'block', marginBottom:4 }}>Colaborador <span style={{fontSize:10,background:'#dbeafe',color:'#1d4ed8',borderRadius:4,padding:'1px 5px',fontWeight:700,marginLeft:4}}>somente CLT</span></label>
+                  <SearchableSelect
+                    options={colabsDisponiveis.map(c => ({
+                      value: c.id,
+                      label: c.nome,
+                      sublabel: c.cpf ? formatCPF(c.cpf) : '—'
+                    }))}
                     value={novoAcessoColabId}
-                    onChange={e => {
-                      const id = e.target.value
+                    onChange={id => {
                       setNovoAcessoColabId(id)
-                      // preencher CPF automaticamente se disponível
                       const colab = colabsDisponiveis.find(c => c.id === id)
                       if (colab?.cpf) setNovoAcessoCpf(colab.cpf.replace(/\D/g, ''))
                     }}
-                    style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid var(--border)', fontSize:13, background:'var(--background)', color:'var(--foreground)' }}
-                  >
-                    <option value="">Selecione o colaborador...</option>
-                    {colabsDisponiveis.map(c => (
-                      <option key={c.id} value={c.id}>{c.nome}{c.cpf ? ` — ${formatCPF(c.cpf)}` : ''}</option>
-                    ))}
-                  </select>
+                    placeholder="Pesquisar colaborador CLT…"
+                    emptyLabel="— Nenhum —"
+                  />
                 </div>
                 {/* CPF */}
                 <div>

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -616,21 +617,24 @@ export default function Premios() {
     {/* ══ MODAL CRIAR / EDITAR ══ */}
     {modalOpen && (
       <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,.5)', zIndex:50, display:'flex', alignItems:'center', justifyContent:'center', padding:16}}>
-        <div style={{background:'var(--background)', borderRadius:14, width:'100%', maxWidth:520, boxShadow:'0 25px 50px rgba(0,0,0,.25)', overflow:'hidden', maxHeight:'90vh', overflowY:'auto'}}>
-          <div style={{background:'linear-gradient(135deg, #f59e0b, #d97706)', padding:'20px 24px', position:'sticky', top:0, zIndex:1}}>
+        <div style={{background:'var(--background)', borderRadius:14, width:'100%', maxWidth:560, boxShadow:'0 25px 50px rgba(0,0,0,.25)', display:'flex', flexDirection:'column', maxHeight:'92dvh'}}>
+          {/* Header fixo */}
+          <div style={{background:'linear-gradient(135deg, #f59e0b, #d97706)', padding:'18px 24px', flexShrink:0, borderRadius:'14px 14px 0 0'}}>
             <h2 style={{fontWeight:800, fontSize:17, margin:0, color:'#fff'}}>{editando ? '✏️ Editar Prêmio' : '🏆 Novo Prêmio'}</h2>
             <p style={{fontSize:12, color:'rgba(255,255,255,.8)', margin:'4px 0 0'}}>{editando ? 'Altere os dados do prêmio' : 'Registre um novo prêmio ou bonificação'}</p>
           </div>
-          <div style={{padding:24}}>
+          {/* Corpo com scroll */}
+          <div style={{padding:24, overflowY:'auto', flex:1}}>
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:14}}>
               <div style={{gridColumn:'1/-1'}}>
                 <Label className="mb-1 block">Colaborador *</Label>
-                <Select value={form.colaborador_id} onValueChange={v=>setField('colaborador_id',v)}>
-                  <SelectTrigger><SelectValue placeholder="Selecionar…"/></SelectTrigger>
-                  <SelectContent>
-                    {colaboradores.map(c=><SelectItem key={c.id} value={c.id}>{c.chapa??'—'} — {c.nome}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  options={colaboradores.map(c=>({ value:c.id, label:c.nome, sublabel:c.chapa??'—' }))}
+                  value={form.colaborador_id}
+                  onChange={v=>setField('colaborador_id',v)}
+                  placeholder="Pesquisar colaborador…"
+                  emptyLabel="— Nenhum —"
+                />
               </div>
               <div>
                 <Label className="mb-1 block">Tipo</Label>

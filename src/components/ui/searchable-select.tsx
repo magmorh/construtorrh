@@ -87,8 +87,8 @@ export function SearchableSelect({
         <div style={{
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
           background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
-          boxShadow: '0 8px 24px rgba(0,0,0,0.13)', zIndex: 500,
-          maxHeight: 280, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.18)', zIndex: 9999,
+          maxHeight: 240, display: 'flex', flexDirection: 'column', overflow: 'hidden',
         }}>
           {/* Search */}
           <div style={{ padding: '8px 8px 4px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 6 }}>

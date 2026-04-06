@@ -65,6 +65,37 @@ const BLOCK_STYLES = [
 ]
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
+// ─── Valor monetário por extenso ─────────────────────────────────────────────
+function valorPorExtenso(v: number | null | undefined): string {
+  if (!v || v <= 0) return ''
+  const unidades = ['','um','dois','três','quatro','cinco','seis','sete','oito','nove',
+    'dez','onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove']
+  const dezenas  = ['','','vinte','trinta','quarenta','cinquenta','sessenta','setenta','oitenta','noventa']
+  const centenas = ['','cem','duzentos','trezentos','quatrocentos','quinhentos','seiscentos','setecentos','oitocentos','novecentos']
+
+  function grupo(n: number): string {
+    if (n === 0) return ''
+    if (n === 100) return 'cem'
+    const c = Math.floor(n/100), d = Math.floor((n%100)/10), u = n%10
+    const partes: string[] = []
+    if (c) partes.push(centenas[c])
+    if (d >= 2) { partes.push(dezenas[d]); if (u) partes.push(unidades[u]) }
+    else if (d === 1) partes.push(unidades[10 + u])
+    else if (u) partes.push(unidades[u])
+    return partes.join(' e ')
+  }
+
+  const inteiro = Math.floor(v)
+  const cents   = Math.round((v - inteiro) * 100)
+  const mil = Math.floor(inteiro/1000), resto = inteiro % 1000
+  const partes: string[] = []
+  if (mil > 0) partes.push((mil === 1 ? 'mil' : grupo(mil) + ' mil'))
+  if (resto > 0) partes.push(grupo(resto))
+  const inteiroStr = partes.join(' e ') + (inteiro === 1 ? ' real' : ' reais')
+  if (cents > 0) return inteiroStr + ' e ' + grupo(cents) + (cents === 1 ? ' centavo' : ' centavos')
+  return inteiroStr
+}
+
 function buildVarMap(
   c: ColaboradorRow | null,
   emp: { nome: string; cnpj: string; endereco: string; cidade: string; razaoSocial: string }
@@ -77,6 +108,8 @@ function buildVarMap(
   const ano   = String(hoje.getFullYear())
   const fmtDate = (d: string | null) => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR') : ''
   const salFmt  = c.salario ? `R$ ${c.salario.toLocaleString('pt-BR',{minimumFractionDigits:2})}` : ''
+  const salMensalNum = c.salario ?? 0
+  const salExtenso  = valorPorExtenso(salMensalNum)
   const fn  = (c.funcoes as any)?.nome ?? ''
   const ob  = (c.obras  as any)?.nome  ?? ''
 
@@ -147,6 +180,9 @@ function buildVarMap(
     // Colaborador — data / salário / endereço
     'Data Admissão': fmtDate(c.data_admissao), 'Data de Início': fmtDate(c.data_admissao),
     'Salário': salFmt, 'valor numérico': salFmt,
+    'Salário por Extenso': salExtenso, 'Salário Extenso': salExtenso,
+    'Valor por Extenso': salExtenso, 'Valor Extenso': salExtenso,
+    'Valor Hora Extenso': salExtenso, 'Valor da Hora Extenso': salExtenso,
     'Endereço': `${c.endereco ?? ''}, ${c.cidade ?? ''} - ${c.estado ?? ''}, CEP ${c.cep ?? ''}`,
     'Endereço Completo do Empregado': `${c.endereco ?? ''}, ${c.cidade ?? ''} - ${c.estado ?? ''}`,
     'Endereço Completo do Empregado, não esquecer de colocar número, quadra, lote e CEP': `${c.endereco ?? ''}, ${c.cidade ?? ''} - ${c.estado ?? ''}, CEP ${c.cep ?? ''}`,

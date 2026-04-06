@@ -14,7 +14,7 @@ import {
   Smartphone, Inbox, Scale, MessageSquare,
   Search, Bell, ChevronDown,
   LayoutGrid, FolderKanban, HeartPulse, Banknote, Gavel, Cog,
-  BookOpen, CreditCard, Layers, ClipboardCheck, ShoppingBasket, FolderOpen, ScrollText,
+  BookOpen, CreditCard, Layers, ClipboardCheck, ShoppingBasket, FolderOpen, ScrollText, Receipt,
 } from 'lucide-react'
 
 // ─── Cor principal da sidebar ───────────────────────────────────────────────
@@ -48,6 +48,7 @@ const PAGE_TITLES: Record<string, { label: string; icon: React.ElementType; colo
   '/usuarios':          { label: 'Usuários',            icon: UserCog,         color: '#0ea5e9' },
   '/portal-admin':      { label: 'Portal da Obra',      icon: Smartphone,      color: '#10b981' },
   '/configuracoes':     { label: 'Configurações',       icon: Settings,        color: '#64748b' },
+  '/contracheques':     { label: 'Contracheque',        icon: Receipt,         color: '#0d9488' },
   '/gestor':            { label: 'Portal do Gestor',    icon: BarChart3,       color: '#f59e0b' },
   '/gestor-admin':      { label: 'Gestores — Admin',    icon: BarChart3,       color: '#f59e0b' },
 }
@@ -85,6 +86,7 @@ const NAV_GROUPS = [
       { to: '/playbooks',     label: 'Playbooks',     icon: ClipboardList,color: '#a78bfa' },
       { to: '/feriados',      label: 'Feriados',      icon: CalendarDays, color: '#fbbf24' },
       { to: '/documentos',    label: 'Documentos',    icon: FileText,     color: '#64748b' },
+      { to: '/contracheques', label: 'Contracheque',  icon: Receipt,      color: '#0d9488' },
     ],
   },
   {

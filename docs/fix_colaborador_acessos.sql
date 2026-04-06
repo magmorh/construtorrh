@@ -73,3 +73,38 @@ CREATE POLICY "portal_update_own"
 
 -- ─── FIM DA MIGRATION ────────────────────────────────────────────────────────
 -- Após executar este SQL, volte ao sistema — o painel de acesso já estará ativo.
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- RPC: criar_acesso_portal — permite criar acesso sem bypass de RLS
+-- Chamável pela chave anon com SECURITY DEFINER
+-- Execute este bloco ADICIONAL no Supabase Studio
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- RPC para criar/atualizar acesso ao portal de contracheque
+CREATE OR REPLACE FUNCTION criar_acesso_portal(
+  p_colaborador_id uuid,
+  p_login          text,
+  p_senha_hash     text
+) RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER   -- roda como o dono da função (bypassa RLS)
+AS $$
+DECLARE
+  v_id uuid;
+BEGIN
+  -- Upsert: cria ou atualiza se o login já existir
+  INSERT INTO colaboradores_portal (colaborador_id, login, senha_hash, ativo, acesso_contracheque)
+  VALUES (p_colaborador_id, p_login, p_senha_hash, true, true)
+  ON CONFLICT (login) DO UPDATE
+    SET senha_hash = EXCLUDED.senha_hash,
+        ativo = true,
+        acesso_contracheque = true
+  RETURNING id INTO v_id;
+
+  RETURN json_build_object('id', v_id, 'ok', true);
+END;
+$$;
+
+-- Permitir chamada pela chave anon
+GRANT EXECUTE ON FUNCTION criar_acesso_portal(uuid, text, text) TO anon;
+GRANT EXECUTE ON FUNCTION criar_acesso_portal(uuid, text, text) TO authenticated;

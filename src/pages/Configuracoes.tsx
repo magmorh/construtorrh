@@ -14,7 +14,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { toast } from 'sonner'
-import { Settings, Save, Building2, Sliders, Users, Loader2, Shield, Percent, Upload, Trash2, ImageIcon, Plus, FileText, GripVertical, X } from 'lucide-react'
+import { Settings, Save, Building2, Sliders, Users, Loader2, Shield, Percent, Upload, Trash2, ImageIcon, Plus, FileText, GripVertical, X, Key, Lock, Unlock, RefreshCw, UserCheck, UserX, Search, Eye, EyeOff } from 'lucide-react'
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
 interface ConfigMap {
@@ -228,8 +228,22 @@ const CFG_NAV = [
   { id: 'rescisao',   label: 'Rescisão',                icon: Percent,   color: '#ec4899' },
   { id: 'documentos', label: 'Tipos de Documentos',     icon: FileText,  color: '#64748b' },
   { id: 'usuarios',   label: 'Usuários',                icon: Users,     color: '#14b8a6' },
+  { id: 'acessos',    label: 'Acesso Colaboradores',    icon: Key,       color: '#f59e0b' },
 ] as const
 type CfgTab = typeof CFG_NAV[number]['id']
+
+// ─── tipos para controle de acesso ──────────────────────────────────────────
+interface ColaboradorAcesso {
+  id: string
+  colaborador_id: string
+  cpf: string
+  must_change_password: boolean
+  ativo: boolean
+  ultimo_acesso: string | null
+  created_at: string
+  colaborador_nome?: string
+  colaborador_status?: string
+}
 
 export default function Configuracoes() {
   const [configs, setConfigs] = useState<ConfigMap>({})
@@ -252,6 +266,16 @@ export default function Configuracoes() {
   const [novoTipoDoc,  setNovoTipoDoc]      = useState('')
   const [savingTiposDoc, setSavingTiposDoc] = useState(false)
   const logoInputRef = useRef<HTMLInputElement>(null)
+  // ─── estados do painel de acessos ────────────────────────────────────────
+  const [acessos,         setAcessos]         = useState<ColaboradorAcesso[]>([])
+  const [loadingAcessos,  setLoadingAcessos]  = useState(false)
+  const [buscarAcessos,   setBuscarAcessos]   = useState('')
+  const [novoAcessoCpf,   setNovoAcessoCpf]   = useState('')
+  const [novoAcessoColabId, setNovoAcessoColabId] = useState('')
+  const [salvandoAcesso,  setSalvandoAcesso]  = useState(false)
+  const [resetandoId,     setResetandoId]     = useState<string|null>(null)
+  const [colabsDisponiveis, setColabsDisponiveis] = useState<{id:string;nome:string;cpf:string|null}[]>([])
+  const [showSenhaReset,  setShowSenhaReset]  = useState<Record<string,boolean>>({})
 
   // ─── upload logo ─────────────────────────────────────────────────────────
   // Converte a imagem para base64 e salva DIRETAMENTE no banco.
@@ -387,6 +411,127 @@ export default function Configuracoes() {
   }, [])
 
   useEffect(() => { fetchConfigs() }, [fetchConfigs])
+
+  // ─── SHA-256 helper ────────────────────────────────────────────────────────
+  async function sha256(msg: string) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg))
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+  }
+
+  // ─── fetch acessos ─────────────────────────────────────────────────────────
+  const fetchAcessos = useCallback(async () => {
+    setLoadingAcessos(true)
+    try {
+      const { data, error } = await supabase
+        .from('colaborador_acessos')
+        .select('id, colaborador_id, cpf, must_change_password, ativo, ultimo_acesso, created_at, colaboradores(nome, status)')
+        .order('created_at', { ascending: false })
+      if (error) throw error
+      setAcessos((data ?? []).map((r: any) => ({
+        id: r.id,
+        colaborador_id: r.colaborador_id,
+        cpf: r.cpf,
+        must_change_password: r.must_change_password,
+        ativo: r.ativo,
+        ultimo_acesso: r.ultimo_acesso,
+        created_at: r.created_at,
+        colaborador_nome: r.colaboradores?.nome ?? '—',
+        colaborador_status: r.colaboradores?.status ?? '—',
+      })))
+    } catch (err: any) {
+      toast.error('Erro ao carregar acessos: ' + (err?.message ?? ''))
+    }
+    setLoadingAcessos(false)
+  }, [])
+
+  // fetch colaboradores disponíveis (sem acesso cadastrado)
+  const fetchColabsDisponiveis = useCallback(async () => {
+    const { data } = await supabase
+      .from('colaboradores')
+      .select('id, nome, cpf')
+      .eq('status', 'ativo')
+      .order('nome')
+    setColabsDisponiveis(
+      (data ?? []).map((c: any) => ({ id: c.id, nome: c.nome, cpf: c.cpf }))
+    )
+  }, [])
+
+  // ─── criar acesso ──────────────────────────────────────────────────────────
+  async function handleCriarAcesso() {
+    const cpf = novoAcessoCpf.replace(/\D/g, '').trim()
+    if (!novoAcessoColabId) { toast.error('Selecione um colaborador'); return }
+    if (cpf.length < 11) { toast.error('CPF inválido (mínimo 11 dígitos)'); return }
+
+    setSalvandoAcesso(true)
+    try {
+      // Senha padrão "123" com hash
+      const hashInicial = await sha256('123')
+      const { error } = await supabase.from('colaborador_acessos').insert({
+        colaborador_id: novoAcessoColabId,
+        cpf: cpf,
+        senha_hash: hashInicial,
+        must_change_password: true,
+        ativo: true,
+      })
+      if (error) throw error
+      toast.success('Acesso criado! Senha inicial: 123 (colaborador deverá trocar no primeiro acesso)')
+      setNovoAcessoCpf('')
+      setNovoAcessoColabId('')
+      fetchAcessos()
+    } catch (err: any) {
+      const msg = err?.message ?? ''
+      if (msg.includes('unique') || msg.includes('duplicate')) {
+        toast.error('Este CPF já tem acesso cadastrado')
+      } else {
+        toast.error('Erro ao criar acesso: ' + msg)
+      }
+    }
+    setSalvandoAcesso(false)
+  }
+
+  // ─── resetar senha ─────────────────────────────────────────────────────────
+  async function handleResetarSenha(acessoId: string) {
+    setResetandoId(acessoId)
+    try {
+      const hashReset = await sha256('123')
+      const { error } = await supabase
+        .from('colaborador_acessos')
+        .update({ senha_hash: hashReset, must_change_password: true })
+        .eq('id', acessoId)
+      if (error) throw error
+      toast.success('Senha resetada para 123. Colaborador deverá trocar no próximo acesso.')
+      fetchAcessos()
+    } catch (err: any) {
+      toast.error('Erro ao resetar senha: ' + (err?.message ?? ''))
+    }
+    setResetandoId(null)
+  }
+
+  // ─── ativar/desativar acesso ───────────────────────────────────────────────
+  async function handleToggleAtivo(acessoId: string, ativo: boolean) {
+    const { error } = await supabase
+      .from('colaborador_acessos')
+      .update({ ativo: !ativo })
+      .eq('id', acessoId)
+    if (error) { toast.error('Erro ao alterar status'); return }
+    toast.success(!ativo ? 'Acesso ativado!' : 'Acesso desativado!')
+    setAcessos(prev => prev.map(a => a.id === acessoId ? { ...a, ativo: !ativo } : a))
+  }
+
+  // ─── excluir acesso ────────────────────────────────────────────────────────
+  async function handleExcluirAcesso(acessoId: string) {
+    const { error } = await supabase.from('colaborador_acessos').delete().eq('id', acessoId)
+    if (error) { toast.error('Erro ao excluir: ' + error.message); return }
+    toast.success('Acesso removido')
+    setAcessos(prev => prev.filter(a => a.id !== acessoId))
+  }
+
+  // formatar CPF
+  function formatCPF(cpf: string) {
+    const d = cpf.replace(/\D/g, '')
+    if (d.length !== 11) return cpf
+    return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9,11)}`
+  }
 
   async function handleSaveEncargos() {
     setSavingEncargos(true)
@@ -549,6 +694,7 @@ export default function Configuracoes() {
                   onClick={() => {
                     setCfgTab(item.id)
                     if (item.id === 'usuarios' && profiles.length === 0) fetchProfiles()
+                    if (item.id === 'acessos' && acessos.length === 0) { fetchAcessos(); fetchColabsDisponiveis() }
                   }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
@@ -1320,6 +1466,226 @@ export default function Configuracoes() {
               )}
             </div>
           </div>)}
+
+          {/* ── Tab Acesso Colaboradores ──────────────────────────────────── */}
+          {cfgTab === 'acessos' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+            {/* Banner informativo */}
+            <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'12px 16px', borderRadius:10, background:'#fffbeb', border:'1px solid #fcd34d' }}>
+              <Key size={18} style={{ color:'#d97706', marginTop:1, flexShrink:0 }} />
+              <div>
+                <div style={{ fontWeight:700, fontSize:13, color:'#92400e' }}>Painel de Controle de Acesso — Portal do Colaborador</div>
+                <div style={{ fontSize:12, color:'#b45309', marginTop:2 }}>
+                  Gerencie quem pode acessar o Portal. O login é feito pelo <strong>CPF</strong>.
+                  Novos acessos recebem a senha inicial <code style={{background:'#fef3c7', padding:'1px 4px', borderRadius:3}}>123</code> e o colaborador <strong>deverá trocar na primeira entrada</strong>.
+                  Use "Resetar Senha" para devolver à senha padrão caso o colaborador perca o acesso.
+                </div>
+              </div>
+            </div>
+
+            {/* Card: adicionar novo acesso */}
+            <div className="bg-card border border-border rounded-xl p-5">
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
+                <UserCheck size={16} style={{ color:'#16a34a' }} />
+                <h3 style={{ fontWeight:700, fontSize:14, margin:0 }}>Liberar Novo Acesso</h3>
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:10, alignItems:'flex-end' }}>
+                {/* Seletor de colaborador */}
+                <div>
+                  <label style={{ fontSize:12, fontWeight:600, color:'#475569', display:'block', marginBottom:4 }}>Colaborador</label>
+                  <select
+                    value={novoAcessoColabId}
+                    onChange={e => {
+                      const id = e.target.value
+                      setNovoAcessoColabId(id)
+                      // preencher CPF automaticamente se disponível
+                      const colab = colabsDisponiveis.find(c => c.id === id)
+                      if (colab?.cpf) setNovoAcessoCpf(colab.cpf.replace(/\D/g, ''))
+                    }}
+                    style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid var(--border)', fontSize:13, background:'var(--background)', color:'var(--foreground)' }}
+                  >
+                    <option value="">Selecione o colaborador...</option>
+                    {colabsDisponiveis.map(c => (
+                      <option key={c.id} value={c.id}>{c.nome}{c.cpf ? ` — ${formatCPF(c.cpf)}` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+                {/* CPF */}
+                <div>
+                  <label style={{ fontSize:12, fontWeight:600, color:'#475569', display:'block', marginBottom:4 }}>CPF (login)</label>
+                  <input
+                    type="text"
+                    value={novoAcessoCpf}
+                    onChange={e => setNovoAcessoCpf(e.target.value.replace(/\D/g, '').slice(0,11))}
+                    placeholder="somente números"
+                    maxLength={11}
+                    style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid var(--border)', fontSize:13, background:'var(--background)', color:'var(--foreground)' }}
+                  />
+                </div>
+                <button
+                  onClick={handleCriarAcesso}
+                  disabled={salvandoAcesso}
+                  style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 16px', borderRadius:8, background:'#16a34a', color:'#fff', border:'none', cursor:'pointer', fontSize:13, fontWeight:700, whiteSpace:'nowrap' }}
+                >
+                  {salvandoAcesso ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                  Liberar Acesso
+                </button>
+              </div>
+              <p style={{ fontSize:11, color:'#94a3b8', marginTop:8 }}>
+                💡 A senha inicial é <strong>123</strong>. No primeiro acesso, o sistema exigirá que o colaborador crie uma nova senha.
+              </p>
+            </div>
+
+            {/* Card: lista de acessos */}
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              {/* Header + busca */}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 20px', borderBottom:'1px solid var(--border)', gap:12 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <Key size={15} style={{ color:'#f59e0b' }} />
+                  <span style={{ fontWeight:700, fontSize:14 }}>Acessos Cadastrados</span>
+                  <span style={{ fontSize:11, background:'#f1f5f9', color:'#64748b', padding:'2px 8px', borderRadius:10, fontWeight:600 }}>
+                    {acessos.length}
+                  </span>
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <div style={{ position:'relative' }}>
+                    <Search size={13} style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', color:'#94a3b8' }} />
+                    <input
+                      value={buscarAcessos}
+                      onChange={e => setBuscarAcessos(e.target.value)}
+                      placeholder="Buscar por nome ou CPF..."
+                      style={{ paddingLeft:28, paddingRight:10, paddingTop:6, paddingBottom:6, borderRadius:7, border:'1px solid var(--border)', fontSize:12, background:'var(--background)', width:220 }}
+                    />
+                  </div>
+                  <button
+                    onClick={() => { fetchAcessos(); fetchColabsDisponiveis() }}
+                    style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 10px', borderRadius:7, border:'1px solid var(--border)', background:'var(--background)', cursor:'pointer', fontSize:12 }}
+                  >
+                    <RefreshCw size={13} /> Atualizar
+                  </button>
+                </div>
+              </div>
+
+              {loadingAcessos ? (
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:'40px 0' }}>
+                  <Loader2 size={22} className="animate-spin" style={{ color:'#94a3b8' }} />
+                </div>
+              ) : acessos.length === 0 ? (
+                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'48px 20px', gap:8 }}>
+                  <Key size={32} style={{ color:'#e2e8f0' }} />
+                  <p style={{ fontSize:14, color:'#94a3b8', margin:0 }}>Nenhum acesso cadastrado</p>
+                  <p style={{ fontSize:12, color:'#cbd5e1', margin:0 }}>Libere o acesso de colaboradores usando o formulário acima</p>
+                </div>
+              ) : (() => {
+                const filtrados = acessos.filter(a => {
+                  const q = buscarAcessos.toLowerCase()
+                  return !q || (a.colaborador_nome?.toLowerCase().includes(q) ?? false) || a.cpf.includes(q.replace(/\D/g,''))
+                })
+                return (
+                  <div style={{ overflowX:'auto' }}>
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                      <thead>
+                        <tr style={{ background:'var(--muted)', color:'var(--muted-foreground)' }}>
+                          <th style={{ textAlign:'left', padding:'10px 16px', fontWeight:600, fontSize:11, textTransform:'uppercase', letterSpacing:'0.04em' }}>Colaborador</th>
+                          <th style={{ textAlign:'left', padding:'10px 12px', fontWeight:600, fontSize:11, textTransform:'uppercase', letterSpacing:'0.04em' }}>CPF (login)</th>
+                          <th style={{ textAlign:'center', padding:'10px 12px', fontWeight:600, fontSize:11, textTransform:'uppercase', letterSpacing:'0.04em' }}>Senha</th>
+                          <th style={{ textAlign:'center', padding:'10px 12px', fontWeight:600, fontSize:11, textTransform:'uppercase', letterSpacing:'0.04em' }}>Status</th>
+                          <th style={{ textAlign:'left', padding:'10px 12px', fontWeight:600, fontSize:11, textTransform:'uppercase', letterSpacing:'0.04em' }}>Último Acesso</th>
+                          <th style={{ textAlign:'right', padding:'10px 16px', fontWeight:600, fontSize:11, textTransform:'uppercase', letterSpacing:'0.04em' }}>Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtrados.map((acesso, i) => (
+                          <tr key={acesso.id} style={{ borderTop:'1px solid var(--border)', background: i%2===0 ? 'var(--card)' : 'var(--background)' }}>
+                            {/* Colaborador */}
+                            <td style={{ padding:'10px 16px' }}>
+                              <div style={{ fontWeight:600 }}>{acesso.colaborador_nome}</div>
+                              <div style={{ fontSize:11, color:'#94a3b8', marginTop:1 }}>
+                                {acesso.colaborador_status === 'ativo' ? (
+                                  <span style={{ color:'#16a34a' }}>● Ativo</span>
+                                ) : (
+                                  <span style={{ color:'#dc2626' }}>● {acesso.colaborador_status}</span>
+                                )}
+                              </div>
+                            </td>
+                            {/* CPF */}
+                            <td style={{ padding:'10px 12px' }}>
+                              <code style={{ background:'#f1f5f9', padding:'2px 7px', borderRadius:4, fontSize:12, letterSpacing:'0.05em' }}>
+                                {formatCPF(acesso.cpf)}
+                              </code>
+                            </td>
+                            {/* Status da senha */}
+                            <td style={{ padding:'10px 12px', textAlign:'center' }}>
+                              {acesso.must_change_password ? (
+                                <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, background:'#fef3c7', color:'#b45309', padding:'3px 8px', borderRadius:10, fontWeight:600 }}>
+                                  <Lock size={11} /> Trocar
+                                </span>
+                              ) : (
+                                <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, background:'#dcfce7', color:'#16a34a', padding:'3px 8px', borderRadius:10, fontWeight:600 }}>
+                                  <Unlock size={11} /> OK
+                                </span>
+                              )}
+                            </td>
+                            {/* Ativo/Inativo */}
+                            <td style={{ padding:'10px 12px', textAlign:'center' }}>
+                              <Switch
+                                checked={acesso.ativo}
+                                onCheckedChange={() => handleToggleAtivo(acesso.id, acesso.ativo)}
+                              />
+                            </td>
+                            {/* Último acesso */}
+                            <td style={{ padding:'10px 12px', fontSize:12, color:'#64748b' }}>
+                              {acesso.ultimo_acesso
+                                ? new Date(acesso.ultimo_acesso).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
+                                : <span style={{ color:'#cbd5e1', fontStyle:'italic' }}>Nunca acessou</span>
+                              }
+                            </td>
+                            {/* Ações */}
+                            <td style={{ padding:'10px 16px', textAlign:'right' }}>
+                              <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end' }}>
+                                {/* Resetar senha */}
+                                <button
+                                  onClick={() => handleResetarSenha(acesso.id)}
+                                  disabled={resetandoId === acesso.id}
+                                  title="Resetar senha para 123"
+                                  style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 10px', borderRadius:6, border:'1px solid #fde68a', background:'#fffbeb', color:'#b45309', cursor:'pointer', fontSize:12, fontWeight:600 }}
+                                >
+                                  {resetandoId === acesso.id
+                                    ? <Loader2 size={12} className="animate-spin" />
+                                    : <RefreshCw size={12} />
+                                  }
+                                  Reset senha
+                                </button>
+                                {/* Excluir */}
+                                <button
+                                  onClick={() => {
+                                    if (confirm(`Remover acesso de ${acesso.colaborador_nome}? Esta ação não pode ser desfeita.`)) {
+                                      handleExcluirAcesso(acesso.id)
+                                    }
+                                  }}
+                                  title="Remover acesso"
+                                  style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 8px', borderRadius:6, border:'1px solid #fecaca', background:'#fff5f5', color:'#dc2626', cursor:'pointer', fontSize:12 }}
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {filtrados.length === 0 && (
+                      <div style={{ padding:'24px', textAlign:'center', fontSize:13, color:'#94a3b8' }}>
+                        Nenhum resultado para "{buscarAcessos}"
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+          )}
 
           </div>
         </div>

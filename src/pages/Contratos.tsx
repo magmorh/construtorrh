@@ -126,12 +126,15 @@ function buildVarMap(
   const fnData = c.funcoes as any
   const fmtHora = (v: number | null | undefined) =>
     v ? `R$ ${Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2})}` : ''
-  const valorHoraCLT  = fmtHora(fnData?.valor_hora_clt)
-  const valorHoraExt  = fmtHora(fnData?.valor_hora_autonomo)
+  const valorHoraCLT      = fmtHora(fnData?.valor_hora_clt)
+  const valorHoraExt      = fmtHora(fnData?.valor_hora_autonomo)
   const fmtHoraNum = (v: number | null | undefined) =>
     v ? Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2}) : ''
-  const valorHoraCLTNum = fmtHoraNum(fnData?.valor_hora_clt)
-  const valorHoraExtNum = fmtHoraNum(fnData?.valor_hora_autonomo)
+  const valorHoraCLTNum   = fmtHoraNum(fnData?.valor_hora_clt)
+  const valorHoraExtNum   = fmtHoraNum(fnData?.valor_hora_autonomo)
+  // Valor hora CLT por extenso (ex: "doze reais e onze centavos")
+  const valorHoraCLTExtVal = fnData?.valor_hora_clt ? Number(fnData.valor_hora_clt) : 0
+  const valorHoraCLTExtenso = valorHoraCLTExtVal > 0 ? valorPorExtenso(valorHoraCLTExtVal) : '[valor/hora não cadastrado]'
 
   // Descrição da função
   const fnDescricao = fnData?.descricao ?? ''
@@ -165,6 +168,11 @@ function buildVarMap(
     'Valor Hora CLT': valorHoraCLT,
     'Valor da Hora CLT': valorHoraCLT,
     'Hora CLT': valorHoraCLT,
+    // Hora CLT por extenso
+    'Valor Hora Extenso': valorHoraCLTExtenso,
+    'Valor da Hora Extenso': valorHoraCLTExtenso,
+    'Hora Extenso': valorHoraCLTExtenso,
+    'Hora CLT Extenso': valorHoraCLTExtenso,
     'Valor Hora Externo': valorHoraExt,
     'Valor da Hora Externo': valorHoraExt,
     'Hora Externa': valorHoraExt,

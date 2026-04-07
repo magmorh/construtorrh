@@ -117,7 +117,7 @@ async function buscarEpisDaFuncao(funcaoId: string | null | undefined, supabaseC
         <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${cat}</td>
         <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${ca}</td>
         <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${row.quantidade ?? 1}</td>
-        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+
       </tr>`
   }).join('')
 
@@ -130,7 +130,7 @@ async function buscarEpisDaFuncao(funcaoId: string | null | undefined, supabaseC
       <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:90px">Categoria</th>
       <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:70px">Nº CA</th>
       <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:50px">Qtd.</th>
-      <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:130px">Assinatura / Ciente</th>
+
     </tr>
   </thead>
   <tbody>${linhas}</tbody>

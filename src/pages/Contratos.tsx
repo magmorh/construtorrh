@@ -96,6 +96,47 @@ function valorPorExtenso(v: number | null | undefined): string {
   return inteiroStr
 }
 
+// ── Busca EPIs da função e retorna tabela HTML ────────────────────────────────
+async function buscarEpisDaFuncao(funcaoId: string | null | undefined, supabaseClient: any): Promise<string> {
+  if (!funcaoId) return '[Função não vinculada — EPIs não disponíveis]'
+  const { data, error } = await supabaseClient
+    .from('funcao_epi')
+    .select('*, epi_catalogo(id, nome, categoria, ca_numero)')
+    .eq('funcao_id', funcaoId)
+  if (error || !data || data.length === 0)
+    return '[Nenhum EPI cadastrado para esta função]'
+
+  const linhas = data.map((row: any, i: number) => {
+    const epi = row.epi_catalogo ?? {}
+    const cat = epi.categoria ? `${epi.categoria}` : '—'
+    const ca  = epi.ca_numero  ? `CA ${epi.ca_numero}` : '—'
+    return `
+      <tr style="background:${i % 2 === 0 ? '#fff' : '#f8fafc'}">
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;text-align:center;font-size:10pt">${i + 1}</td>
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-weight:600;font-size:10pt">${epi.nome ?? '—'}</td>
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${cat}</td>
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${ca}</td>
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${row.quantidade ?? 1}</td>
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+      </tr>`
+  }).join('')
+
+  return `
+<table style="width:100%;border-collapse:collapse;margin:8pt 0;font-family:Arial,sans-serif">
+  <thead>
+    <tr style="background:#1e3a5f;color:#fff">
+      <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:30px">#</th>
+      <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;text-align:left">Equipamento de Proteção Individual (EPI)</th>
+      <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:90px">Categoria</th>
+      <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:70px">Nº CA</th>
+      <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:50px">Qtd.</th>
+      <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:130px">Assinatura / Ciente</th>
+    </tr>
+  </thead>
+  <tbody>${linhas}</tbody>
+</table>`
+}
+
 function buildVarMap(
   c: ColaboradorRow | null,
   emp: { nome: string; cnpj: string; endereco: string; cidade: string; razaoSocial: string }
@@ -899,9 +940,15 @@ ${colabsLote.map((c, i) => paginaHtml(c, i)).join('')}
   }
 
   // ── preview em nova janela ─────────────────────────────────────────────────
-  function abrirPreview() {
+  async function abrirPreview() {
     if (!modeloSel) return
     const varMap = buildVarMap(colabSel, empData)
+    // Injetar tabela de EPIs se a variável estiver no conteúdo
+    const funcaoId = (colabSel?.funcoes as any)?.id ?? (colabSel as any)?.funcao_id ?? null
+    if (modeloSel.conteudo.includes('{{EPIs da Função}}') || modeloSel.conteudo.includes('{{Tabela EPIs}}')) {
+      varMap['EPIs da Função'] = await buscarEpisDaFuncao(funcaoId, supabase)
+      varMap['Tabela EPIs']    = varMap['EPIs da Função']
+    }
     let htmlConteudo = modeloSel.conteudo
     if (htmlConteudo.trimStart().startsWith('#') || (!htmlConteudo.includes('<') && htmlConteudo.includes('\n'))) {
       htmlConteudo = markdownToHtml(htmlConteudo)
@@ -941,6 +988,12 @@ table th { background:#f8fafc; font-weight:700; }
   async function gerarPDF() {
     if (!modeloSel) return
     const varMap = buildVarMap(colabSel, empData)
+    // EPIs da função
+    const funcaoIdPDF = (colabSel?.funcoes as any)?.id ?? (colabSel as any)?.funcao_id ?? null
+    if (modeloSel.conteudo.includes('{{EPIs da Função}}') || modeloSel.conteudo.includes('{{Tabela EPIs}}')) {
+      varMap['EPIs da Função'] = await buscarEpisDaFuncao(funcaoIdPDF, supabase)
+      varMap['Tabela EPIs']    = varMap['EPIs da Função']
+    }
     let htmlConteudo = modeloSel.conteudo
     if (htmlConteudo.trimStart().startsWith('#') || (!htmlConteudo.includes('<') && htmlConteudo.includes('\n')))
       htmlConteudo = markdownToHtml(htmlConteudo)
@@ -1799,6 +1852,7 @@ table th { background:#f8fafc; font-weight:700; }
                         { titulo: '🏗️ Obra / Local', vars: VARS_OBRA, border: '#fed7aa', bg: '#fff7ed', cor: '#c2410c' },
                         { titulo: '🏢 Empresa', vars: VARS_EMPRESA, border: '#bbf7d0', bg: '#dcfce7', cor: '#15803d' },
                         { titulo: '📅 Data', vars: VARS_DATA, border: '#fde68a', bg: '#fef3c7', cor: '#b45309' },
+                        { titulo: '🦺 EPIs', vars: [{ label: 'Tabela de EPIs da Função', value: 'EPIs da Função' }], border: '#fca5a5', bg: '#fff1f2', cor: '#dc2626' },
                       ].map(grupo => (
                         <div key={grupo.titulo}>
                           <div style={{ fontSize: 10, fontWeight: 800, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>{grupo.titulo}</div>

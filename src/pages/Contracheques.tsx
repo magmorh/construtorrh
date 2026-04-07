@@ -28,11 +28,11 @@ type Colaborador = {
 type Portal = {
   id: string
   colaborador_id: string
-  login: string
+  login: string          // cpf sem pontuação
   senha_hash: string
   ativo: boolean
   ultimo_acesso: string | null
-  acesso_contracheque: boolean
+  must_change_password: boolean
 }
 
 type Contracheque = {
@@ -65,7 +65,7 @@ function cpfSemPontuacao(cpf: string): string {
 }
 
 // Senha padrão: 123 — colaborador deverá trocar no primeiro acesso
-function defaultSenha(_cpf: string, _chapa: string): string {
+function defaultSenha(): string {
   return '123'
 }
 
@@ -301,8 +301,12 @@ export default function Contracheques() {
       .order('nome')
     setColaboradores((data as Colaborador[]) ?? [])
 
-    const { data: portData } = await supabase.from('colaboradores_portal').select('*')
-    setPortais((portData as Portal[]) ?? [])
+    const { data: portData } = await supabase
+      .from('colaborador_acessos')
+      .select('id, colaborador_id, cpf, senha_hash, ativo, ultimo_acesso, must_change_password')
+    // Normalizar: usar cpf como login para exibição
+    const portaisNorm = (portData ?? []).map((p: any) => ({ ...p, login: p.cpf }))
+    setPortais(portaisNorm as Portal[])
     setLoadingList(false)
   }, [])
 
@@ -338,18 +342,18 @@ export default function Contracheques() {
     if (!selected) return
     setCriandoLogin(true)
     try {
-      const login = cpfSemPontuacao(selected.cpf)
-      const senha = defaultSenha(selected.cpf, selected.chapa)
+      const cpf = cpfSemPontuacao(selected.cpf)
+      const senha = defaultSenha()
       const hash = await sha256(senha)
-      const { error } = await supabase.from('colaboradores_portal').insert({
+      const { error } = await supabase.from('colaborador_acessos').insert({
         colaborador_id: selected.id,
-        login,
+        cpf,
         senha_hash: hash,
         ativo: true,
-        acesso_contracheque: true,
+        must_change_password: true,
       })
       if (error) throw error
-      toast.success('Login criado! CPF: ' + login + ' / Senha: ' + senha)
+      toast.success('Login criado! CPF: ' + cpf + ' / Senha padrão: ' + senha)
       await carregarColaboradores()
     } catch (e: unknown) {
       toast.error('Erro: ' + (e instanceof Error ? e.message : String(e)))
@@ -363,11 +367,14 @@ export default function Contracheques() {
     if (!selected || !portalDoColab) return
     setResetandoSenha(true)
     try {
-      const senha = defaultSenha(selected.cpf, selected.chapa)
+      const senha = defaultSenha()
       const hash = await sha256(senha)
-      const { error } = await supabase.from('colaboradores_portal').update({ senha_hash: hash }).eq('id', portalDoColab.id)
+      const { error } = await supabase
+        .from('colaborador_acessos')
+        .update({ senha_hash: hash, must_change_password: true })
+        .eq('id', portalDoColab.id)
       if (error) throw error
-      toast.success('Senha redefinida para: ' + senha)
+      toast.success('Senha redefinida para: ' + senha + ' (colaborador deverá trocar no próximo acesso)')
     } catch (e: unknown) {
       toast.error('Erro: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
@@ -378,8 +385,8 @@ export default function Contracheques() {
   // ── Copiar credenciais ────────────────────────────────────────────────────
   function copiarCredenciais() {
     if (!selected || !portalDoColab) return
-    const senha = defaultSenha(selected.cpf, selected.chapa)
-    const txt = `Login: ${portalDoColab.login}\nSenha: ${senha}`
+    const cpf = portalDoColab.login
+    const txt = `Portal de Holerites\nURL: https://construtorrh-magmo.netlify.app/portal/contracheque\nCPF: ${cpf}\nSenha padrão: 123`
     navigator.clipboard.writeText(txt).then(() => toast.success('Credenciais copiadas!'))
   }
 
@@ -580,9 +587,17 @@ export default function Contracheques() {
                       </Button>
                     </div>
                   </div>
-                  <div style={{ fontSize: 12, color: '#64748b', padding: '0 4px' }}>
-                    Senha padrão: últimos 4 dígitos do CPF + primeiros 4 do chapa.
-                    URL do portal: <strong>/portal/contracheque</strong>
+                  <div style={{ fontSize: 12, color: '#64748b', padding: '0 4px', lineHeight: 1.7 }}>
+                    Senha padrão: <strong>123</strong> — colaborador deverá criar nova senha no primeiro acesso.<br />
+                    URL do portal:{' '}
+                    <a
+                      href="https://construtorrh-magmo.netlify.app/portal/contracheque"
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: '#0d3f56', fontWeight: 700, textDecoration: 'underline' }}
+                    >
+                      construtorrh-magmo.netlify.app/portal/contracheque
+                    </a>
                   </div>
                 </div>
               )}

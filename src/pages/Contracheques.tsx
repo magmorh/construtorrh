@@ -386,7 +386,7 @@ export default function Contracheques() {
   function copiarCredenciais() {
     if (!selected || !portalDoColab) return
     const cpf = portalDoColab.login
-    const txt = `Portal de Holerites\nURL: https://construtorrh-magmo.netlify.app/portal/contracheque\nCPF: ${cpf}\nSenha padrão: 123`
+    const txt = `Portal de Holerites\nURL: https://construtorrh-magmo.netlify.app/#/portal/contracheque\nCPF: ${cpf}\nSenha padrão: 123`
     navigator.clipboard.writeText(txt).then(() => toast.success('Credenciais copiadas!'))
   }
 
@@ -591,12 +591,12 @@ export default function Contracheques() {
                     Senha padrão: <strong>123</strong> — colaborador deverá criar nova senha no primeiro acesso.<br />
                     URL do portal:{' '}
                     <a
-                      href="https://construtorrh-magmo.netlify.app/portal/contracheque"
+                      href="https://construtorrh-magmo.netlify.app/#/portal/contracheque"
                       target="_blank"
                       rel="noreferrer"
                       style={{ color: '#0d3f56', fontWeight: 700, textDecoration: 'underline' }}
                     >
-                      construtorrh-magmo.netlify.app/portal/contracheque
+                      construtorrh-magmo.netlify.app/#/portal/contracheque
                     </a>
                   </div>
                 </div>

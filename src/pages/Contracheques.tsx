@@ -15,7 +15,7 @@ import { toast } from 'sonner'
 // ─── Types ─────────────────────────────────────────────────────────────────
 type Colaborador = {
   id: string; nome: string; chapa: string; cpf: string
-  funcao: string; tipo_contrato: string; status: string; salario: number | null
+  funcao: string; funcao_id: string | null; tipo_contrato: string; status: string; salario: number | null
 }
 
 type Portal = {
@@ -140,9 +140,14 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
       // 1 – Dados do colaborador
       const { data: colab } = await supabase
         .from('colaboradores')
-        .select('salario, funcao, tipo_contrato, data_admissao')
+        .select('salario_base, funcao_id, tipo_contrato, data_admissao, funcoes(nome)')
         .eq('id', colaborador.id)
         .single()
+      // normaliza campos
+      if (colab) {
+        ;(colab as any).salario = (colab as any).salario_base ?? null
+        ;(colab as any).funcao  = (colab as any).funcoes?.nome ?? colaborador.funcao ?? '—'
+      }
 
       // 2 – Lançamento de ponto (snapshot)
       const { data: lancs } = await supabase
@@ -566,11 +571,18 @@ export default function Contracheques() {
 
   const carregarColaboradores = useCallback(async () => {
     setLoadingList(true)
-    const { data } = await supabase.from('colaboradores')
-      .select('id,nome,chapa,cpf,funcao,tipo_contrato,status,salario')
-      .not('status', 'eq', 'inativo')
+    const { data, error: colErr } = await supabase.from('colaboradores')
+      .select('id,nome,chapa,cpf,funcao_id,tipo_contrato,status,salario_base,funcoes(nome)')
+      .in('status', ['ativo', 'afastado'])
+      .in('tipo_contrato', ['clt', 'menor_aprendiz', 'estagio'])
       .order('nome')
-    setColaboradores((data as Colaborador[]) ?? [])
+    if (colErr) console.error('[Contracheques] erro ao carregar colaboradores:', colErr.message)
+    const mapped = ((data ?? []) as any[]).map(c => ({
+      ...c,
+      funcao: c.funcoes?.nome ?? c.funcao_id ?? '—',
+      salario: c.salario_base ?? null,
+    })) as Colaborador[]
+    setColaboradores(mapped)
     const { data: portData } = await supabase.from('colaborador_acessos')
       .select('id,colaborador_id,cpf,senha_hash,ativo,ultimo_acesso,must_change_password')
     setPortais(((portData ?? []).map((p: any) => ({ ...p, login: p.cpf }))) as Portal[])

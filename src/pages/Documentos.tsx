@@ -21,7 +21,7 @@ import { toast } from 'sonner'
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Colaborador = {
   id: string; nome: string; chapa: string; status: string
-  funcao?: string | null; obra_id?: string | null
+  funcao?: string | null; obra_id?: string | null; funcao_id?: string | null
 }
 type Obra = { id: string; nome: string }
 
@@ -740,6 +740,39 @@ function AbaLote({ colaboradores, obras }: { colaboradores: Colaborador[]; obras
     setColabsSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
   }
 
+  // ── Função auxiliar: busca EPIs por funcao_id e retorna tabela HTML ────────
+  async function buscarEpisDaFuncaoLocal(funcaoId: string | null | undefined): Promise<string> {
+    if (!funcaoId) return '<em style="color:#999">[Função não vinculada — EPIs não disponíveis]</em>'
+    const { data, error } = await supabase
+      .from('funcao_epi')
+      .select('*, epi_catalogo(id, nome, categoria, ca_numero)')
+      .eq('funcao_id', funcaoId)
+    if (error || !data || data.length === 0)
+      return '<em style="color:#999">[Nenhum EPI cadastrado para esta função]</em>'
+    const linhas = (data as any[]).map((row, i) => {
+      const epi = row.epi_catalogo ?? {}
+      return `<tr style="background:${i % 2 === 0 ? '#fff' : '#f8fafc'}">
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;text-align:center;font-size:10pt">${i + 1}</td>
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-weight:600;font-size:10pt">${epi.nome ?? '—'}</td>
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${epi.categoria ?? '—'}</td>
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${epi.ca_numero ? `CA ${epi.ca_numero}` : '—'}</td>
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${row.quantidade ?? 1}</td>
+      </tr>`
+    }).join('')
+    return `<table style="width:100%;border-collapse:collapse;margin:8pt 0;font-family:Arial,sans-serif">
+  <thead>
+    <tr style="background:#1e3a5f;color:#fff">
+      <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:30px">#</th>
+      <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;text-align:left">Equipamento de Proteção Individual (EPI)</th>
+      <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:100px">Categoria</th>
+      <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:70px">Nº CA</th>
+      <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:50px">Qtd.</th>
+    </tr>
+  </thead>
+  <tbody>${linhas}</tbody>
+</table>`
+  }
+
   async function gerarLote() {
     if (!termoNome.trim()) { toast.warning('Informe o nome do documento'); return }
     if (colabsSel.length === 0) { toast.warning('Selecione ao menos um colaborador'); return }
@@ -747,6 +780,16 @@ function AbaLote({ colaboradores, obras }: { colaboradores: Colaborador[]; obras
 
     const colabsData = colaboradores.filter(c => colabsSel.includes(c.id))
     const dataHoje = new Date().toLocaleDateString('pt-BR')
+
+    // Pré-buscar EPIs para cada colaborador (uma chamada por funcao_id único)
+    const usaEpi = /\{\{(epis_funcao|tabela_epis|epi_tabela|EPIs da Função)\}\}/i.test(termoTexto)
+    const epiCache: Record<string, string> = {}
+    if (usaEpi) {
+      const funcaoIds = [...new Set(colabsData.map(c => (c as any).funcao_id).filter(Boolean))] as string[]
+      await Promise.all(funcaoIds.map(async fid => {
+        epiCache[fid] = await buscarEpisDaFuncaoLocal(fid)
+      }))
+    }
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -868,12 +911,18 @@ ${colabsData.map((colab, i) => `
     <div class="conteudo">
       ${
         termoTexto
-        ? termoTexto
-            .replace(/\{\{nome\}\}/gi, colab.nome)
-            .replace(/\{\{chapa\}\}/gi, colab.chapa || '—')
-            .replace(/\{\{funcao\}\}/gi, colab.funcao || '—')
-            .replace(/\{\{data\}\}/gi, dataHoje)
-            .split('\n').filter(l => l.trim()).map(l => `<p>${l}</p>`).join('')
+        ? (() => {
+            const epiHtml = usaEpi
+              ? epiCache[(colab as any).funcao_id ?? ''] ?? '<em style="color:#999">[EPI não encontrado]</em>'
+              : ''
+            return termoTexto
+              .replace(/\{\{nome\}\}/gi, colab.nome)
+              .replace(/\{\{chapa\}\}/gi, colab.chapa || '—')
+              .replace(/\{\{funcao\}\}/gi, colab.funcao || '—')
+              .replace(/\{\{data\}\}/gi, dataHoje)
+              .replace(/\{\{(epis_funcao|tabela_epis|epi_tabela|EPIs da Função)\}\}/gi, epiHtml)
+              .split('\n').filter(l => l.trim()).map(l => `<p>${l}</p>`).join('')
+          })()
         : `<p>Eu, <strong>${colab.nome}</strong>, portador(a) do CPF n.º ___ . ___ . ___ - __,
            declaro ter recebido, lido e concordo integralmente com os termos do presente documento,
            comprometendo-me a cumprir todas as disposições nele estabelecidas.</p>
@@ -941,7 +990,7 @@ ${colabsData.map((colab, i) => `
               <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 5 }}>
                 Conteúdo do documento
                 <span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 400, marginLeft: 6 }}>
-                  (use {'{{'+'nome}}'}, {'{{'+'funcao}}'}, {'{{'+'data}}'}, {'{{'+'chapa}}'} )
+                  (use {'{{'+'nome}}'}, {'{{'+'funcao}}'}, {'{{'+'data}}'}, {'{{'+'chapa}}'}, {'{{'+'epis_funcao}}'} )
                 </span>
               </label>
               <textarea value={termoTexto} onChange={e => setTermoTexto(e.target.value)}
@@ -955,7 +1004,8 @@ ${colabsData.map((colab, i) => `
               <code style={{ background: '#e2e8f0', borderRadius: 3, padding: '1px 4px' }}>{'{{nome}}'}</code> — nome completo<br/>
               <code style={{ background: '#e2e8f0', borderRadius: 3, padding: '1px 4px' }}>{'{{funcao}}'}</code> — função/cargo<br/>
               <code style={{ background: '#e2e8f0', borderRadius: 3, padding: '1px 4px' }}>{'{{data}}'}</code> — data de hoje<br/>
-              <code style={{ background: '#e2e8f0', borderRadius: 3, padding: '1px 4px' }}>{'{{chapa}}'}</code> — nº da chapa
+              <code style={{ background: '#e2e8f0', borderRadius: 3, padding: '1px 4px' }}>{'{{chapa}}'}</code> — nº da chapa<br/>
+              <code style={{ background: '#fef9c3', borderRadius: 3, padding: '1px 4px', color: '#b45309', border: '1px solid #fde68a' }}>{'{{epis_funcao}}'}</code> — 🦺 <strong>tabela de EPIs da função</strong> (busca automática)
             </div>
           </div>
         </div>

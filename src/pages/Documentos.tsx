@@ -187,55 +187,108 @@ function UploadArea({ uploading, fileName, fileUrl, onFile, onClear, fileRef }: 
   )
 }
 
-// ─── Visualizador de documento com paginação A4 ───────────────────────────────
+// ─── Visualizador de documento com paginação A4 real ─────────────────────────
+// Proporção A4: 210mm × 297mm → ratio 1:√2 ≈ 1:1.4142
+// A 96dpi: 794px × 1123px (padrão web para A4)
+const A4_W = 794   // px
+const A4_H = 1123  // px
+const A4_MARGIN = 28 // px (~7.5mm) — margem visual interna
+
 function DocViewer({ url, nome }: { url: string; nome: string }) {
-  const isPdf = nome.toLowerCase().endsWith('.pdf') || url.includes('.pdf')
+  const isPdf = /\.pdf($|\?)/i.test(nome) || /\.pdf($|\?)/i.test(url)
+
   return (
-    <div style={{ background: '#525659', padding: 24, minHeight: 400, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0 }}>
-      {/* Simulação de página A4 com margens */}
+    <div style={{
+      background: '#3c3f41',
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      overflowY: 'auto',
+      padding: '20px 16px 32px',
+      gap: 0,
+    }}>
+      {/* Barra de info + ações */}
       <div style={{
-        width: 794, maxWidth: '100%',
-        background: '#fff',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-        position: 'relative',
+        width: A4_W, maxWidth: '100%',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 10,
       }}>
-        {/* Indicador de página */}
-        <div style={{
-          position: 'absolute', top: -24, right: 0,
-          fontSize: 11, color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace',
-        }}>
-          A4 · 210×297mm
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', fontFamily: 'monospace', letterSpacing: 1 }}>
+          📄 A4 · 210 × 297 mm
+        </span>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <a href={url} target="_blank" rel="noreferrer"
+            style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
+              background:'rgba(255,255,255,0.12)', color:'#fff', borderRadius:6,
+              textDecoration:'none', fontSize:12, border:'1px solid rgba(255,255,255,0.18)' }}>
+            <ExternalLink size={12}/> Abrir
+          </a>
+          <a href={url} download={nome}
+            style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
+              background:'rgba(255,255,255,0.12)', color:'#fff', borderRadius:6,
+              textDecoration:'none', fontSize:12, border:'1px solid rgba(255,255,255,0.18)' }}>
+            <Download size={12}/> Baixar
+          </a>
         </div>
-        {isPdf ? (
-          <iframe
-            src={url + '#toolbar=0&navpanes=0&scrollbar=0'}
-            style={{ width: '100%', height: 1123, border: 'none', display: 'block' }}
-            title={nome}
-          />
-        ) : (
-          <img src={url} alt={nome}
-            style={{ width: '100%', display: 'block', maxHeight: 1123, objectFit: 'contain' }} />
-        )}
-        {/* Margens visuais */}
-        <div style={{
-          position: 'absolute', inset: 28, border: '1px dashed rgba(0,0,255,0.08)',
-          pointerEvents: 'none',
-        }} />
       </div>
 
-      <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
-        <a href={url} target="_blank" rel="noreferrer"
-          style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px',
-            background:'rgba(255,255,255,0.15)', color:'#fff', borderRadius:8,
-            textDecoration:'none', fontSize:13, border:'1px solid rgba(255,255,255,0.2)' }}>
-          <ExternalLink size={14} /> Abrir em nova aba
-        </a>
-        <a href={url} download={nome}
-          style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px',
-            background:'rgba(255,255,255,0.15)', color:'#fff', borderRadius:8,
-            textDecoration:'none', fontSize:13, border:'1px solid rgba(255,255,255,0.2)' }}>
-          <Download size={14} /> Baixar
-        </a>
+      {/* ── Folha A4 ── */}
+      <div style={{
+        width: A4_W,
+        maxWidth: '100%',
+        position: 'relative',
+        /* sombra realista de papel */
+        boxShadow: '0 2px 8px rgba(0,0,0,0.5), 0 8px 32px rgba(0,0,0,0.35)',
+      }}>
+        {isPdf ? (
+          /*
+           * embed renderiza PDFs com scroll nativo do browser,
+           * respeitando quebras de página do arquivo.
+           * height = múltiplos de A4_H para mostrar pelo menos 2 páginas;
+           * o usuário rola dentro do embed.
+           */
+          <embed
+            src={url + '#view=FitH&toolbar=0&navpanes=0'}
+            type="application/pdf"
+            style={{
+              display: 'block',
+              width: '100%',
+              height: A4_H * 2,   // mostra ~2 páginas; rola internamente
+              border: 'none',
+              background: '#fff',
+            }}
+          />
+        ) : (
+          /* Imagem: centralizada dentro de uma folha A4 com margens */
+          <div style={{
+            width: '100%',
+            minHeight: A4_H,
+            background: '#fff',
+            padding: A4_MARGIN,
+            boxSizing: 'border-box',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <img src={url} alt={nome}
+              style={{ maxWidth: '100%', maxHeight: A4_H - A4_MARGIN * 2, objectFit: 'contain', display: 'block' }}/>
+          </div>
+        )}
+
+        {/* Régua de margem — só exibição visual, não interfere no conteúdo */}
+        <div style={{
+          position: 'absolute',
+          top: A4_MARGIN, right: A4_MARGIN,
+          bottom: A4_MARGIN, left: A4_MARGIN,
+          border: '1px dashed rgba(30,58,95,0.12)',
+          pointerEvents: 'none',
+        }}/>
+      </div>
+
+      {/* Nota de rodapé */}
+      <div style={{ marginTop: 10, fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>
+        {nome}
       </div>
     </div>
   )
@@ -293,77 +346,166 @@ function AbaContratacao({ colaboradores, obras }: { colaboradores: Colaborador[]
     const colabsData = colaboradores.filter(c => colabsSel.includes(c.id))
     const docsData   = kitDocs.filter(d => docsSel.includes(d.id))
 
+    const dataHojeKit = new Date().toLocaleDateString('pt-BR')
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8"/>
   <title>Kit de Contratação — ${colabsData.length} colaborador(es)</title>
   <style>
-    @page { size: A4; margin: 25mm 20mm; }
-    * { box-sizing: border-box; font-family: Arial, sans-serif; }
-    body { margin: 0; padding: 0; }
-    .pagina { page-break-after: always; padding: 0; }
-    .pagina:last-child { page-break-after: avoid; }
-    .header { border-bottom: 2px solid #1e3a5f; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-start; }
-    .empresa { font-size: 11px; color: #666; text-align: right; }
-    h2 { font-size: 16px; color: #1e3a5f; margin: 0 0 4px; }
-    .colab-info { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px 16px; margin-bottom: 20px; }
-    .colab-info h3 { margin: 0 0 8px; font-size: 14px; color: #0f172a; }
-    .colab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-    .colab-field { font-size: 11px; color: #374151; }
-    .colab-field strong { display: block; color: #6b7280; font-weight: 500; font-size: 10px; text-transform: uppercase; }
-    .doc-item { border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 12px; padding: 14px 16px; }
-    .doc-titulo { font-size: 13px; font-weight: 700; color: #1e3a5f; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
-    .assinatura-area { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px; }
-    .assinatura-linha { border-top: 1px solid #374151; padding-top: 6px; font-size: 10px; color: #374151; }
-    .rodape { font-size: 9px; color: #9ca3af; text-align: center; margin-top: 20px; }
-    @media print { .pagina { page-break-after: always; } }
+    /*
+     * FOLHA A4 REAL
+     * @page define margens para impressão
+     * .pagina ocupa exatamente 1 folha A4 — sem overflow
+     */
+    @page {
+      size: A4 portrait;
+      margin: 20mm 20mm 20mm 20mm;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 210mm; font-family: Arial, Helvetica, sans-serif; font-size: 12pt; color: #1a1a1a; }
+    /* Cada .pagina = 1 folha impressa */
+    .pagina {
+      width: 210mm;
+      min-height: 257mm;          /* 297mm - 20mm top - 20mm bottom */
+      padding: 0;
+      page-break-after: always;
+      break-after: page;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    .pagina:last-child {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    /* Conteúdo cresce e empurra rodapé para baixo */
+    .corpo { flex: 1; }
+    /* Header */
+    .topo {
+      border-bottom: 2pt solid #1e3a5f;
+      padding-bottom: 8pt;
+      margin-bottom: 14pt;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+    .topo-titulo { font-size: 13pt; font-weight: 700; color: #1e3a5f; }
+    .topo-sub    { font-size: 8pt; color: #666; margin-top: 2pt; }
+    .topo-emp    { font-size: 8pt; color: #555; text-align: right; line-height: 1.5; }
+    /* Dados colaborador */
+    .colab-box {
+      background: #f7f9fc;
+      border: 1pt solid #d1d9e6;
+      border-radius: 3pt;
+      padding: 8pt 10pt;
+      margin-bottom: 12pt;
+    }
+    .colab-box h3 { font-size: 9pt; font-weight: 700; color: #1e3a5f; margin-bottom: 6pt; }
+    .colab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4pt 16pt; }
+    .campo { font-size: 8.5pt; color: #222; }
+    .campo-label { font-size: 7.5pt; color: #888; font-weight: 600; text-transform: uppercase; display: block; margin-bottom: 1pt; }
+    /* Corpo do documento */
+    .doc-titulo {
+      font-size: 10pt; font-weight: 700; color: #1e3a5f;
+      border-bottom: 1pt solid #dde3ed;
+      padding-bottom: 6pt; margin-bottom: 10pt;
+    }
+    .doc-corpo { font-size: 10.5pt; line-height: 1.85; color: #222; text-align: justify; }
+    .doc-corpo p { margin-bottom: 8pt; }
+    /* Assinaturas */
+    .assinaturas {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20pt;
+      margin-top: 30pt;
+    }
+    .ass-linha {
+      border-top: 1pt solid #1e3a5f;
+      padding-top: 5pt;
+      font-size: 8.5pt;
+      color: #333;
+      line-height: 1.6;
+    }
+    /* Rodapé fixo no fundo da página */
+    .rodape {
+      font-size: 7.5pt;
+      color: #aaa;
+      text-align: center;
+      border-top: 0.5pt solid #e5e7eb;
+      padding-top: 5pt;
+      margin-top: 16pt;
+    }
+    /* Separador visual (somente tela, some na impressão) */
+    @media screen {
+      .pagina {
+        background: #fff;
+        padding: 20mm;
+        margin: 0 auto 24px;
+        box-shadow: 0 2px 16px rgba(0,0,0,.18);
+      }
+      body { background: #525659; padding: 24px; }
+    }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .pagina { margin: 0; padding: 0; box-shadow: none; }
+    }
   </style>
 </head>
 <body>
 ${colabsData.map(colab => docsData.map((doc, di) => `
-  <div class="pagina">
-    <div class="header">
-      <div>
-        <h2>${doc.nome}</h2>
-        <div style="font-size:11px;color:#666;">Kit de Contratação · Emitido em ${new Date().toLocaleDateString('pt-BR')}</div>
-      </div>
-      <div class="empresa">Magmo Construtora<br/>CNPJ: __/__.__-__</div>
+<div class="pagina">
+  <div class="topo">
+    <div>
+      <div class="topo-titulo">${doc.nome}</div>
+      <div class="topo-sub">Kit de Contratação &nbsp;·&nbsp; Emitido em ${dataHojeKit}</div>
     </div>
+    <div class="topo-emp">Magmo Construtora<br/>CNPJ: __/__.__-__</div>
+  </div>
 
-    <div class="colab-info">
+  <div class="corpo">
+    <div class="colab-box">
       <h3>👷 Dados do Colaborador</h3>
       <div class="colab-grid">
-        <div class="colab-field"><strong>Nome completo</strong>${colab.nome}</div>
-        <div class="colab-field"><strong>Chapa</strong>${colab.chapa || '—'}</div>
-        <div class="colab-field"><strong>CPF</strong>___.___.___ -__</div>
-        <div class="colab-field"><strong>Data de admissão</strong>${new Date().toLocaleDateString('pt-BR')}</div>
-        <div class="colab-field"><strong>Função</strong>${colab.funcao || '—'}</div>
-        <div class="colab-field"><strong>Tipo de contrato</strong>___________</div>
+        <div class="campo"><span class="campo-label">Nome completo</span>${colab.nome}</div>
+        <div class="campo"><span class="campo-label">Chapa</span>${colab.chapa || '—'}</div>
+        <div class="campo"><span class="campo-label">CPF</span>___ . ___ . ___ - __</div>
+        <div class="campo"><span class="campo-label">Data de admissão</span>${dataHojeKit}</div>
+        <div class="campo"><span class="campo-label">Função</span>${colab.funcao || '—'}</div>
+        <div class="campo"><span class="campo-label">Tipo de contrato</span>_______________</div>
       </div>
     </div>
 
-    <div class="doc-item">
-      <div class="doc-titulo">📄 ${doc.nome}</div>
-      <div style="min-height:200px;font-size:12px;color:#374151;line-height:1.8;">
-        <p>Pelo presente instrumento, o(a) colaborador(a) <strong>${colab.nome}</strong>,
-        portador(a) do CPF n.º ___.___.___ -__, admitido(a) em ${new Date().toLocaleDateString('pt-BR')},
-        declara ter recebido, lido e compreendido o presente documento referente a <strong>${doc.nome}</strong>.</p>
-        <p style="color:#9ca3af;font-style:italic;">[Conteúdo específico do documento a ser preenchido pelo RH]</p>
-        <br/><br/><br/>
-      </div>
-      <div class="assinatura-area">
-        <div>
-          <div class="assinatura-linha">${colab.nome}<br/>Colaborador(a)</div>
+    <div class="doc-titulo">📄 ${doc.nome}</div>
+    <div class="doc-corpo">
+      <p>Pelo presente instrumento, o(a) colaborador(a) <strong>${colab.nome}</strong>,
+      portador(a) do CPF n.º ___ . ___ . ___ - __, admitido(a) em ${dataHojeKit},
+      declara ter recebido, lido e compreendido o presente documento referente a <strong>${doc.nome}</strong>,
+      comprometendo-se a cumprir todas as disposições nele contidas.</p>
+      <p><em style="color:#888;">[Complementar com o conteúdo específico deste documento]</em></p>
+    </div>
+
+    <div class="assinaturas">
+      <div>
+        <div class="ass-linha">
+          ${colab.nome}<br/>
+          Colaborador(a) &nbsp;·&nbsp; CPF: ___ . ___ . ___ - __
         </div>
-        <div>
-          <div class="assinatura-linha">___________________________<br/>Responsável RH · Data: ___/___/______</div>
+      </div>
+      <div>
+        <div class="ass-linha">
+          ___________________________<br/>
+          Responsável RH &nbsp;·&nbsp; Data: ____/____/________
         </div>
       </div>
     </div>
-
-    <div class="rodape">ConstrutorRH · Documento ${di + 1} de ${docsData.length} · ${colab.nome}</div>
   </div>
+
+  <div class="rodape">
+    ConstrutorRH &nbsp;·&nbsp; Documento ${di + 1} de ${docsData.length} &nbsp;·&nbsp; ${colab.nome} &nbsp;·&nbsp; ${dataHojeKit}
+  </div>
+</div>
 `).join('')).join('')}
 </body>
 </html>`
@@ -612,59 +754,130 @@ function AbaLote({ colaboradores, obras }: { colaboradores: Colaborador[]; obras
   <meta charset="UTF-8"/>
   <title>${termoNome} — ${colabsData.length} via(s)</title>
   <style>
-    @page { size: A4; margin: 25mm 20mm; }
-    * { box-sizing: border-box; font-family: Arial, sans-serif; }
-    body { margin: 0; }
-    .pagina { page-break-after: always; padding: 0; }
-    .pagina:last-child { page-break-after: avoid; }
-    .header { border-bottom: 2px solid #1e3a5f; padding-bottom: 14px; margin-bottom: 24px; display: flex; justify-content: space-between; }
-    h2 { font-size: 17px; color: #1e3a5f; margin: 0 0 4px; text-transform: uppercase; }
-    .sub { font-size: 11px; color: #666; }
-    .colab-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 16px; margin-bottom: 20px; }
-    .colab-nome { font-size: 15px; font-weight: 700; color: #0f172a; }
-    .colab-info { font-size: 11px; color: #64748b; margin-top: 3px; }
-    .conteudo { font-size: 13px; line-height: 1.9; color: #374151; margin-bottom: 30px; min-height: 220px; }
-    .assinaturas { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 30px; }
-    .ass-linha { border-top: 1px solid #1e3a5f; padding-top: 8px; font-size: 11px; color: #374151; }
-    .rodape { font-size: 9px; color: #9ca3af; text-align: center; margin-top: 20px; border-top: 1px solid #f1f5f9; padding-top: 8px; }
-    @media print { .pagina { page-break-after: always; } }
+    @page {
+      size: A4 portrait;
+      margin: 20mm 20mm 20mm 20mm;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 210mm; font-family: Arial, Helvetica, sans-serif; font-size: 12pt; color: #1a1a1a; }
+    .pagina {
+      width: 210mm;
+      min-height: 257mm;
+      padding: 0;
+      page-break-after: always;
+      break-after: page;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .pagina:last-child {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    .corpo { flex: 1; }
+    /* Topo */
+    .topo {
+      border-bottom: 2pt solid #1e3a5f;
+      padding-bottom: 8pt;
+      margin-bottom: 16pt;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+    .topo-titulo { font-size: 14pt; font-weight: 700; color: #1e3a5f; text-transform: uppercase; letter-spacing: 0.5pt; }
+    .topo-sub    { font-size: 8pt; color: #666; margin-top: 3pt; }
+    .topo-emp    { font-size: 8pt; color: #555; text-align: right; line-height: 1.5; }
+    /* Colaborador */
+    .colab-box {
+      background: #f7f9fc;
+      border: 1pt solid #d1d9e6;
+      border-left: 3pt solid #1e3a5f;
+      border-radius: 3pt;
+      padding: 8pt 12pt;
+      margin-bottom: 14pt;
+    }
+    .colab-nome { font-size: 12pt; font-weight: 700; color: #0f172a; }
+    .colab-detalhe { font-size: 8.5pt; color: #555; margin-top: 3pt; line-height: 1.6; }
+    /* Conteúdo */
+    .conteudo {
+      font-size: 10.5pt;
+      line-height: 1.9;
+      color: #222;
+      text-align: justify;
+    }
+    .conteudo p { margin-bottom: 8pt; }
+    /* Assinaturas */
+    .assinaturas {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24pt;
+      margin-top: 32pt;
+    }
+    .ass-linha {
+      border-top: 1pt solid #1e3a5f;
+      padding-top: 6pt;
+      font-size: 8.5pt;
+      color: #333;
+      line-height: 1.7;
+    }
+    /* Rodapé */
+    .rodape {
+      font-size: 7.5pt;
+      color: #aaa;
+      text-align: center;
+      border-top: 0.5pt solid #e5e7eb;
+      padding-top: 5pt;
+      margin-top: 16pt;
+    }
+    @media screen {
+      .pagina {
+        background: #fff;
+        padding: 20mm;
+        margin: 0 auto 24px;
+        box-shadow: 0 2px 16px rgba(0,0,0,.18);
+      }
+      body { background: #525659; padding: 24px; }
+    }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .pagina { margin: 0; padding: 0; box-shadow: none; }
+    }
   </style>
 </head>
 <body>
 ${colabsData.map((colab, i) => `
-  <div class="pagina">
-    <div class="header">
-      <div>
-        <h2>${termoNome}</h2>
-        <div class="sub">Emitido em ${dataHoje} · Via ${i + 1} de ${colabsData.length}</div>
-      </div>
-      <div style="text-align:right;font-size:11px;color:#666;">
-        Magmo Construtora<br/>
-        CNPJ: __/__.__-__
-      </div>
+<div class="pagina">
+  <div class="topo">
+    <div>
+      <div class="topo-titulo">${termoNome}</div>
+      <div class="topo-sub">Emitido em ${dataHoje} &nbsp;·&nbsp; Via ${i + 1} de ${colabsData.length}</div>
     </div>
+    <div class="topo-emp">Magmo Construtora<br/>CNPJ: __/__.__-__</div>
+  </div>
 
+  <div class="corpo">
     <div class="colab-box">
       <div class="colab-nome">👷 ${colab.nome}</div>
-      <div class="colab-info">
-        Chapa: ${colab.chapa || '—'} &nbsp;·&nbsp;
-        Função: ${colab.funcao || '—'} &nbsp;·&nbsp;
-        Obra: ${obras.find(o => o.id === colab.obra_id)?.nome || '—'}
+      <div class="colab-detalhe">
+        Chapa: <strong>${colab.chapa || '—'}</strong> &nbsp;·&nbsp;
+        Função: <strong>${colab.funcao || '—'}</strong> &nbsp;·&nbsp;
+        Obra: <strong>${obras.find(o => o.id === colab.obra_id)?.nome || '—'}</strong>
       </div>
     </div>
 
     <div class="conteudo">
-      ${termoTexto
+      ${
+        termoTexto
         ? termoTexto
             .replace(/\{\{nome\}\}/gi, colab.nome)
             .replace(/\{\{chapa\}\}/gi, colab.chapa || '—')
             .replace(/\{\{funcao\}\}/gi, colab.funcao || '—')
             .replace(/\{\{data\}\}/gi, dataHoje)
-            .split('\n').map(l => `<p>${l}</p>`).join('')
-        : `<p>Eu, <strong>${colab.nome}</strong>, portador(a) do CPF n.º ___.___.___ -__,
-           declaro ter recebido, lido e concordo com os termos do presente documento.</p>
-           <p style="color:#9ca3af;font-style:italic;">[Conteúdo do termo aqui]</p>
-           <br/><br/><br/>`
+            .split('\n').filter(l => l.trim()).map(l => `<p>${l}</p>`).join('')
+        : `<p>Eu, <strong>${colab.nome}</strong>, portador(a) do CPF n.º ___ . ___ . ___ - __,
+           declaro ter recebido, lido e concordo integralmente com os termos do presente documento,
+           comprometendo-me a cumprir todas as disposições nele estabelecidas.</p>
+           <p><em style="color:#aaa;">[Complemente com o conteúdo específico deste documento]</em></p>`
       }
     </div>
 
@@ -672,19 +885,22 @@ ${colabsData.map((colab, i) => `
       <div>
         <div class="ass-linha">
           <strong>${colab.nome}</strong><br/>
-          Colaborador(a) · CPF: ___.___.___ -__
+          Colaborador(a) &nbsp;·&nbsp; CPF: ___ . ___ . ___ - __
         </div>
       </div>
       <div>
         <div class="ass-linha">
           ___________________________<br/>
-          Responsável RH &nbsp;·&nbsp; Data: ___/___/______
+          Responsável RH &nbsp;·&nbsp; Data: ____/____/________
         </div>
       </div>
     </div>
-
-    <div class="rodape">ConstrutorRH · ${termoNome} · ${colab.nome} · ${dataHoje}</div>
   </div>
+
+  <div class="rodape">
+    ConstrutorRH &nbsp;·&nbsp; ${termoNome} &nbsp;·&nbsp; ${colab.nome} &nbsp;·&nbsp; ${dataHoje}
+  </div>
+</div>
 `).join('')}
 </body>
 </html>`

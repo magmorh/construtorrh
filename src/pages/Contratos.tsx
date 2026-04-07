@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react'
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useProfile } from '@/hooks/useProfile'
 import { supabase } from '@/lib/supabase'
 import type { Colaborador, Funcao, Obra } from '@/lib/supabase'
@@ -6,7 +6,8 @@ import { fetchEmpresaData, type EmpresaData } from '@/lib/relatorioHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
-import { Search, Plus, Pencil, Trash2, FileText, Eye, Printer, X, ChevronDown, Settings, Save, BookOpen, Briefcase, Layers, Building2, User, CheckCircle2 } from 'lucide-react'
+import { SearchableSelect } from '@/components/ui/searchable-select'
+import { Search, Plus, Pencil, Trash2, FileText, Eye, Printer, X, ChevronDown, Settings, Save, BookOpen, Briefcase, Layers, Building2, User, CheckCircle2, FileStack, UserCheck } from 'lucide-react'
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
 interface Modelo {
@@ -395,6 +396,7 @@ export default function Contratos() {
 
   // ── Kit de documentos padrão ────────────────────────────────────────────
   const [modalKit, setModalKit]           = useState(false)   // modal visualizar/configurar kit
+  const [kitColabId, setKitColabId]         = useState('')       // colab selecionado no kit
   const [gerandoKit, setGerandoKit]       = useState(false)
   const [kitGerado, setKitGerado]         = useState(false)
 
@@ -412,12 +414,18 @@ export default function Contratos() {
     localStorage.setItem('rh_kit_modelos', JSON.stringify(ids))
   }
 
-  // busca do painel esquerdo de colaboradores
-  const [buscaColabEsq, setBuscaColabEsq] = useState('')
-  const colabsEsqFiltrados = colaboradores.filter(c => {
-    const q = buscaColabEsq.toLowerCase()
-    return !q || c.nome.toLowerCase().includes(q) || (c.chapa ?? '').toLowerCase().includes(q)
-  })
+  // ── Modal Gerar Avulso ──────────────────────────────────────────────────
+  const [modalAvulso, setModalAvulso]         = useState(false)
+  const [avulsoStep, setAvulsoStep]           = useState<1|2>(1)   // 1=escolher colab, 2=escolher doc
+  const [avulsoColabId, setAvulsoColabId]     = useState('')
+  const [avulsoModeloId, setAvulsoModeloId]   = useState('')
+  const [gerandoAvulso, setGerandoAvulso]     = useState(false)
+
+  // ── Modal Gerar em Lote (novo fluxo) ────────────────────────────────────
+  const [modalNovoLote, setModalNovoLote]         = useState(false)
+  const [loteStep, setLoteStep]                   = useState<1|2>(1) // 1=escolher docs, 2=escolher colabs
+  const [loteModelosSel, setLoteModelosSel]       = useState<string[]>([])  // IDs dos modelos
+  const [buscaColabEsq, setBuscaColabEsq]         = useState('')
 
   // ── fetch ──────────────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -638,7 +646,8 @@ export default function Contratos() {
 
   // ── gerar Kit Padrão (1 colaborador, N modelos) ──────────────────────────
   async function gerarKitPadrao() {
-    if (!colabSel || kitModelosIds.length === 0) return
+    const colab = colaboradores.find(c => c.id === kitColabId) ?? colabSel
+    if (!colab || kitModelosIds.length === 0) { toast.error('Selecione um colaborador para o kit.'); return }
     const kitModelos = modelos.filter(m => kitModelosIds.includes(m.id))
     if (kitModelos.length === 0) { toast.warning('Nenhum modelo válido no kit'); return }
     setGerandoKit(true)
@@ -650,7 +659,7 @@ export default function Contratos() {
 
     const paginaHtml = (m: Modelo, idx: number) => {
       const cat    = CATEGORIAS[m.categoria] ?? CATEGORIAS.outro
-      const varMap = buildVarMap(colabSel, empData)
+      const varMap = buildVarMap(colab, empData)
       let html = m.conteudo
       if (html.trimStart().startsWith('#') || (!html.includes('<') && html.includes('\n')))
         html = markdownToHtml(html)
@@ -674,17 +683,17 @@ export default function Contratos() {
       </div>
       <div class="meta-right">
         Emitido em ${dataGer}<br/>
-        <strong>${colabSel.nome}</strong>${colabSel.chapa ? ' · ' + colabSel.chapa : ''}
+        <strong>${colab.nome}</strong>${colab.chapa ? ' · ' + colab.chapa : ''}
       </div>
     </div>
     <div class="conteudo">${html}</div>
     <div class="assinaturas">
       <div class="ass">${empData.nome || 'Empresa'}<br/><span>Representante Legal</span></div>
-      <div class="ass">${colabSel.nome}<br/><span>${(colabSel.funcoes as any)?.nome ?? 'Colaborador(a)'}</span></div>
+      <div class="ass">${colab.nome}<br/><span>${(colab.funcoes as any)?.nome ?? 'Colaborador(a)'}</span></div>
     </div>
   </div>
   <div class="rodape">
-    ${m.titulo} &nbsp;·&nbsp; ${colabSel.nome} &nbsp;·&nbsp; ${dataGer}
+    ${m.titulo} &nbsp;·&nbsp; ${colab.nome} &nbsp;·&nbsp; ${dataGer}
   </div>
 </div>`
     }
@@ -693,7 +702,7 @@ export default function Contratos() {
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"/>
-<title>Kit Padrão — ${colabSel.nome}</title>
+<title>Kit Padrão — ${colab.nome}</title>
 <style>
   @page { size: A4 portrait; margin: 12mm 14mm; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -753,13 +762,13 @@ ${kitModelos.map((m, i) => paginaHtml(m, i)).join('')}
 
     // Registrar no banco
     for (const m of kitModelos) {
-      const varMap = buildVarMap(colabSel, empData)
+      const varMap = buildVarMap(colab, empData)
       let html = m.conteudo
       if (html.trimStart().startsWith('#') || (!html.includes('<') && html.includes('\n')))
         html = markdownToHtml(html)
       await supabase.from('contratos_gerados').insert({
-        modelo_id: m.id, colaborador_id: colabSel.id,
-        titulo_gerado: `[Kit] ${m.titulo} — ${colabSel.nome}`,
+        modelo_id: m.id, colaborador_id: colab.id,
+        titulo_gerado: `[Kit] ${m.titulo} — ${colab.nome}`,
         conteudo_final: aplicarVariaveis(html, varMap),
       }).then(() => {})
     }
@@ -770,7 +779,7 @@ ${kitModelos.map((m, i) => paginaHtml(m, i)).join('')}
     setGerandoKit(false)
     setKitGerado(true)
     setTimeout(() => setKitGerado(false), 3000)
-    toast.success(`Kit com ${kitModelos.length} documento(s) gerado para ${colabSel.nome}!`)
+    toast.success(`Kit com ${kitModelos.length} documento(s) gerado para ${colab.nome}!`)
   }
 
   // ── geração em lote ───────────────────────────────────────────────────────
@@ -1159,15 +1168,29 @@ table th { background:#f8fafc; font-weight:700; }
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0' }}>
           {abaMain === 'gerar' && (
-            <button
-              onClick={() => setPainelModelosAberto(s => !s)}
-              style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 12px', borderRadius:7,
-                border: painelModelosAberto ? '1.5px solid #1e3a5f' : '1px solid var(--border)',
-                background: painelModelosAberto ? '#eff6ff' : 'var(--card)',
-                color: painelModelosAberto ? '#1e3a5f' : 'var(--muted-foreground)',
-                fontSize:12, fontWeight:700, cursor:'pointer' }}>
-              <FileText size={13}/> {painelModelosAberto ? '✕ Fechar lista' : '📋 Ver modelos'}
-            </button>
+            <div style={{ display:'flex', gap:8 }}>
+              <button
+                onClick={() => { setAvulsoStep(1); setAvulsoColabId(''); setAvulsoModeloId(''); setModalAvulso(true) }}
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 14px', borderRadius:8,
+                  border:'1.5px solid #0369a1', background:'#eff6ff', color:'#0369a1',
+                  fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                <UserCheck size={13}/> Gerar Avulso
+              </button>
+              <button
+                onClick={() => { setLoteStep(1); setLoteModelosSel([]); setBuscaLote(''); setFiltroObraLote(''); setFiltroFuncaoLote(''); setLoteSel(colaboradores.map(c => c.id)); setModalNovoLote(true) }}
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 14px', borderRadius:8,
+                  border:'1.5px solid #7c3aed', background:'#ede9fe', color:'#7c3aed',
+                  fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                <FileStack size={13}/> Gerar em Lote
+              </button>
+              <button
+                onClick={() => setModalKit(true)}
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 14px', borderRadius:8,
+                  border:'1.5px solid #b45309', background:'#fef3c7', color:'#b45309',
+                  fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                📋 Kit Padrão{kitModelosIds.length > 0 ? ` (${kitModelosIds.length})` : ''}
+              </button>
+            </div>
           )}
           {isAdmin && abaMain === 'modelos' && (
             <>
@@ -1189,324 +1212,72 @@ table th { background:#f8fafc; font-weight:700; }
 
       {/* ══ ABA: GERAR DOCUMENTO ════════════════════════════════════════════ */}
       {abaMain === 'gerar' && (
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
-
-          {/* ── PAINEL ESQUERDO: Colaboradores (estilo Ponto) ── */}
-          <div style={{ width: 260, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-            {/* Cabeçalho escuro */}
-            <div style={{ padding: '12px 12px 8px', background: '#1e3a5f', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontWeight: 700, fontSize: 13, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
-                👤 Selecionar Colaborador
-              </div>
-              <div style={{ position: 'relative' }}>
-                <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
-                <input
-                  value={buscaColabEsq}
-                  onChange={e => setBuscaColabEsq(e.target.value)}
-                  placeholder="Nome ou chapa…"
-                  style={{ width: '100%', height: 33, border: '1px solid #334155', borderRadius: 7, paddingLeft: 28, paddingRight: 8, fontSize: 12, background: '#0f172a', color: '#fff', boxSizing: 'border-box' }}
-                />
-              </div>
-              <div style={{ fontSize: 10, color: '#94a3b8' }}>
-                {colabSel
-                  ? <span style={{ color: '#86efac', fontWeight: 700 }}>✓ {colabSel.nome}</span>
-                  : `${colabsEsqFiltrados.length} colaborador(es)`
-                }
-              </div>
-            </div>
-
-            {/* Lista colaboradores */}
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              {loading ? (
-                <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>Carregando…</div>
-              ) : colabsEsqFiltrados.length === 0 ? (
-                <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>Nenhum colaborador</div>
-              ) : colabsEsqFiltrados.map(c => {
-                const sel = colabSel?.id === c.id
-                return (
-                  <div
-                    key={c.id}
-                    onClick={() => setColabSel(sel ? null : c)}
-                    style={{
-                      padding: '10px 12px', cursor: 'pointer',
-                      borderBottom: '1px solid var(--border)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                      background: sel ? 'hsl(var(--primary)/.10)' : 'transparent',
-                      borderLeft: `3px solid ${sel ? 'hsl(var(--primary))' : 'transparent'}`,
-                    }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: sel ? 700 : 500, fontSize: 13, color: sel ? 'hsl(var(--primary))' : 'var(--foreground)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.nome}</div>
-                      <div style={{ fontSize: 10, color: 'var(--muted-foreground)', marginTop: 1 }}>
-                        {c.chapa} {(c.funcoes as any)?.nome ? `· ${(c.funcoes as any).nome}` : ''}
-                      </div>
-                    </div>
-                    {sel && (
-                      <span style={{ background: 'hsl(var(--primary))', color: '#fff', borderRadius: 20, padding: '1px 7px', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>✓</span>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Rodapé: colaborador selecionado + botão Kit Padrão */}
-            {colabSel && (
-              <div style={{ padding: '8px 10px', borderTop: '1px solid var(--border)', background: '#f0fdf4', flexShrink: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 6 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#15803d', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{colabSel.nome}</div>
-                    <div style={{ fontSize: 10, color: '#64748b' }}>{colabSel.chapa}</div>
-                  </div>
-                  <button onClick={() => setColabSel(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 2, flexShrink: 0 }}><X size={13} /></button>
-                </div>
-                {/* Botão Kit Padrão — sempre abre o modal */}
-                <button
-                  onClick={() => setModalKit(true)}
-                  disabled={gerandoKit}
-                  style={{
-                    width: '100%', height: 34, borderRadius: 8, border: 'none', cursor: 'pointer',
-                    background: kitGerado
-                      ? '#16a34a'
-                      : gerandoKit
-                        ? '#94a3b8'
-                        : 'linear-gradient(135deg,#b45309,#d97706)',
-                    color: '#fff', fontWeight: 700, fontSize: 12,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    transition: 'all .2s',
-                  }}
-                >
-                  {kitGerado
-                    ? <><CheckCircle2 size={14}/> Kit gerado!</>
-                    : gerandoKit
-                      ? 'Gerando…'
-                      : <><span style={{ fontSize: 14 }}>📋</span> Kit Padrão{kitModelosIds.length > 0 ? ` (${kitModelosIds.length} docs)` : ''}</>
-                  }
-                </button>
-              </div>
-            )}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 40, overflow: 'auto', background: '#f8fafc' }}>
+          <div style={{ textAlign: 'center', marginBottom: 40 }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>📄</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: '#0f172a', marginBottom: 6 }}>Gerar Documentos</div>
+            <div style={{ fontSize: 14, color: '#64748b' }}>Use os botões acima para gerar documentos avulsos, em lote ou o kit padrão de admissão.</div>
           </div>
 
-          {/* ── PAINEL CENTRAL: Lista de Modelos — overlay sobre painel direito ── */}
-          {painelModelosAberto && (
-          <>
-          {/* Overlay escuro clicável para fechar */}
-          <div onClick={() => setPainelModelosAberto(false)} style={{ position: 'absolute', top: 0, left: 260, right: 0, bottom: 0, zIndex: 19, background: 'rgba(0,0,0,.18)', cursor: 'pointer' }}/>
-          <div style={{ position: 'absolute', top: 0, left: 260, bottom: 0, width: 290, zIndex: 20, boxShadow: '4px 0 24px rgba(0,0,0,.13)', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff', borderRight: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20, width: '100%', maxWidth: 820 }}>
 
-            <div style={{ padding: '10px 10px 6px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--foreground)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>📋 Escolha o Documento</span>
-                <button onClick={() => setPainelModelosAberto(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, display: 'flex', alignItems: 'center' }}>
-                  <X size={14}/>
-                </button>
+            {/* Card Gerar Avulso */}
+            <div
+              onClick={() => { setAvulsoStep(1); setAvulsoColabId(''); setAvulsoModeloId(''); setModalAvulso(true) }}
+              style={{ background: '#fff', borderRadius: 16, border: '2px solid #bae6fd', padding: '28px 24px', cursor: 'pointer', transition: 'all .18s', boxShadow: '0 2px 12px rgba(3,105,161,.07)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#0369a1'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 24px rgba(3,105,161,.18)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#bae6fd'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 12px rgba(3,105,161,.07)' }}
+            >
+              <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>👤</div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16, color: '#0369a1', marginBottom: 4 }}>Gerar Avulso</div>
+                <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>Selecione um colaborador e escolha o documento que deseja gerar</div>
               </div>
-              <div style={{ position: 'relative' }}>
-                <Search size={12} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar modelo…"
-                  style={{ width: '100%', height: 30, paddingLeft: 26, borderRadius: 6, border: '1px solid var(--border)', background: '#fff', fontSize: 12, color: 'var(--foreground)', outline: 'none', boxSizing: 'border-box' }} />
+              <div style={{ marginTop: 4, padding: '6px 16px', borderRadius: 20, background: '#eff6ff', color: '#0369a1', fontSize: 12, fontWeight: 700, border: '1px solid #bae6fd' }}>
+                Para 1 colaborador
               </div>
-              {/* Filtro categoria — scroll horizontal */}
-              <div style={{ display: 'flex', gap: 3, overflowX: 'auto', paddingBottom: 2 }}>
-                {ALL_CATS.map(cat => {
-                  const info = CATEGORIAS[cat]
-                  const ativo = catFiltro === cat
-                  return (
-                    <button key={cat} onClick={() => setCatFiltro(cat)}
-                      style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, border: `1.5px solid ${ativo ? (info?.cor ?? '#1e3a5f') : '#e2e8f0'}`, background: ativo ? (info?.bg ?? '#e2e8f0') : '#fff', color: ativo ? (info?.cor ?? '#1e3a5f') : '#64748b' }}>
-                      {cat === 'todos' ? 'Todos' : info?.label}
-                    </button>
-                  )
-                })}
-              </div>
-              <div style={{ fontSize: 10, color: '#94a3b8' }}>{modelosFiltrados.length} modelo(s)</div>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              {loading ? (
-                <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>Carregando…</div>
-              ) : modelosFiltrados.length === 0 ? (
-                <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>Nenhum modelo encontrado</div>
-              ) : modelosFiltrados.map(m => {
-                const cat = CATEGORIAS[m.categoria] ?? CATEGORIAS.outro
-                const sel = modeloSel?.id === m.id
-                return (
-                  <div key={m.id} onClick={() => setModeloSel(sel ? null : m)}
-                    style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)', background: sel ? 'hsl(var(--primary)/.08)' : 'transparent', borderLeft: `3px solid ${sel ? 'hsl(var(--primary))' : 'transparent'}` }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ display: 'inline-block', background: cat.bg, color: cat.cor, borderRadius: 8, padding: '1px 6px', fontSize: 9, fontWeight: 700, marginBottom: 3 }}>{cat.emoji} {cat.label}</span>
-                        <div style={{ fontSize: 12, fontWeight: sel ? 700 : 600, color: sel ? 'hsl(var(--primary))' : 'var(--foreground)', lineHeight: 1.3 }}>{m.titulo}</div>
-                        {m.descricao && <div style={{ fontSize: 10, color: '#64748b', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.descricao}</div>}
-                      </div>
-                      {sel && <span style={{ fontSize: 16, color: 'hsl(var(--primary))', flexShrink: 0, marginTop: 2 }}>✓</span>}
-                    </div>
-                  </div>
-                )
-              })}
+            {/* Card Gerar em Lote */}
+            <div
+              onClick={() => { setLoteStep(1); setLoteModelosSel([]); setBuscaLote(''); setFiltroObraLote(''); setFiltroFuncaoLote(''); setLoteSel(colaboradores.map(c => c.id)); setModalNovoLote(true) }}
+              style={{ background: '#fff', borderRadius: 16, border: '2px solid #c4b5fd', padding: '28px 24px', cursor: 'pointer', transition: 'all .18s', boxShadow: '0 2px 12px rgba(124,58,237,.07)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#7c3aed'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 24px rgba(124,58,237,.18)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#c4b5fd'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 12px rgba(124,58,237,.07)' }}
+            >
+              <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#ede9fe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>📦</div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16, color: '#7c3aed', marginBottom: 4 }}>Gerar em Lote</div>
+                <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>Escolha 1 ou mais documentos e gere para múltiplos colaboradores com filtros por função ou obra</div>
+              </div>
+              <div style={{ marginTop: 4, padding: '6px 16px', borderRadius: 20, background: '#ede9fe', color: '#7c3aed', fontSize: 12, fontWeight: 700, border: '1px solid #c4b5fd' }}>
+                Para vários colaboradores
+              </div>
             </div>
-          </div>
-          </>
-          )}
 
-          {/* ── PAINEL DIREITO: Preview + Ações ── */}
-          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            {!modeloSel ? (
-              !colabSel ? (
-                /* ── Estado vazio: nenhum colaborador ── */
-                <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:32 }}>
-                  <div style={{ textAlign:'center', color:'#94a3b8' }}>
-                    <div style={{ fontSize:52, marginBottom:14 }}>📋</div>
-                    <div style={{ fontSize:16, fontWeight:700, color:'#475569', marginBottom:6 }}>Selecione um colaborador</div>
-                    <div style={{ fontSize:13, lineHeight:1.6 }}>Use o painel à esquerda para escolher o colaborador e gerar os documentos.</div>
-                  </div>
-                </div>
-              ) : (
-                /* ── Colaborador selecionado: ações principais ── */
-                <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:32 }}>
-                  <div style={{ width:'100%', maxWidth:480, display:'flex', flexDirection:'column', gap:16 }}>
+            {/* Card Kit Padrão */}
+            <div
+              onClick={() => setModalKit(true)}
+              style={{ background: '#fff', borderRadius: 16, border: '2px solid #fcd34d', padding: '28px 24px', cursor: 'pointer', transition: 'all .18s', boxShadow: '0 2px 12px rgba(180,83,9,.07)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#b45309'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 24px rgba(180,83,9,.18)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#fcd34d'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 12px rgba(180,83,9,.07)' }}
+            >
+              <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>📋</div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16, color: '#b45309', marginBottom: 4 }}>Kit Padrão</div>
+                <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>Gere todos os documentos do kit de admissão de uma vez para 1 colaborador, função ou obra</div>
+              </div>
+              <div style={{ marginTop: 4, padding: '6px 16px', borderRadius: 20, background: '#fef3c7', color: '#b45309', fontSize: 12, fontWeight: 700, border: '1px solid #fcd34d' }}>
+                {kitModelosIds.length > 0 ? `${kitModelosIds.length} documento(s) no kit` : 'Configurar kit'}
+              </div>
+            </div>
 
-                    {/* Card do colaborador */}
-                    <div style={{ background:'#fff', borderRadius:14, border:'1px solid #e2e8f0', padding:'16px 20px', display:'flex', alignItems:'center', gap:14, boxShadow:'0 1px 6px rgba(0,0,0,.05)' }}>
-                      <div style={{ width:44, height:44, borderRadius:'50%', background:'linear-gradient(135deg,#0d3f56,#1e5c7a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                        <span style={{ color:'#fff', fontSize:18, fontWeight:800 }}>{colabSel.nome.charAt(0)}</span>
-                      </div>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontWeight:800, fontSize:15, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{colabSel.nome}</div>
-                        <div style={{ fontSize:12, color:'#64748b', marginTop:2 }}>
-                          {colabSel.chapa ? `Chapa ${colabSel.chapa}` : ''}
-                          {colabSel.chapa && colabSel.funcoes?.nome ? ' · ' : ''}
-                          {colabSel.funcoes?.nome ?? ''}
-                        </div>
-                      </div>
-                      <span style={{ fontSize:10, fontWeight:700, padding:'3px 8px', borderRadius:8, background:'#f0fdf4', color:'#15803d', border:'1px solid #bbf7d0', whiteSpace:'nowrap' }}>
-                        ✓ Selecionado
-                      </span>
-                    </div>
-
-                    {/* Botão Kit Padrão — principal */}
-                    <button
-                      onClick={gerarKitPadrao}
-                      disabled={kitModelosIds.length === 0}
-                      style={{
-                        display:'flex', alignItems:'center', justifyContent:'center', gap:10,
-                        height:56, borderRadius:12, border:'none',
-                        background: kitModelosIds.length > 0
-                          ? 'linear-gradient(135deg,#b45309,#d97706)'
-                          : '#e2e8f0',
-                        color: kitModelosIds.length > 0 ? '#fff' : '#94a3b8',
-                        fontWeight:800, fontSize:15, cursor: kitModelosIds.length > 0 ? 'pointer' : 'not-allowed',
-                        boxShadow: kitModelosIds.length > 0 ? '0 4px 16px rgba(180,83,9,.3)' : 'none',
-                        transition:'all .2s',
-                      }}
-                    >
-                      <span style={{ fontSize:20 }}>📋</span>
-                      Kit Padrão
-                      {kitModelosIds.length > 0
-                        ? <span style={{ fontSize:12, background:'rgba(255,255,255,.25)', padding:'2px 8px', borderRadius:20 }}>{kitModelosIds.length} doc{kitModelosIds.length > 1 ? 's' : ''}</span>
-                        : <span style={{ fontSize:12 }}>— configure o kit primeiro</span>}
-                    </button>
-
-                    {kitModelosIds.length === 0 && (
-                      <button onClick={() => setModalKit(true)}
-                        style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, height:36, borderRadius:9, border:'1.5px dashed #fcd34d', background:'#fefce8', color:'#92400e', fontSize:12, fontWeight:600, cursor:'pointer' }}>
-                        ⚙️ Configurar Kit Padrão
-                      </button>
-                    )}
-
-                    {/* Divisor */}
-                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                      <div style={{ flex:1, height:1, background:'#e2e8f0' }}/>
-                      <span style={{ fontSize:11, color:'#94a3b8', fontWeight:500 }}>ou escolha um modelo específico</span>
-                      <div style={{ flex:1, height:1, background:'#e2e8f0' }}/>
-                    </div>
-
-                    {/* Botão Ver Modelos — secundário */}
-                    <button onClick={() => setPainelModelosAberto(true)}
-                      style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, height:44, borderRadius:10, border:'1.5px solid #cbd5e1', background:'#fff', color:'#475569', fontWeight:700, fontSize:13, cursor:'pointer', transition:'all .15s' }}>
-                      <FileText size={15}/> Ver lista de modelos
-                    </button>
-
-                    {/* Configurar kit */}
-                    {kitModelosIds.length > 0 && (
-                      <button onClick={() => setModalKit(true)}
-                        style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, height:32, borderRadius:8, border:'none', background:'none', color:'#94a3b8', fontSize:12, cursor:'pointer', textDecoration:'underline' }}>
-                        ⚙️ Editar Kit Padrão ({kitModelosIds.length} documentos)
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )
-            ) : (
-              <>
-                {/* Header do preview */}
-                <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, gap: 10, flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>
-                      📄 {modeloSel.titulo}
-                    </span>
-                    {colabSel ? (
-                      <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#15803d', fontWeight: 700 }}>👤 {colabSel.nome}</span>
-                    ) : (
-                      <span style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#b45309', fontWeight: 600 }}>⚠️ Sem colaborador</span>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                    <button onClick={abrirPreview}
-                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: '1px solid #0369a1', background: '#eff6ff', color: '#0369a1', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                      <Eye size={13} /> Pré-visualizar
-                    </button>
-                    <button
-                      onClick={() => {
-                        setLoteSel(colaboradores.map(c => c.id))
-                        setBuscaLote('')
-                        setFiltroObraLote('')
-                        setFiltroFuncaoLote('')
-                        setModalLote(true)
-                      }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: '1.5px solid #7c3aed', background: '#ede9fe', color: '#7c3aed', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                      <Layers size={13} /> Gerar em Lote
-                    </button>
-                    <button onClick={gerarPDF}
-                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 7, border: '2px solid #059669', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', fontSize: 12, fontWeight: 800, cursor: 'pointer', boxShadow: '0 2px 8px rgba(5,150,105,.25)' }}>
-                      <Printer size={13} /> Gerar PDF com Timbre
-                    </button>
-                  </div>
-                </div>
-
-                {/* Preview do documento — folha A4 com fundo cinza */}
-                <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px 32px', background: '#3c3f41' }}>
-                  {/* Rótulo */}
-                  <div style={{ maxWidth: 794, margin: '0 auto 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', fontFamily: 'monospace', letterSpacing: 1 }}>📄 A4 · 210 × 297 mm — Preview</span>
-                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace' }}>Timbre + Assinatura incluídos na versão impressa</span>
-                  </div>
-                  {/* Folha branca */}
-                  <div style={{ background: '#fff', maxWidth: 794, margin: '0 auto', boxShadow: '0 2px 12px rgba(0,0,0,.5), 0 8px 32px rgba(0,0,0,.3)', overflow: 'hidden', position: 'relative' }}>
-                    {/* Régua de margem */}
-                    <div style={{ position: 'absolute', top: 28, right: 28, bottom: 28, left: 28, border: '1px dashed rgba(30,58,95,0.1)', pointerEvents: 'none', zIndex: 1 }} />
-                    {/* Mini cabeçalho timbrado */}
-                    <div style={{ background: '#1e3a5f', color: '#fff', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                      {empData.logoUrl
-                        ? <img src={empData.logoUrl} alt="Logo" style={{ height: 32, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} onError={e => (e.currentTarget.style.display='none')} />
-                        : <span style={{ fontSize: 20 }}>🏗️</span>}
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: '.04em' }}>{empData.nome || 'EMPRESA'}</div>
-                        {empData.cnpj && <div style={{ fontSize: 9, color: '#93c5fd' }}>CNPJ: {empData.cnpj}</div>}
-                      </div>
-                    </div>
-                    <div style={{ height: 3, background: '#1e3a5f', borderBottom: '1px solid #93c5fd' }} />
-                    <div style={{ padding: '24px 28px', fontFamily: "'Times New Roman',Georgia,serif", fontSize: '12pt', lineHeight: 1.6, color: '#1a1a1a' }}
-                      dangerouslySetInnerHTML={{ __html: previewHtml }} />
-                  </div>
-                </div>
-              </>
-            )}
           </div>
         </div>
       )}
 
-      {/* ══ ABA: MODELOS (somente admin) ════════════════════════════════════ */}
+
+            {/* ══ ABA: MODELOS (somente admin) ════════════════════════════════════ */}
       {abaMain === 'modelos' && isAdmin && (
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
@@ -2123,6 +1894,394 @@ table th { background:#f8fafc; font-weight:700; }
         </div>
       )}
 
+      {/* ══ MODAL: Gerar Avulso ═══════════════════════════════════════════ */}
+      {modalAvulso && (() => {
+        const avulsoColab = colaboradores.find(c => c.id === avulsoColabId) ?? null
+        const avulsoModelo = modelos.find(m => m.id === avulsoModeloId) ?? null
+        const colabOptions = colaboradores.map(c => ({
+          value: c.id,
+          label: c.nome,
+          sublabel: [c.chapa, (c.funcoes as any)?.nome].filter(Boolean).join(' · '),
+        }))
+        const modeloOptions = modelos.map(m => ({
+          value: m.id,
+          label: m.titulo,
+          sublabel: (CATEGORIAS[m.categoria] ?? CATEGORIAS.outro).label,
+        }))
+        async function gerarAvulso() {
+          if (!avulsoColab || !avulsoModelo) return
+          setGerandoAvulso(true)
+          try {
+            const varMap = buildVarMap(avulsoColab as ColaboradorRow, empData)
+            if (avulsoModelo.conteudo.includes('{{EPIs da Função}}') || avulsoModelo.conteudo.includes('{{Tabela EPIs}}')) {
+              const fid = (avulsoColab as any)?.funcao_id ?? null
+              varMap['EPIs da Função'] = await buscarEpisDaFuncao(fid, supabase)
+              varMap['Tabela EPIs'] = varMap['EPIs da Função']
+            }
+            let htmlConteudo = avulsoModelo.conteudo
+            if (htmlConteudo.trimStart().startsWith('#') || (!htmlConteudo.includes('<') && htmlConteudo.includes('\n')))
+              htmlConteudo = markdownToHtml(htmlConteudo)
+            htmlConteudo = aplicarVariaveis(htmlConteudo, varMap)
+            const cat = CATEGORIAS[avulsoModelo.categoria] ?? CATEGORIAS.outro
+            const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
+<title>${avulsoModelo.titulo} — ${avulsoColab.nome}</title>
+<style>* { box-sizing:border-box;margin:0;padding:0; } body{background:#525659;font-family:'Times New Roman',Georgia,serif;padding:24px;}
+.page{max-width:700px;margin:0 auto 24px;background:#fff;border-radius:6px;padding:0;box-shadow:0 2px 16px rgba(0,0,0,.3);}
+.header{background:#1e3a5f;color:#fff;padding:10px 20px;display:flex;align-items:center;gap:10px;border-radius:6px 6px 0 0;}
+.header-logo{font-size:22px;}
+.header-nome{font-size:13px;font-weight:800;letter-spacing:.04em;}
+.header-cnpj{font-size:9px;color:#93c5fd;}
+.header-line{height:3px;background:#1e3a5f;border-bottom:1px solid #93c5fd;}
+.content{padding:24px 28px;font-size:12pt;line-height:1.6;color:#1a1a1a;}
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:11px;}
+table td,table th{border:1px solid #d1d5db;padding:5px 8px;}
+table th{background:#f8fafc;font-weight:700;}
+@media print{body{background:#fff;padding:0;}.page{border-radius:0;box-shadow:none;margin:0;}}
+</style></head><body>
+<div class="page">
+  <div class="header"><span class="header-logo">🏗️</span>
+    <div><div class="header-nome">${empData.nome || 'EMPRESA'}</div>${empData.cnpj ? `<div class="header-cnpj">CNPJ: ${empData.cnpj}</div>` : ''}</div>
+  </div>
+  <div class="header-line"></div>
+  <div class="content">${htmlConteudo}</div>
+</div>
+</body></html>`
+            const win = window.open('', '_blank', 'width=900,height=750')
+            if (win) { win.document.write(html); win.document.close(); setTimeout(() => { win.focus(); win.print() }, 600) }
+            else toast.error('Bloqueio de pop-up detectado.')
+            setModalAvulso(false)
+          } catch (e) {
+            toast.error('Erro: ' + (e instanceof Error ? e.message : String(e)))
+          } finally { setGerandoAvulso(false) }
+        }
+        return (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.6)', zIndex:9400, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+            onClick={e => { if (e.target === e.currentTarget) setModalAvulso(false) }}>
+            <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:540, maxHeight:'92vh', display:'flex', flexDirection:'column', boxShadow:'0 16px 48px rgba(0,0,0,.4)', overflow:'hidden' }}>
+              {/* Header */}
+              <div style={{ padding:'16px 20px', background:'linear-gradient(135deg,#0369a1,#0284c7)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+                <div>
+                  <div style={{ color:'#fff', fontWeight:800, fontSize:15, display:'flex', alignItems:'center', gap:8 }}>
+                    <UserCheck size={16} color="#bae6fd"/> Gerar Documento Avulso
+                  </div>
+                  <div style={{ color:'rgba(255,255,255,.75)', fontSize:11, marginTop:2 }}>
+                    {avulsoStep === 1 ? 'Passo 1/2 — Selecione o colaborador' : 'Passo 2/2 — Selecione o documento'}
+                  </div>
+                </div>
+                <button onClick={() => setModalAvulso(false)}
+                  style={{ background:'rgba(255,255,255,.2)', border:'none', borderRadius:8, padding:'6px 10px', color:'#fff', cursor:'pointer', fontSize:13 }}>✕</button>
+              </div>
+
+              {/* Steps indicator */}
+              <div style={{ display:'flex', padding:'10px 20px', gap:8, borderBottom:'1px solid var(--border)', background:'var(--background)', flexShrink:0 }}>
+                {[1,2].map(s => (
+                  <div key={s} style={{ flex:1, height:4, borderRadius:4, background: avulsoStep >= s ? '#0369a1' : '#e2e8f0', transition:'background .2s' }}/>
+                ))}
+              </div>
+
+              <div style={{ flex:1, overflowY:'auto', padding:20, display:'flex', flexDirection:'column', gap:16 }}>
+                {avulsoStep === 1 ? (
+                  <>
+                    <div style={{ fontSize:13, fontWeight:600, color:'var(--foreground)', marginBottom:4 }}>👤 Colaborador *</div>
+                    <SearchableSelect
+                      value={avulsoColabId}
+                      onChange={v => setAvulsoColabId(v)}
+                      placeholder="Pesquisar colaborador por nome ou chapa…"
+                      options={colabOptions}
+                    />
+                    {avulsoColab && (
+                      <div style={{ padding:'12px 14px', background:'#f0fdf4', borderRadius:10, border:'1px solid #bbf7d0', display:'flex', alignItems:'center', gap:12 }}>
+                        <div style={{ width:40, height:40, borderRadius:'50%', background:'#16a34a', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:800, fontSize:16, flexShrink:0 }}>
+                          {avulsoColab.nome.charAt(0)}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight:700, fontSize:14, color:'#15803d' }}>{avulsoColab.nome}</div>
+                          <div style={{ fontSize:11, color:'#16a34a' }}>
+                            {avulsoColab.chapa}{(avulsoColab as any).funcoes?.nome ? ` · ${(avulsoColab as any).funcoes.nome}` : ''}
+                          </div>
+                        </div>
+                        <span style={{ marginLeft:'auto', fontSize:11, fontWeight:700, background:'#dcfce7', color:'#15803d', padding:'2px 8px', borderRadius:20 }}>✓ Selecionado</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {avulsoColab && (
+                      <div style={{ padding:'8px 12px', background:'#f0fdf4', borderRadius:8, border:'1px solid #bbf7d0', fontSize:12, color:'#15803d', fontWeight:600 }}>
+                        👤 {avulsoColab.nome} · {avulsoColab.chapa}
+                      </div>
+                    )}
+                    <div style={{ fontSize:13, fontWeight:600, color:'var(--foreground)', marginBottom:4 }}>📄 Documento *</div>
+                    <SearchableSelect
+                      value={avulsoModeloId}
+                      onChange={v => setAvulsoModeloId(v)}
+                      placeholder="Pesquisar documento por título…"
+                      options={modeloOptions}
+                    />
+                    {avulsoModelo && (
+                      <div style={{ padding:'12px 14px', background:'#eff6ff', borderRadius:10, border:'1px solid #bfdbfe' }}>
+                        <div style={{ fontWeight:700, fontSize:14, color:'#1d4ed8' }}>{avulsoModelo.titulo}</div>
+                        {avulsoModelo.descricao && <div style={{ fontSize:11, color:'#3b82f6', marginTop:3 }}>{avulsoModelo.descricao}</div>}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', background:'var(--background)', flexShrink:0, display:'flex', justifyContent:'space-between', gap:10 }}>
+                <button onClick={() => avulsoStep === 1 ? setModalAvulso(false) : setAvulsoStep(1)}
+                  style={{ padding:'8px 16px', borderRadius:8, border:'1px solid var(--border)', background:'var(--card)', fontSize:13, fontWeight:600, cursor:'pointer', color:'var(--foreground)' }}>
+                  {avulsoStep === 1 ? 'Cancelar' : '← Voltar'}
+                </button>
+                {avulsoStep === 1 ? (
+                  <button onClick={() => avulsoColabId && setAvulsoStep(2)} disabled={!avulsoColabId}
+                    style={{ padding:'8px 20px', borderRadius:8, border:'none', fontSize:13, fontWeight:700, cursor: avulsoColabId ? 'pointer' : 'not-allowed',
+                      background: avulsoColabId ? '#0369a1' : '#94a3b8', color:'#fff' }}>
+                    Próximo →
+                  </button>
+                ) : (
+                  <button onClick={gerarAvulso} disabled={!avulsoModeloId || gerandoAvulso}
+                    style={{ padding:'8px 20px', borderRadius:8, border:'none', fontSize:13, fontWeight:700, cursor: (avulsoModeloId && !gerandoAvulso) ? 'pointer' : 'not-allowed',
+                      background: (avulsoModeloId && !gerandoAvulso) ? 'linear-gradient(135deg,#0369a1,#0284c7)' : '#94a3b8',
+                      color:'#fff', display:'flex', alignItems:'center', gap:8 }}>
+                    {gerandoAvulso ? 'Gerando…' : <><Printer size={14}/> Gerar PDF</>}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ══ MODAL: Gerar em Lote (novo) ══════════════════════════════════ */}
+      {modalNovoLote && (() => {
+        const colabsFiltradosLote = colaboradores.filter(c => {
+          const q = buscaLote.toLowerCase()
+          const obraNome = (c.obras as any)?.nome ?? ''
+          const fnNome   = (c.funcoes as any)?.nome ?? ''
+          return (!q || c.nome.toLowerCase().includes(q) || (c.chapa ?? '').toLowerCase().includes(q))
+            && (!filtroObraLote || obraNome === filtroObraLote)
+            && (!filtroFuncaoLote || fnNome === filtroFuncaoLote)
+        })
+        const obrasUnicas = [...new Set(colaboradores.map(c => (c.obras as any)?.nome).filter(Boolean))].sort() as string[]
+        const funcoesUnicas = [...new Set(colaboradores.map(c => (c.funcoes as any)?.nome).filter(Boolean))].sort() as string[]
+        async function gerarNovoLote() {
+          if (loteModelosSel.length === 0 || loteSel.length === 0) return
+          setGerando(true)
+          try {
+            const colabsLote = colaboradores.filter(c => loteSel.includes(c.id)) as ColaboradorRow[]
+            const modelosLote = modelos.filter(m => loteModelosSel.includes(m.id))
+            const paginaHtml = async (c: ColaboradorRow, m: Modelo) => {
+              const varMap = buildVarMap(c, empData)
+              if (m.conteudo.includes('{{EPIs da Função}}') || m.conteudo.includes('{{Tabela EPIs}}')) {
+                const fid = (c as any)?.funcao_id ?? null
+                varMap['EPIs da Função'] = await buscarEpisDaFuncao(fid, supabase)
+                varMap['Tabela EPIs'] = varMap['EPIs da Função']
+              }
+              let html = m.conteudo
+              if (html.trimStart().startsWith('#') || (!html.includes('<') && html.includes('\n'))) html = markdownToHtml(html)
+              return `<div style="page-break-after:always;padding:24px 28px;font-family:'Times New Roman',Georgia,serif;font-size:12pt;line-height:1.6;color:#1a1a1a;min-height:257mm;">${aplicarVariaveis(html, varMap)}</div>`
+            }
+            const paginas: string[] = []
+            for (const c of colabsLote) {
+              for (const m of modelosLote) {
+                paginas.push(await paginaHtml(c, m))
+              }
+            }
+            const totalStr = `${colabsLote.length} colaborador(es) × ${modelosLote.length} documento(s)`
+            const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
+<title>Lote — ${totalStr}</title>
+<style>@page{size:A4 portrait;margin:20mm 20mm 20mm 20mm;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Times New Roman',Georgia,serif;font-size:12pt;color:#1a1a1a;}
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:11px;}
+table td,table th{border:1px solid #d1d5db;padding:5px 8px;}
+table th{background:#f8fafc;font-weight:700;}
+@media screen{body{background:#525659;padding:24px;}div[style*="page-break"]{background:#fff;margin:0 auto 24px;max-width:700px;box-shadow:0 2px 16px rgba(0,0,0,.3);border-radius:6px;}}
+@media print{body{background:#fff;padding:0;}}
+</style></head><body>
+${paginas.join('\n')}
+</body></html>`
+            const win = window.open('', '_blank', 'width=900,height=750')
+            if (win) { win.document.write(html); win.document.close(); setTimeout(() => { win.focus(); win.print() }, 600) }
+            else toast.error('Bloqueio de pop-up detectado.')
+            toast.success(`✅ ${paginas.length} página(s) gerada(s)!`)
+            setModalNovoLote(false)
+          } catch(e) {
+            toast.error('Erro: ' + (e instanceof Error ? e.message : String(e)))
+          } finally { setGerando(false) }
+        }
+        return (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.6)', zIndex:9400, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+            onClick={e => { if (e.target === e.currentTarget) setModalNovoLote(false) }}>
+            <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:820, maxHeight:'92vh', display:'flex', flexDirection:'column', boxShadow:'0 16px 48px rgba(0,0,0,.4)', overflow:'hidden' }}>
+              {/* Header */}
+              <div style={{ padding:'16px 20px', background:'linear-gradient(135deg,#7c3aed,#6d28d9)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+                <div>
+                  <div style={{ color:'#fff', fontWeight:800, fontSize:15, display:'flex', alignItems:'center', gap:8 }}>
+                    <FileStack size={16} color="#c4b5fd"/> Gerar em Lote
+                  </div>
+                  <div style={{ color:'rgba(255,255,255,.75)', fontSize:11, marginTop:2 }}>
+                    {loteStep === 1 ? 'Passo 1/2 — Selecione os documentos a gerar' : `Passo 2/2 — Escolha os colaboradores (${loteSel.length} selecionados)`}
+                  </div>
+                </div>
+                <button onClick={() => setModalNovoLote(false)}
+                  style={{ background:'rgba(255,255,255,.2)', border:'none', borderRadius:8, padding:'6px 10px', color:'#fff', cursor:'pointer', fontSize:13 }}>✕</button>
+              </div>
+
+              {/* Steps */}
+              <div style={{ display:'flex', padding:'10px 20px', gap:8, borderBottom:'1px solid var(--border)', background:'var(--background)', flexShrink:0 }}>
+                {[1,2].map(s => (
+                  <div key={s} style={{ flex:1, height:4, borderRadius:4, background: loteStep >= s ? '#7c3aed' : '#e2e8f0', transition:'background .2s' }}/>
+                ))}
+              </div>
+
+              {loteStep === 1 ? (
+                /* ── STEP 1: Escolher documentos ── */
+                <div style={{ flex:1, overflowY:'auto', padding:16 }}>
+                  <div style={{ marginBottom:10, fontSize:12, color:'var(--muted-foreground)' }}>
+                    Selecione 1 ou mais documentos. Cada um será gerado para todos os colaboradores escolhidos.
+                  </div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
+                    {(['admissional','contrato','termo','declaracao','politica','ficha','outro'] as const).map(cat => {
+                      const modelosCat = modelos.filter(m => m.categoria === cat)
+                      if (modelosCat.length === 0) return null
+                      const catInfo = CATEGORIAS[cat] ?? CATEGORIAS.outro
+                      return (
+                        <div key={cat} style={{ marginBottom:8 }}>
+                          <div style={{ fontSize:10, fontWeight:700, color:catInfo.cor, background:catInfo.bg, borderRadius:6, padding:'3px 8px', marginBottom:5, display:'inline-block' }}>
+                            {catInfo.emoji} {catInfo.label}
+                          </div>
+                          <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+                            {modelosCat.map(m => {
+                              const sel = loteModelosSel.includes(m.id)
+                              return (
+                                <div key={m.id} onClick={() => setLoteModelosSel(p => sel ? p.filter(id => id !== m.id) : [...p, m.id])}
+                                  style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:8, cursor:'pointer',
+                                    border:`1px solid ${sel ? catInfo.cor : 'var(--border)'}`,
+                                    background: sel ? catInfo.bg : 'var(--card)', transition:'all .12s' }}>
+                                  <div style={{ width:18, height:18, borderRadius:5, border:`2px solid ${sel ? catInfo.cor : '#d1d5db'}`,
+                                    background:sel ? catInfo.cor : '#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                                    {sel && <span style={{ color:'#fff', fontSize:11, fontWeight:900 }}>✓</span>}
+                                  </div>
+                                  <div style={{ flex:1, minWidth:0 }}>
+                                    <div style={{ fontSize:13, fontWeight:sel?700:600, color:sel?catInfo.cor:'var(--foreground)' }}>{m.titulo}</div>
+                                    {m.descricao && <div style={{ fontSize:10, color:'var(--muted-foreground)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.descricao}</div>}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : (
+                /* ── STEP 2: Escolher colaboradores ── */
+                <>
+                  {/* Resumo dos docs selecionados */}
+                  <div style={{ padding:'8px 16px', background:'#f5f3ff', borderBottom:'1px solid #e9d5ff', flexShrink:0, display:'flex', gap:6, flexWrap:'wrap' }}>
+                    {modelos.filter(m => loteModelosSel.includes(m.id)).map(m => (
+                      <span key={m.id} style={{ fontSize:11, padding:'2px 8px', borderRadius:12, background:'#ede9fe', color:'#7c3aed', fontWeight:600, border:'1px solid #c4b5fd' }}>
+                        📄 {m.titulo}
+                      </span>
+                    ))}
+                  </div>
+                  {/* Filtros */}
+                  <div style={{ padding:'10px 14px', background:'var(--background)', borderBottom:'1px solid var(--border)', flexShrink:0, display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+                    <div style={{ position:'relative', flex:1, minWidth:180 }}>
+                      <Search size={12} style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', color:'#9ca3af' }}/>
+                      <input value={buscaLote} onChange={e => setBuscaLote(e.target.value)} placeholder="Buscar colaborador…"
+                        style={{ width:'100%', height:32, paddingLeft:26, borderRadius:7, border:'1px solid var(--border)', background:'var(--card)', fontSize:12, boxSizing:'border-box', color:'var(--foreground)' }}/>
+                    </div>
+                    <select value={filtroFuncaoLote} onChange={e => setFiltroFuncaoLote(e.target.value)}
+                      style={{ height:32, borderRadius:7, border:'1px solid var(--border)', padding:'0 10px', fontSize:12, background:'var(--card)', color:'var(--foreground)' }}>
+                      <option value="">🪪 Todas as funções</option>
+                      {funcoesUnicas.map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                    <select value={filtroObraLote} onChange={e => setFiltroObraLote(e.target.value)}
+                      style={{ height:32, borderRadius:7, border:'1px solid var(--border)', padding:'0 10px', fontSize:12, background:'var(--card)', color:'var(--foreground)' }}>
+                      <option value="">🏗️ Todas as obras</option>
+                      {obrasUnicas.map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                    <button onClick={() => {
+                        const ids = colabsFiltradosLote.map(c => c.id)
+                        const allSel = ids.every(id => loteSel.includes(id))
+                        setLoteSel(prev => allSel ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])])
+                      }}
+                      style={{ height:32, paddingInline:12, borderRadius:7, border:'1px solid var(--border)', background:'var(--card)', fontSize:12, cursor:'pointer', color:'var(--foreground)', whiteSpace:'nowrap' }}>
+                      {colabsFiltradosLote.every(c => loteSel.includes(c.id)) ? 'Desselecionar filtrados' : 'Sel. filtrados'}
+                    </button>
+                    <span style={{ background:'#ede9fe', color:'#7c3aed', borderRadius:20, padding:'2px 10px', fontSize:11, fontWeight:700, whiteSpace:'nowrap' }}>
+                      {loteSel.length} selecionado(s)
+                    </span>
+                  </div>
+                  {/* Lista */}
+                  <div style={{ flex:1, overflowY:'auto', padding:12 }}>
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(210px,1fr))', gap:6 }}>
+                      {colabsFiltradosLote.map(c => {
+                        const sel = loteSel.includes(c.id)
+                        return (
+                          <div key={c.id} onClick={() => setLoteSel(s => sel ? s.filter(id => id !== c.id) : [...s, c.id])}
+                            style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', borderRadius:8,
+                              border:`1px solid ${sel ? '#7c3aed' : 'var(--border)'}`,
+                              background: sel ? '#f5f3ff' : 'var(--card)', cursor:'pointer', transition:'all .1s' }}>
+                            <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${sel ? '#7c3aed' : '#d1d5db'}`,
+                              background:sel ? '#7c3aed' : '#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                              {sel && <span style={{ color:'#fff', fontSize:10, lineHeight:1 }}>✓</span>}
+                            </div>
+                            <div style={{ minWidth:0 }}>
+                              <div style={{ fontSize:12, fontWeight:600, color:sel?'#7c3aed':'var(--foreground)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.nome}</div>
+                              <div style={{ fontSize:10, color:'var(--muted-foreground)' }}>
+                                {c.chapa}{(c.funcoes as any)?.nome ? ` · ${(c.funcoes as any).nome}` : ''}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Footer */}
+              <div style={{ padding:'12px 16px', borderTop:'1px solid var(--border)', background:'var(--background)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+                <div style={{ fontSize:12, color:'var(--muted-foreground)' }}>
+                  {loteStep === 1
+                    ? <>{loteModelosSel.length} documento(s) selecionado(s)</>
+                    : <>Será gerado <strong>{loteSel.length * loteModelosSel.length} página(s)</strong> no total</>
+                  }
+                </div>
+                <div style={{ display:'flex', gap:8 }}>
+                  <button onClick={() => loteStep === 1 ? setModalNovoLote(false) : setLoteStep(1)}
+                    style={{ padding:'8px 16px', borderRadius:8, border:'1px solid var(--border)', background:'var(--card)', fontSize:13, fontWeight:600, cursor:'pointer', color:'var(--foreground)' }}>
+                    {loteStep === 1 ? 'Cancelar' : '← Voltar'}
+                  </button>
+                  {loteStep === 1 ? (
+                    <button onClick={() => loteModelosSel.length > 0 && setLoteStep(2)} disabled={loteModelosSel.length === 0}
+                      style={{ padding:'8px 20px', borderRadius:8, border:'none', fontSize:13, fontWeight:700,
+                        cursor: loteModelosSel.length > 0 ? 'pointer' : 'not-allowed',
+                        background: loteModelosSel.length > 0 ? '#7c3aed' : '#94a3b8', color:'#fff' }}>
+                      Próximo →
+                    </button>
+                  ) : (
+                    <button onClick={gerarNovoLote} disabled={gerando || loteSel.length === 0}
+                      style={{ padding:'8px 20px', borderRadius:8, border:'none', fontSize:13, fontWeight:700,
+                        cursor: (!gerando && loteSel.length > 0) ? 'pointer' : 'not-allowed',
+                        background: (!gerando && loteSel.length > 0) ? 'linear-gradient(135deg,#7c3aed,#6d28d9)' : '#94a3b8',
+                        color:'#fff', display:'flex', alignItems:'center', gap:8 }}>
+                      {gerando ? 'Gerando…' : <><Printer size={14}/> Gerar {loteSel.length * loteModelosSel.length} página(s)</>}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* ══ MODAL: Kit Padrão — configurar ════════════════════════════════ */}
       {modalKit && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.6)', zIndex:9300, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
@@ -2145,9 +2304,18 @@ table th { background:#f8fafc; font-weight:700; }
               </button>
             </div>
 
-            {/* Info */}
-            <div style={{ padding:'10px 16px', background:'#fef3c7', borderBottom:'1px solid #fcd34d', fontSize:12, color:'#92400e', flexShrink:0 }}>
-              💡 O botão <strong>"Kit Padrão"</strong> gera todos os documentos abaixo de uma vez, personalizados com os dados do colaborador selecionado.
+            {/* Info + Seletor de Colaborador */}
+            <div style={{ padding:'10px 16px', background:'#fef3c7', borderBottom:'1px solid #fcd34d', flexShrink:0 }}>
+              <div style={{ fontSize:12, color:'#92400e', marginBottom:8 }}>
+                💡 Selecione o colaborador e gere todos os documentos do kit de admissão de uma vez.
+              </div>
+              <SearchableSelect
+                value={kitColabId}
+                onChange={v => setKitColabId(v)}
+                placeholder="Selecionar colaborador para o kit…"
+                options={colaboradores.map(c => ({ value: c.id, label: c.nome, sublabel: [c.chapa, (c.funcoes as any)?.nome].filter(Boolean).join(' · ') }))}
+                style={{ background:'#fff' }}
+              />
             </div>
 
             {/* Lista de modelos */}
@@ -2209,10 +2377,10 @@ table th { background:#f8fafc; font-weight:700; }
                 </button>
                 <button
                   onClick={async () => { await gerarKitPadrao() }}
-                  disabled={gerandoKit || kitModelosIds.length === 0}
+                  disabled={gerandoKit || kitModelosIds.length === 0 || !kitColabId}
                   style={{ padding:'8px 20px', borderRadius:8, border:'none', fontSize:13, fontWeight:700,
-                    cursor: (gerandoKit || kitModelosIds.length === 0) ? 'not-allowed' : 'pointer',
-                    background: kitGerado ? '#16a34a' : (gerandoKit || kitModelosIds.length === 0) ? '#94a3b8' : 'linear-gradient(135deg,#b45309,#d97706)',
+                    cursor: (gerandoKit || kitModelosIds.length === 0 || !kitColabId) ? 'not-allowed' : 'pointer',
+                    background: kitGerado ? '#16a34a' : (gerandoKit || kitModelosIds.length === 0 || !kitColabId) ? '#94a3b8' : 'linear-gradient(135deg,#b45309,#d97706)',
                     color:'#fff', display:'flex', alignItems:'center', gap:8 }}>
                   {kitGerado
                     ? <><CheckCircle2 size={14}/> Gerado!</>

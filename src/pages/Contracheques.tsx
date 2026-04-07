@@ -653,7 +653,25 @@ export default function Contracheques() {
   }
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 56px)', overflow: 'hidden', background: '#f8fafc' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px)', overflow: 'hidden', background: '#f8fafc' }}>
+      {/* ── Banner link portal ── */}
+      <div style={{ background: 'linear-gradient(135deg,#0d3f56,#1e5c7a)', padding: '8px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Receipt size={15} color="#7dd3fc" />
+          <span style={{ fontSize: 13, color: 'rgba(255,255,255,.9)', fontWeight: 600 }}>
+            Portal do Colaborador — acesso aos contracheques
+          </span>
+        </div>
+        <a
+          href="https://construtorrh-magmo.netlify.app/#/portal/contracheque"
+          target="_blank"
+          rel="noreferrer"
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 14px', borderRadius: 7, background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700, transition: 'all .2s' }}
+        >
+          <ExternalLink size={12}/> Abrir Portal
+        </a>
+      </div>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
       {/* ── Sidebar colaboradores ── */}
       <div style={{ width: 280, minWidth: 280, borderRight: '1px solid #e2e8f0', background: '#fff', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -880,6 +898,7 @@ export default function Contracheques() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </div>
     </div>
   )
 }

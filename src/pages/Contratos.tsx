@@ -1124,7 +1124,7 @@ table th { background:#f8fafc; font-weight:700; }
 
       {/* ══ ABA: GERAR DOCUMENTO ════════════════════════════════════════════ */}
       {abaMain === 'gerar' && (
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
 
           {/* ── PAINEL ESQUERDO: Colaboradores (estilo Ponto) ── */}
           <div style={{ width: 260, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -1222,13 +1222,19 @@ table th { background:#f8fafc; font-weight:700; }
             )}
           </div>
 
-          {/* ── PAINEL CENTRAL: Lista de Modelos ── */}
+          {/* ── PAINEL CENTRAL: Lista de Modelos — overlay sobre painel direito ── */}
           {painelModelosAberto && (
-          <div style={{ width: 290, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#f8fafc' }}>
+          <>
+          {/* Overlay escuro clicável para fechar */}
+          <div onClick={() => setPainelModelosAberto(false)} style={{ position: 'absolute', top: 0, left: 260, right: 0, bottom: 0, zIndex: 19, background: 'rgba(0,0,0,.18)', cursor: 'pointer' }}/>
+          <div style={{ position: 'absolute', top: 0, left: 260, bottom: 0, width: 290, zIndex: 20, boxShadow: '4px 0 24px rgba(0,0,0,.13)', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff', borderRight: '1px solid #e2e8f0' }}>
 
             <div style={{ padding: '10px 10px 6px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--foreground)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                📋 Escolha o Documento
+              <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--foreground)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>📋 Escolha o Documento</span>
+                <button onClick={() => setPainelModelosAberto(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2, display: 'flex', alignItems: 'center' }}>
+                  <X size={14}/>
+                </button>
               </div>
               <div style={{ position: 'relative' }}>
                 <Search size={12} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
@@ -1275,49 +1281,40 @@ table th { background:#f8fafc; font-weight:700; }
               })}
             </div>
           </div>
+          </>
           )}
 
           {/* ── PAINEL DIREITO: Preview + Ações ── */}
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             {!modeloSel ? (
-              !painelModelosAberto ? (
-                <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:32 }}>
-                  <div style={{ background:'var(--card)', borderRadius:16, padding:'32px 36px', maxWidth:420,
-                    border:'1px solid var(--border)', boxShadow:'0 2px 12px rgba(0,0,0,.06)', textAlign:'center' }}>
-                    <div style={{ fontSize:40, marginBottom:12 }}>📄</div>
-                    <div style={{ fontSize:17, fontWeight:800, marginBottom:8 }}>Gerar Documento</div>
-                    <div style={{ fontSize:13, color:'var(--muted-foreground)', lineHeight:1.7, marginBottom:20 }}>
-                      Selecione um colaborador ao lado e escolha como gerar o documento.
-                    </div>
-                    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                      <button onClick={() => setPainelModelosAberto(true)}
-                        style={{ height:40, borderRadius:9, border:'1.5px solid #1e3a5f', background:'#eff6ff',
-                          color:'#1e3a5f', fontWeight:700, fontSize:13, cursor:'pointer',
-                          display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-                        <FileText size={15}/> Ver lista de modelos
-                      </button>
-                      <div style={{ fontSize:11, color:'var(--muted-foreground)' }}>
-                        — ou selecione o colaborador e use o —
-                      </div>
-                      <div style={{ background:'linear-gradient(135deg,#b45309,#d97706)', borderRadius:9,
-                        padding:'10px 16px', color:'#fff', fontWeight:700, fontSize:13,
+              <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:32 }}>
+                <div style={{ background:'var(--card)', borderRadius:16, padding:'32px 36px', maxWidth:420,
+                  border:'1px solid var(--border)', boxShadow:'0 2px 12px rgba(0,0,0,.06)', textAlign:'center' }}>
+                  <div style={{ fontSize:40, marginBottom:12 }}>📄</div>
+                  <div style={{ fontSize:17, fontWeight:800, marginBottom:8 }}>Gerar Documento</div>
+                  <div style={{ fontSize:13, color:'var(--muted-foreground)', lineHeight:1.7, marginBottom:20 }}>
+                    {!colabSel
+                      ? 'Selecione um colaborador ao lado e escolha como gerar o documento.'
+                      : 'Colaborador selecionado. Agora escolha o modelo ou use o Kit Padrão.'}
+                  </div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                    <button onClick={() => setPainelModelosAberto(true)}
+                      style={{ height:40, borderRadius:9, border:'1.5px solid #1e3a5f', background:'#eff6ff',
+                        color:'#1e3a5f', fontWeight:700, fontSize:13, cursor:'pointer',
                         display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-                        📋 Kit Padrão (veja no rodapé do colaborador)
-                      </div>
+                      <FileText size={15}/> Ver lista de modelos
+                    </button>
+                    <div style={{ fontSize:11, color:'var(--muted-foreground)' }}>
+                      — ou selecione o colaborador e use o —
+                    </div>
+                    <div style={{ background:'linear-gradient(135deg,#b45309,#d97706)', borderRadius:9,
+                      padding:'10px 16px', color:'#fff', fontWeight:700, fontSize:13,
+                      display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                      📋 Kit Padrão (veja no rodapé do colaborador)
                     </div>
                   </div>
                 </div>
-              ) : (
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: '#94a3b8' }}>
-                <FileText size={60} strokeWidth={1} />
-                <div style={{ fontSize: 15, fontWeight: 600 }}>
-                  {!colabSel ? '① Selecione o colaborador' : '② Escolha o documento'}
-                </div>
-                <div style={{ fontSize: 12 }}>
-                  {!colabSel ? 'Use o painel à esquerda para selecionar o colaborador' : 'Use o painel central para escolher o modelo a gerar'}
-                </div>
               </div>
-              )
             ) : (
               <>
                 {/* Header do preview */}

@@ -1287,34 +1287,91 @@ table th { background:#f8fafc; font-weight:700; }
           {/* ── PAINEL DIREITO: Preview + Ações ── */}
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             {!modeloSel ? (
-              <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:32 }}>
-                <div style={{ background:'var(--card)', borderRadius:16, padding:'32px 36px', maxWidth:420,
-                  border:'1px solid var(--border)', boxShadow:'0 2px 12px rgba(0,0,0,.06)', textAlign:'center' }}>
-                  <div style={{ fontSize:40, marginBottom:12 }}>📄</div>
-                  <div style={{ fontSize:17, fontWeight:800, marginBottom:8 }}>Gerar Documento</div>
-                  <div style={{ fontSize:13, color:'var(--muted-foreground)', lineHeight:1.7, marginBottom:20 }}>
-                    {!colabSel
-                      ? 'Selecione um colaborador ao lado e escolha como gerar o documento.'
-                      : 'Colaborador selecionado. Agora escolha o modelo ou use o Kit Padrão.'}
-                  </div>
-                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                    <button onClick={() => setPainelModelosAberto(true)}
-                      style={{ height:40, borderRadius:9, border:'1.5px solid #1e3a5f', background:'#eff6ff',
-                        color:'#1e3a5f', fontWeight:700, fontSize:13, cursor:'pointer',
-                        display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-                      <FileText size={15}/> Ver lista de modelos
-                    </button>
-                    <div style={{ fontSize:11, color:'var(--muted-foreground)' }}>
-                      — ou selecione o colaborador e use o —
-                    </div>
-                    <div style={{ background:'linear-gradient(135deg,#b45309,#d97706)', borderRadius:9,
-                      padding:'10px 16px', color:'#fff', fontWeight:700, fontSize:13,
-                      display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-                      📋 Kit Padrão (veja no rodapé do colaborador)
-                    </div>
+              !colabSel ? (
+                /* ── Estado vazio: nenhum colaborador ── */
+                <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:32 }}>
+                  <div style={{ textAlign:'center', color:'#94a3b8' }}>
+                    <div style={{ fontSize:52, marginBottom:14 }}>📋</div>
+                    <div style={{ fontSize:16, fontWeight:700, color:'#475569', marginBottom:6 }}>Selecione um colaborador</div>
+                    <div style={{ fontSize:13, lineHeight:1.6 }}>Use o painel à esquerda para escolher o colaborador e gerar os documentos.</div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                /* ── Colaborador selecionado: ações principais ── */
+                <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:32 }}>
+                  <div style={{ width:'100%', maxWidth:480, display:'flex', flexDirection:'column', gap:16 }}>
+
+                    {/* Card do colaborador */}
+                    <div style={{ background:'#fff', borderRadius:14, border:'1px solid #e2e8f0', padding:'16px 20px', display:'flex', alignItems:'center', gap:14, boxShadow:'0 1px 6px rgba(0,0,0,.05)' }}>
+                      <div style={{ width:44, height:44, borderRadius:'50%', background:'linear-gradient(135deg,#0d3f56,#1e5c7a)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                        <span style={{ color:'#fff', fontSize:18, fontWeight:800 }}>{colabSel.nome.charAt(0)}</span>
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:800, fontSize:15, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{colabSel.nome}</div>
+                        <div style={{ fontSize:12, color:'#64748b', marginTop:2 }}>
+                          {colabSel.chapa ? `Chapa ${colabSel.chapa}` : ''}
+                          {colabSel.chapa && colabSel.funcoes?.nome ? ' · ' : ''}
+                          {colabSel.funcoes?.nome ?? ''}
+                        </div>
+                      </div>
+                      <span style={{ fontSize:10, fontWeight:700, padding:'3px 8px', borderRadius:8, background:'#f0fdf4', color:'#15803d', border:'1px solid #bbf7d0', whiteSpace:'nowrap' }}>
+                        ✓ Selecionado
+                      </span>
+                    </div>
+
+                    {/* Botão Kit Padrão — principal */}
+                    <button
+                      onClick={gerarKitPadrao}
+                      disabled={kitModelosIds.length === 0}
+                      style={{
+                        display:'flex', alignItems:'center', justifyContent:'center', gap:10,
+                        height:56, borderRadius:12, border:'none',
+                        background: kitModelosIds.length > 0
+                          ? 'linear-gradient(135deg,#b45309,#d97706)'
+                          : '#e2e8f0',
+                        color: kitModelosIds.length > 0 ? '#fff' : '#94a3b8',
+                        fontWeight:800, fontSize:15, cursor: kitModelosIds.length > 0 ? 'pointer' : 'not-allowed',
+                        boxShadow: kitModelosIds.length > 0 ? '0 4px 16px rgba(180,83,9,.3)' : 'none',
+                        transition:'all .2s',
+                      }}
+                    >
+                      <span style={{ fontSize:20 }}>📋</span>
+                      Kit Padrão
+                      {kitModelosIds.length > 0
+                        ? <span style={{ fontSize:12, background:'rgba(255,255,255,.25)', padding:'2px 8px', borderRadius:20 }}>{kitModelosIds.length} doc{kitModelosIds.length > 1 ? 's' : ''}</span>
+                        : <span style={{ fontSize:12 }}>— configure o kit primeiro</span>}
+                    </button>
+
+                    {kitModelosIds.length === 0 && (
+                      <button onClick={() => setModalKit(true)}
+                        style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, height:36, borderRadius:9, border:'1.5px dashed #fcd34d', background:'#fefce8', color:'#92400e', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                        ⚙️ Configurar Kit Padrão
+                      </button>
+                    )}
+
+                    {/* Divisor */}
+                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      <div style={{ flex:1, height:1, background:'#e2e8f0' }}/>
+                      <span style={{ fontSize:11, color:'#94a3b8', fontWeight:500 }}>ou escolha um modelo específico</span>
+                      <div style={{ flex:1, height:1, background:'#e2e8f0' }}/>
+                    </div>
+
+                    {/* Botão Ver Modelos — secundário */}
+                    <button onClick={() => setPainelModelosAberto(true)}
+                      style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, height:44, borderRadius:10, border:'1.5px solid #cbd5e1', background:'#fff', color:'#475569', fontWeight:700, fontSize:13, cursor:'pointer', transition:'all .15s' }}>
+                      <FileText size={15}/> Ver lista de modelos
+                    </button>
+
+                    {/* Configurar kit */}
+                    {kitModelosIds.length > 0 && (
+                      <button onClick={() => setModalKit(true)}
+                        style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, height:32, borderRadius:8, border:'none', background:'none', color:'#94a3b8', fontSize:12, cursor:'pointer', textDecoration:'underline' }}>
+                        ⚙️ Editar Kit Padrão ({kitModelosIds.length} documentos)
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
             ) : (
               <>
                 {/* Header do preview */}

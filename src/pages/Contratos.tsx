@@ -6,7 +6,7 @@ import { fetchEmpresaData, type EmpresaData } from '@/lib/relatorioHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
-import { Search, Plus, Pencil, Trash2, FileText, Eye, Printer, X, ChevronDown, Settings, Save, BookOpen, Briefcase } from 'lucide-react'
+import { Search, Plus, Pencil, Trash2, FileText, Eye, Printer, X, ChevronDown, Settings, Save, BookOpen, Briefcase, Layers, Building2, User, CheckCircle2 } from 'lucide-react'
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
 interface Modelo {
@@ -341,6 +341,15 @@ export default function Contratos() {
   // aba principal da página
   const [abaMain, setAbaMain]         = useState<'gerar' | 'modelos'>('gerar')
 
+  // ── Geração em lote ──────────────────────────────────────────────────────
+  const [modalLote, setModalLote]         = useState(false)
+  const [loteSel, setLoteSel]             = useState<string[]>([])
+  const [loteGerado, setLoteGerado]       = useState(false)
+  const [gerando, setGerando]             = useState(false)
+  const [buscaLote, setBuscaLote]         = useState('')
+  const [filtroObraLote, setFiltroObraLote]   = useState('')
+  const [filtroFuncaoLote, setFiltroFuncaoLote] = useState('')
+
   // busca do painel esquerdo de colaboradores
   const [buscaColabEsq, setBuscaColabEsq] = useState('')
   const colabsEsqFiltrados = colaboradores.filter(c => {
@@ -565,6 +574,161 @@ export default function Contratos() {
     }
   }
 
+  // ── geração em lote ───────────────────────────────────────────────────────
+  async function gerarLote() {
+    if (!modeloSel || loteSel.length === 0) return
+    setGerando(true)
+
+    const colabsLote = colaboradores.filter(c => loteSel.includes(c.id))
+    const cat        = CATEGORIAS[modeloSel.categoria] ?? CATEGORIAS.outro
+    const dataGer    = new Date().toLocaleDateString('pt-BR')
+
+    let logoBlock = `<div class="logo-fallback">🏗️</div>`
+    if (empData.logoUrl) {
+      logoBlock = `<img src="${empData.logoUrl}" class="logo" alt="Logo" onerror="this.style.display='none'" />`
+    }
+
+    const paginaHtml = (c: ColaboradorRow, idx: number) => {
+      const varMap = buildVarMap(c, empData)
+      let html = modeloSel.conteudo
+      if (html.trimStart().startsWith('#') || (!html.includes('<') && html.includes('\n')))
+        html = markdownToHtml(html)
+      html = aplicarVariaveis(html, varMap)
+      const isLast = idx === colabsLote.length - 1
+      return `
+<div class="folha${isLast ? ' ultima' : ''}">
+  <div class="timbre">
+    ${logoBlock}
+    <div>
+      <div class="emp-nome">${empData.nome || 'EMPRESA'}</div>
+      <div class="emp-det">${empData.cnpj ? 'CNPJ: ' + empData.cnpj : ''}${empData.cnpj && empData.endereco ? ' &nbsp;|&nbsp; ' : ''}${empData.endereco}${empData.cidade ? ' &nbsp;|&nbsp; ' + empData.cidade : ''}</div>
+    </div>
+  </div>
+  <div class="linha-dupla"></div>
+  <div class="corpo">
+    <div class="doc-meta">
+      <span class="badge">${cat.emoji} ${cat.label}</span>
+      <div class="meta-right">
+        Emitido em ${dataGer}<br/>
+        <strong>${c.nome}</strong>${c.chapa ? ' · ' + c.chapa : ''}<br/>
+        <span style="font-size:8pt;color:#888;">Via ${idx + 1} de ${colabsLote.length}</span>
+      </div>
+    </div>
+    <div class="conteudo">${html}</div>
+    <div class="assinaturas">
+      <div class="ass">${empData.nome || 'Empresa'}<br/><span>Representante Legal</span></div>
+      <div class="ass">${c.nome}<br/><span>${(c.funcoes as any)?.nome ?? 'Colaborador(a)'}</span></div>
+    </div>
+  </div>
+  <div class="rodape">
+    ${modeloSel.titulo} &nbsp;·&nbsp; ${c.nome} &nbsp;·&nbsp; ${dataGer}
+  </div>
+</div>`
+    }
+
+    const fullHtml = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<title>${modeloSel.titulo} — ${colabsLote.length} via(s)</title>
+<style>
+  @page { size: A4 portrait; margin: 12mm 14mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html,body { font-family: Calibri, Arial, sans-serif; font-size: 12pt; color: #1a1a1a; }
+  /* Cada .folha = 1 página A4 impressa */
+  .folha {
+    width: 100%;
+    min-height: 246mm;        /* 297 - 12*2 = 273; 273 - 27mm content padding ≈ 246 */
+    page-break-after: always;
+    break-after: page;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .folha.ultima {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+  /* Timbre */
+  .timbre { background:#1e3a5f; color:#fff; padding:12px 18px; display:flex; align-items:center; gap:14px; flex-shrink:0; }
+  .logo { height:52px; max-width:160px; object-fit:contain; filter:brightness(0) invert(1); border-radius:3px; }
+  .logo-fallback { width:44px; height:44px; background:rgba(255,255,255,.15); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+  .emp-nome { font-size:15pt; font-weight:900; letter-spacing:.04em; line-height:1.2; }
+  .emp-det  { font-size:8.5pt; color:#93c5fd; margin-top:3px; }
+  .linha-dupla { border-top:3pt solid #1e3a5f; border-bottom:1pt solid #93c5fd; flex-shrink:0; }
+  /* Corpo */
+  .corpo { flex:1; padding:16px 0 0; display:flex; flex-direction:column; }
+  .doc-meta { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14pt; }
+  .meta-right { font-size:9pt; color:#555; text-align:right; line-height:1.5; }
+  .badge { background:${cat.bg}; color:${cat.cor}; border-radius:20px; padding:2px 10px; font-size:8.5pt; font-weight:700; display:inline-block; }
+  /* Conteúdo do documento */
+  .conteudo { flex:1; }
+  .conteudo h1 { font-size:15pt; font-weight:900; text-align:center; margin:0 0 14pt; text-transform:uppercase; letter-spacing:.04em; line-height:1.3; }
+  .conteudo h2 { font-size:12pt; font-weight:800; margin:14pt 0 6pt; text-transform:uppercase; border-bottom:1.5pt solid #334155; padding-bottom:3pt; line-height:1.3; }
+  .conteudo h3 { font-size:11pt; font-weight:700; margin:10pt 0 4pt; }
+  .conteudo h4 { font-size:10pt; font-weight:700; font-style:italic; margin:8pt 0 3pt; }
+  .conteudo p  { font-size:11pt; margin:6pt 0; line-height:1.7; text-align:justify; }
+  .conteudo li { font-size:11pt; line-height:1.7; text-align:justify; margin-bottom:3pt; }
+  .conteudo strong, .conteudo b { font-weight:700; }
+  .conteudo blockquote { font-size:10.5pt; margin:8pt 0; border-left:2.5pt solid #94a3b8; padding-left:10pt; color:#475569; font-style:italic; line-height:1.6; }
+  .conteudo table { width:100%; border-collapse:collapse; margin:8pt 0; font-size:9.5pt; }
+  .conteudo td, .conteudo th { border:0.5pt solid #d1d5db; padding:4pt 6pt; }
+  .conteudo th { background:#f8fafc; font-weight:700; }
+  /* Assinaturas */
+  .assinaturas { display:grid; grid-template-columns:1fr 1fr; gap:28pt; margin-top:28pt; flex-shrink:0; }
+  .ass { border-top:1pt solid #0f172a; padding-top:6pt; font-size:10pt; font-weight:700; text-align:center; line-height:1.5; }
+  .ass span { font-size:8.5pt; font-weight:400; color:#555; }
+  /* Rodapé */
+  .rodape { font-size:7.5pt; color:#aaa; text-align:center; border-top:0.5pt solid #e5e7eb; padding-top:5pt; margin-top:10pt; flex-shrink:0; }
+  /* Separadores visuais somente na tela */
+  @media screen {
+    body { background:#3c3f41; padding:24px; }
+    .folha { background:#fff; padding:12mm 14mm; margin:0 auto 24px; max-width:210mm; box-shadow:0 2px 16px rgba(0,0,0,.4), 0 8px 32px rgba(0,0,0,.25); }
+    .btn-imprimir { position:fixed; bottom:20px; right:20px; background:#1d4ed8; color:#fff; border:none; border-radius:9px; padding:11px 22px; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,.25); z-index:9999; font-family:Calibri,Arial,sans-serif; }
+    .btn-imprimir:hover { background:#1e40af; }
+  }
+  @media print {
+    body { background:#fff; padding:0; }
+    .folha { margin:0; padding:0; box-shadow:none; }
+    .btn-imprimir { display:none!important; }
+    p { orphans:3; widows:3; }
+    h1,h2,h3,h4 { page-break-after:avoid; }
+  }
+</style>
+</head>
+<body>
+${colabsLote.map((c, i) => paginaHtml(c, i)).join('')}
+<button class="btn-imprimir" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+<script>window.onload=()=>setTimeout(()=>window.print(),500)<\/script>
+</body></html>`
+
+    // Salvar no banco
+    for (const c of colabsLote) {
+      const varMap = buildVarMap(c, empData)
+      let html = modeloSel.conteudo
+      if (html.trimStart().startsWith('#') || (!html.includes('<') && html.includes('\n')))
+        html = markdownToHtml(html)
+      await supabase.from('contratos_gerados').insert({
+        modelo_id: modeloSel.id,
+        colaborador_id: c.id,
+        titulo_gerado: `${modeloSel.titulo} — ${c.nome}`,
+        conteudo_final: aplicarVariaveis(html, varMap),
+      }).then(() => {})
+    }
+
+    const win = window.open('', '_blank', 'width=960,height=800')
+    if (win) {
+      win.document.write(fullHtml)
+      win.document.close()
+    } else {
+      toast.error('Bloqueio de pop-up — libere pop-ups para este site.')
+    }
+    setGerando(false)
+    setLoteGerado(true)
+    setTimeout(() => { setLoteGerado(false); setModalLote(false) }, 2000)
+    toast.success(`${colabsLote.length} via(s) gerada(s) com sucesso!`)
+  }
+
   // ── salvar descrição de função ─────────────────────────────────────────────
   async function salvarDescricaoFuncao(id: string) {
     setSavingFunc(id)
@@ -616,31 +780,28 @@ table th { background:#f8fafc; font-weight:700; }
     else toast.error('Bloqueio de pop-up detectado — libere pop-ups para este site.')
   }
 
-  // ── gerar PDF com papel timbrado ───────────────────────────────────────────
+  // ── gerar PDF com papel timbrado (1 colaborador) ─────────────────────────
   async function gerarPDF() {
     if (!modeloSel) return
     const varMap = buildVarMap(colabSel, empData)
     let htmlConteudo = modeloSel.conteudo
-    if (htmlConteudo.trimStart().startsWith('#') || (!htmlConteudo.includes('<') && htmlConteudo.includes('\n'))) {
+    if (htmlConteudo.trimStart().startsWith('#') || (!htmlConteudo.includes('<') && htmlConteudo.includes('\n')))
       htmlConteudo = markdownToHtml(htmlConteudo)
-    }
     htmlConteudo = aplicarVariaveis(htmlConteudo, varMap)
-    const cat       = CATEGORIAS[modeloSel.categoria] ?? CATEGORIAS.outro
-    const dataGer   = new Date().toLocaleDateString('pt-BR')
+    const cat     = CATEGORIAS[modeloSel.categoria] ?? CATEGORIAS.outro
+    const dataGer = new Date().toLocaleDateString('pt-BR')
 
     if (colabSel) {
       await supabase.from('contratos_gerados').insert({
-        modelo_id:      modeloSel.id,
-        colaborador_id: colabSel.id,
-        titulo_gerado:  `${modeloSel.titulo} — ${colabSel.nome}`,
+        modelo_id: modeloSel.id, colaborador_id: colabSel.id,
+        titulo_gerado: `${modeloSel.titulo} — ${colabSel.nome}`,
         conteudo_final: htmlConteudo,
       })
     }
 
     let logoBlock = `<div class="logo-fallback">🏗️</div>`
-    if (empData.logoUrl) {
+    if (empData.logoUrl)
       logoBlock = `<img src="${empData.logoUrl}" class="logo" alt="Logo" onerror="this.style.display='none'" />`
-    }
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -648,102 +809,98 @@ table th { background:#f8fafc; font-weight:700; }
 <meta charset="UTF-8"/>
 <title>${modeloSel.titulo}${colabSel ? ' — ' + colabSel.nome : ''}</title>
 <style>
+  @page { size: A4 portrait; margin: 12mm 14mm; }
   * { box-sizing:border-box; margin:0; padding:0; }
-  @page { size:A4; margin:10.5mm; }
-  body { font-family:Calibri,Arial,sans-serif; font-size:12pt; color:#1a1a1a; background:#fff; line-height:1.5; }
-  @media print {
-    .no-print { display:none!important; }
-    body { margin:0; padding:0; }
-    .header-timbrado { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    .watermark { display:none!important; }
-    p { text-align:justify; orphans:3; widows:3; }
-    h1,h2,h3,h4 { page-break-after:avoid; }
-    .sign-block { page-break-inside:avoid; }
+  html,body { font-family:Calibri,Arial,sans-serif; font-size:12pt; color:#1a1a1a; }
+  /* Folha única */
+  .folha {
+    width:100%;
+    min-height:246mm;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
   }
-
-  /* ── Cabeçalho timbrado ── */
-  .header-timbrado { background:#1e3a5f; color:#fff; padding:16px 28px; display:flex; align-items:center; gap:16px; }
-  .logo { height:60px; max-width:180px; object-fit:contain; filter:brightness(0) invert(1); border-radius:4px; }
-  .logo-fallback { width:52px; height:52px; border-radius:10px; background:rgba(255,255,255,.15); display:flex; align-items:center; justify-content:center; font-size:26px; }
-  .empresa-nome { font-size:18px; font-weight:900; letter-spacing:0.05em; }
-  .empresa-detalhes { font-size:11px; color:#93c5fd; margin-top:4px; }
-
-  /* ── Linha dupla ── */
-  .linha-dupla { border-top:3px solid #1e3a5f; border-bottom:1px solid #93c5fd; margin-bottom:0; }
-
-  /* ── Área de conteúdo ── */
-  .content-area { padding:20px 0 36px; font-family:Calibri,Arial,sans-serif; font-size:12pt; line-height:1.5; position:relative; }
-
-  /* ── Marca d'água ── */
-  .watermark { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) rotate(-45deg); font-size:72px; color:rgba(30,58,95,.04); font-weight:900; pointer-events:none; z-index:0; white-space:nowrap; font-family:Calibri,Arial,sans-serif; letter-spacing:.1em; }
-
-  /* ── Conteúdo do doc ── */
-  h1 { font-family:Calibri,Arial,sans-serif; font-size:16pt; font-weight:900; text-align:center; margin:0 0 16px; text-transform:uppercase; letter-spacing:.04em; line-height:1.3; }
-  h2 { font-family:Calibri,Arial,sans-serif; font-size:13pt; font-weight:800; margin:18px 0 8px; text-transform:uppercase; letter-spacing:.04em; border-bottom:2px solid #334155; padding-bottom:4px; line-height:1.3; }
-  h3 { font-family:Calibri,Arial,sans-serif; font-size:12pt; font-weight:700; margin:14px 0 6px; line-height:1.4; }
-  h4 { font-family:Calibri,Arial,sans-serif; font-size:11pt; font-weight:700; margin:10px 0 4px; font-style:italic; line-height:1.4; }
-  blockquote { font-family:Calibri,Arial,sans-serif; font-size:11pt; margin:12px 0; border-left:3px solid #94a3b8; padding-left:14px; color:#475569; font-style:italic; line-height:1.5; }
-  p { font-family:Calibri,Arial,sans-serif; font-size:12pt; margin:10px 0; line-height:1.5; text-align:justify; }
-  li { font-family:Calibri,Arial,sans-serif; font-size:12pt; line-height:1.5; text-align:justify; margin-bottom:4px; }
-  strong,b { font-weight:700; }
-  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:11px; }
-  table td,table th { border:1px solid #d1d5db; padding:5px 8px; }
-  table th { background:#f8fafc; font-weight:700; }
-
-  /* ── Badge categoria ── */
-  .badge { display:inline-block; background:${cat.bg}; color:${cat.cor}; border-radius:20px; padding:2px 10px; font-size:10px; font-weight:700; margin-bottom:12px; font-family:Calibri,Arial,sans-serif; }
-
-  /* ── Info doc ── */
-  .doc-meta { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:18px; }
-  .doc-meta-right { font-size:10px; color:#64748b; text-align:right; font-family:Calibri,Arial,sans-serif; }
-
-  /* ── Assinaturas ── */
-  .sign-block { margin-top:48px; display:flex; gap:40px; }
-  .sign-line { flex:1; border-top:1px solid #0f172a; padding-top:8px; text-align:center; font-size:11px; }
-
-  /* ── Botão imprimir ── */
-  .no-print { position:fixed; bottom:20px; right:20px; background:#1d4ed8; color:#fff; border:none; border-radius:9px; padding:11px 22px; font-size:13px; font-weight:700; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,.25); z-index:9999; font-family:Calibri,Arial,sans-serif; }
-  .no-print:hover { background:#1e40af; }
+  /* Timbre */
+  .timbre { background:#1e3a5f; color:#fff; padding:13px 18px; display:flex; align-items:center; gap:14px; flex-shrink:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .logo { height:54px; max-width:170px; object-fit:contain; filter:brightness(0) invert(1); border-radius:3px; }
+  .logo-fallback { width:46px; height:46px; background:rgba(255,255,255,.15); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0; }
+  .emp-nome { font-size:16pt; font-weight:900; letter-spacing:.04em; line-height:1.2; }
+  .emp-det  { font-size:8.5pt; color:#93c5fd; margin-top:3px; }
+  .linha-dupla { border-top:3pt solid #1e3a5f; border-bottom:1pt solid #93c5fd; flex-shrink:0; }
+  /* Corpo */
+  .corpo { flex:1; padding:14pt 0 0; display:flex; flex-direction:column; }
+  .doc-meta { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14pt; }
+  .meta-right { font-size:9pt; color:#555; text-align:right; line-height:1.5; }
+  .badge { background:${cat.bg}; color:${cat.cor}; border-radius:20px; padding:2px 10px; font-size:8.5pt; font-weight:700; display:inline-block; }
+  /* Marca d'água */
+  .watermark { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) rotate(-45deg); font-size:70pt; color:rgba(30,58,95,.04); font-weight:900; pointer-events:none; z-index:0; white-space:nowrap; letter-spacing:.1em; }
+  /* Conteúdo */
+  .conteudo { flex:1; }
+  .conteudo h1 { font-size:15pt; font-weight:900; text-align:center; margin:0 0 14pt; text-transform:uppercase; letter-spacing:.04em; line-height:1.3; }
+  .conteudo h2 { font-size:12pt; font-weight:800; margin:14pt 0 6pt; text-transform:uppercase; border-bottom:1.5pt solid #334155; padding-bottom:3pt; line-height:1.3; }
+  .conteudo h3 { font-size:11pt; font-weight:700; margin:10pt 0 4pt; }
+  .conteudo h4 { font-size:10pt; font-weight:700; font-style:italic; margin:8pt 0 3pt; }
+  .conteudo p  { font-size:11pt; margin:6pt 0; line-height:1.7; text-align:justify; orphans:3; widows:3; }
+  .conteudo li { font-size:11pt; line-height:1.7; text-align:justify; margin-bottom:3pt; }
+  .conteudo strong,.conteudo b { font-weight:700; }
+  .conteudo blockquote { font-size:10.5pt; margin:8pt 0; border-left:2.5pt solid #94a3b8; padding-left:10pt; color:#475569; font-style:italic; line-height:1.6; }
+  .conteudo table { width:100%; border-collapse:collapse; margin:8pt 0; font-size:9.5pt; }
+  .conteudo td,.conteudo th { border:0.5pt solid #d1d5db; padding:4pt 6pt; }
+  .conteudo th { background:#f8fafc; font-weight:700; }
+  /* Assinaturas */
+  .assinaturas { display:grid; grid-template-columns:1fr 1fr; gap:28pt; margin-top:28pt; flex-shrink:0; page-break-inside:avoid; }
+  .ass { border-top:1pt solid #0f172a; padding-top:6pt; font-size:10pt; font-weight:700; text-align:center; line-height:1.5; }
+  .ass span { font-size:8.5pt; font-weight:400; color:#555; }
+  /* Rodapé */
+  .rodape { font-size:7.5pt; color:#aaa; text-align:center; border-top:0.5pt solid #e5e7eb; padding-top:5pt; margin-top:10pt; flex-shrink:0; }
+  /* Tela */
+  @media screen {
+    body { background:#3c3f41; padding:24px; }
+    .folha { background:#fff; padding:12mm 14mm; margin:0 auto; max-width:210mm; box-shadow:0 2px 16px rgba(0,0,0,.4),0 8px 32px rgba(0,0,0,.25); }
+    .btn-imprimir { position:fixed; bottom:20px; right:20px; background:#1d4ed8; color:#fff; border:none; border-radius:9px; padding:11px 22px; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,.25); z-index:9999; font-family:Calibri,Arial,sans-serif; }
+    .btn-imprimir:hover { background:#1e40af; }
+  }
+  @media print {
+    body { background:#fff; padding:0; }
+    .folha { margin:0; padding:0; box-shadow:none; }
+    .btn-imprimir { display:none!important; }
+    h1,h2,h3,h4 { page-break-after:avoid; }
+  }
 </style>
 </head>
 <body>
 <div class="watermark">${empData.nome || 'EMPRESA'}</div>
-
-<!-- Cabeçalho timbrado -->
-<div class="header-timbrado">
-  ${logoBlock}
-  <div>
-    <div class="empresa-nome">${empData.nome || 'EMPRESA'}</div>
-    <div class="empresa-detalhes">${empData.cnpj ? 'CNPJ: ' + empData.cnpj : ''}${empData.cnpj && empData.endereco ? ' | ' : ''}${empData.endereco}${empData.cidade ? ' | ' + empData.cidade : ''}</div>
-  </div>
-</div>
-<div class="linha-dupla"></div>
-
-<!-- Conteúdo -->
-<div class="content-area">
-  <div class="doc-meta">
-    <span class="badge">${cat.emoji} ${cat.label}</span>
-    <div class="doc-meta-right">
-      Emitido em ${dataGer}${colabSel ? '<br/><strong>' + colabSel.nome + '</strong>' + (colabSel.chapa ? ' · ' + colabSel.chapa : '') : ''}
+<div class="folha">
+  <div class="timbre">
+    ${logoBlock}
+    <div>
+      <div class="emp-nome">${empData.nome || 'EMPRESA'}</div>
+      <div class="emp-det">${empData.cnpj ? 'CNPJ: ' + empData.cnpj : ''}${empData.cnpj && empData.endereco ? ' &nbsp;|&nbsp; ' : ''}${empData.endereco}${empData.cidade ? ' &nbsp;|&nbsp; ' + empData.cidade : ''}</div>
     </div>
   </div>
-
-  ${htmlConteudo}
-
-  <div class="sign-block">
-    <div class="sign-line">${empData.nome || 'Empresa'}<br/>Representante Legal</div>
-    ${colabSel
-      ? `<div class="sign-line">${colabSel.nome}<br/>${(colabSel.funcoes as any)?.nome ?? 'Colaborador(a)'}</div>`
-      : '<div class="sign-line">Colaborador(a)<br/>Assinatura</div>'}
+  <div class="linha-dupla"></div>
+  <div class="corpo">
+    <div class="doc-meta">
+      <span class="badge">${cat.emoji} ${cat.label}</span>
+      <div class="meta-right">
+        Emitido em ${dataGer}${colabSel ? '<br/><strong>' + colabSel.nome + '</strong>' + (colabSel.chapa ? ' · ' + colabSel.chapa : '') : ''}
+      </div>
+    </div>
+    <div class="conteudo">${htmlConteudo}</div>
+    <div class="assinaturas">
+      <div class="ass">${empData.nome || 'Empresa'}<br/><span>Representante Legal</span></div>
+      ${colabSel
+        ? `<div class="ass">${colabSel.nome}<br/><span>${(colabSel.funcoes as any)?.nome ?? 'Colaborador(a)'}</span></div>`
+        : '<div class="ass">Colaborador(a)<br/><span>Assinatura</span></div>'}
+    </div>
   </div>
+  <div class="rodape">${modeloSel.titulo}${colabSel ? ' &nbsp;·&nbsp; ' + colabSel.nome : ''} &nbsp;·&nbsp; ${dataGer}</div>
 </div>
-
-<button class="no-print" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+<button class="btn-imprimir" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
 <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
-</body>
-</html>`
+</body></html>`
 
-    const win = window.open('', '_blank', 'width=940,height=780')
+    const win = window.open('', '_blank', 'width=960,height=800')
     if (win) { win.document.write(html); win.document.close() }
     else toast.error('Bloqueio de pop-up detectado — libere pop-ups para este site.')
   }
@@ -958,6 +1115,17 @@ table th { background:#f8fafc; font-weight:700; }
                       style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: '1px solid #0369a1', background: '#eff6ff', color: '#0369a1', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                       <Eye size={13} /> Pré-visualizar
                     </button>
+                    <button
+                      onClick={() => {
+                        setLoteSel(colaboradores.map(c => c.id))
+                        setBuscaLote('')
+                        setFiltroObraLote('')
+                        setFiltroFuncaoLote('')
+                        setModalLote(true)
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: '1.5px solid #7c3aed', background: '#ede9fe', color: '#7c3aed', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                      <Layers size={13} /> Gerar em Lote
+                    </button>
                     <button onClick={gerarPDF}
                       style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 7, border: '2px solid #059669', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', fontSize: 12, fontWeight: 800, cursor: 'pointer', boxShadow: '0 2px 8px rgba(5,150,105,.25)' }}>
                       <Printer size={13} /> Gerar PDF com Timbre
@@ -965,9 +1133,17 @@ table th { background:#f8fafc; font-weight:700; }
                   </div>
                 </div>
 
-                {/* Preview do documento */}
-                <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px', background: '#f0f4f8' }}>
-                  <div style={{ background: '#fff', maxWidth: '210mm', margin: '0 auto', borderRadius: 6, boxShadow: '0 2px 12px rgba(0,0,0,.1)', overflow: 'hidden' }}>
+                {/* Preview do documento — folha A4 com fundo cinza */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px 32px', background: '#3c3f41' }}>
+                  {/* Rótulo */}
+                  <div style={{ maxWidth: 794, margin: '0 auto 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', fontFamily: 'monospace', letterSpacing: 1 }}>📄 A4 · 210 × 297 mm — Preview</span>
+                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontFamily: 'monospace' }}>Timbre + Assinatura incluídos na versão impressa</span>
+                  </div>
+                  {/* Folha branca */}
+                  <div style={{ background: '#fff', maxWidth: 794, margin: '0 auto', boxShadow: '0 2px 12px rgba(0,0,0,.5), 0 8px 32px rgba(0,0,0,.3)', overflow: 'hidden', position: 'relative' }}>
+                    {/* Régua de margem */}
+                    <div style={{ position: 'absolute', top: 28, right: 28, bottom: 28, left: 28, border: '1px dashed rgba(30,58,95,0.1)', pointerEvents: 'none', zIndex: 1 }} />
                     {/* Mini cabeçalho timbrado */}
                     <div style={{ background: '#1e3a5f', color: '#fff', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 10 }}>
                       {empData.logoUrl
@@ -1600,6 +1776,139 @@ table th { background:#f8fafc; font-weight:700; }
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setConfirmDel(null)} style={{ padding: '7px 18px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--background)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
               <button onClick={() => excluirModelo(confirmDel)} style={{ padding: '7px 18px', borderRadius: 7, border: 'none', background: '#ef4444', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Sim, remover</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ MODAL: Geração em Lote ══════════════════════════════════════════ */}
+      {modalLote && modeloSel && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 9200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={e => { if (e.target === e.currentTarget) setModalLote(false) }}>
+          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 760, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 16px 48px rgba(0,0,0,.4)', overflow: 'hidden' }}>
+
+            {/* Header */}
+            <div style={{ padding: '16px 20px', background: '#1e3a5f', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+              <div>
+                <div style={{ color: '#fff', fontWeight: 800, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Layers size={16} color="#93c5fd" /> Geração em Lote
+                </div>
+                <div style={{ color: '#93c5fd', fontSize: 11, marginTop: 2 }}>
+                  📄 {modeloSel.titulo} — selecione os colaboradores
+                </div>
+              </div>
+              <button onClick={() => setModalLote(false)}
+                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8, padding: '6px 10px', color: '#fff', cursor: 'pointer', fontSize: 13 }}>
+                ✕ Fechar
+              </button>
+            </div>
+
+            {/* Filtros */}
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--background)', flexShrink: 0, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1, minWidth: 160 }}>
+                <Search size={12} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+                <input value={buscaLote} onChange={e => setBuscaLote(e.target.value)}
+                  placeholder="Buscar colaborador…"
+                  style={{ width: '100%', height: 32, paddingLeft: 26, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', fontSize: 12, boxSizing: 'border-box', color: 'var(--foreground)' }} />
+              </div>
+              {/* Por obra */}
+              <select value={filtroObraLote} onChange={e => setFiltroObraLote(e.target.value)}
+                style={{ height: 32, borderRadius: 7, border: '1px solid var(--border)', padding: '0 10px', fontSize: 12, background: 'var(--card)', color: 'var(--foreground)' }}>
+                <option value="">🏗️ Todas as obras</option>
+                {[...new Set(colaboradores.map(c => (c.obras as any)?.nome).filter(Boolean))].sort().map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+              {/* Por função */}
+              <select value={filtroFuncaoLote} onChange={e => setFiltroFuncaoLote(e.target.value)}
+                style={{ height: 32, borderRadius: 7, border: '1px solid var(--border)', padding: '0 10px', fontSize: 12, background: 'var(--card)', color: 'var(--foreground)' }}>
+                <option value="">🪪 Todas as funções</option>
+                {[...new Set(colaboradores.map(c => (c.funcoes as any)?.nome).filter(Boolean))].sort().map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => {
+                  const ids = colaboradores
+                    .filter(c => {
+                      const q = buscaLote.toLowerCase()
+                      const obraNome = (c.obras as any)?.nome ?? ''
+                      const fnNome   = (c.funcoes as any)?.nome ?? ''
+                      const matchBusca = !q || c.nome.toLowerCase().includes(q) || c.chapa?.toLowerCase().includes(q)
+                      const matchObra  = !filtroObraLote || obraNome === filtroObraLote
+                      const matchFn    = !filtroFuncaoLote || fnNome === filtroFuncaoLote
+                      return matchBusca && matchObra && matchFn
+                    })
+                    .map(c => c.id)
+                  setLoteSel(prev => prev.length === ids.length && ids.every(id => prev.includes(id)) ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])])
+                }}
+                style={{ height: 32, paddingInline: 12, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', fontSize: 12, cursor: 'pointer', color: 'var(--foreground)', whiteSpace: 'nowrap' }}>
+                Sel. filtrados
+              </button>
+              <span style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                {loteSel.length} selecionado(s)
+              </span>
+            </div>
+
+            {/* Lista de colaboradores */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 6 }}>
+                {colaboradores
+                  .filter(c => {
+                    const q = buscaLote.toLowerCase()
+                    const obraNome = (c.obras as any)?.nome ?? ''
+                    const fnNome   = (c.funcoes as any)?.nome ?? ''
+                    return (!q || c.nome.toLowerCase().includes(q) || (c.chapa ?? '').toLowerCase().includes(q))
+                      && (!filtroObraLote || obraNome === filtroObraLote)
+                      && (!filtroFuncaoLote || fnNome === filtroFuncaoLote)
+                  })
+                  .map(c => {
+                    const sel = loteSel.includes(c.id)
+                    return (
+                      <div key={c.id}
+                        onClick={() => setLoteSel(s => sel ? s.filter(id => id !== c.id) : [...s, c.id])}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+                          borderRadius: 8, border: `1px solid ${sel ? '#1e3a5f' : 'var(--border)'}`,
+                          background: sel ? '#eff6ff' : 'var(--card)', cursor: 'pointer', transition: 'all .1s' }}>
+                        <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${sel ? '#1e3a5f' : '#d1d5db'}`,
+                          background: sel ? '#1e3a5f' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          {sel && <span style={{ color: '#fff', fontSize: 10, lineHeight: 1 }}>✓</span>}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: sel ? '#1e3a5f' : 'var(--foreground)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome}</div>
+                          <div style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
+                            {c.chapa}{(c.funcoes as any)?.nome ? ` · ${(c.funcoes as any).nome}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })
+                }
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--background)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
+                Será gerada <strong>1 folha A4 por colaborador</strong>, com timbre e assinatura.
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setModalLote(false)}
+                  style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card)', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--foreground)' }}>
+                  Cancelar
+                </button>
+                <button onClick={gerarLote} disabled={gerando || loteSel.length === 0 || loteGerado}
+                  style={{ padding: '8px 20px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700, cursor: (gerando || loteSel.length === 0) ? 'not-allowed' : 'pointer',
+                    background: loteGerado ? '#16a34a' : (gerando || loteSel.length === 0) ? '#94a3b8' : 'linear-gradient(135deg,#7c3aed,#6d28d9)',
+                    color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {loteGerado
+                    ? <><CheckCircle2 size={15}/> Gerado!</>
+                    : gerando
+                      ? 'Gerando…'
+                      : <><Layers size={15}/> Gerar {loteSel.length} via(s)</>
+                  }
+                </button>
+              </div>
             </div>
           </div>
         </div>

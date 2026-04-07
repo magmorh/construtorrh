@@ -1183,30 +1183,19 @@ table th { background:#f8fafc; font-weight:700; }
                   </div>
                   <button onClick={() => setColabSel(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 2, flexShrink: 0 }}><X size={13} /></button>
                 </div>
-                {/* Botão Kit Padrão */}
+                {/* Botão Kit Padrão — sempre abre o modal */}
                 <button
-                  onClick={() => {
-                    if (kitModelosIds.length === 0) {
-                      setModalKit(true)
-                    } else {
-                      gerarKitPadrao()
-                    }
-                  }}
+                  onClick={() => setModalKit(true)}
                   disabled={gerandoKit}
-                  title={kitModelosIds.length === 0 ? 'Configure o kit primeiro' : `Gerar ${kitModelosIds.length} documento(s) do kit`}
                   style={{
                     width: '100%', height: 34, borderRadius: 8, border: 'none', cursor: 'pointer',
                     background: kitGerado
                       ? '#16a34a'
                       : gerandoKit
                         ? '#94a3b8'
-                        : kitModelosIds.length === 0
-                          ? '#f8fafc'
-                          : 'linear-gradient(135deg,#b45309,#d97706)',
-                    color: kitModelosIds.length === 0 ? '#b45309' : '#fff',
-                    fontWeight: 700, fontSize: 12,
+                        : 'linear-gradient(135deg,#b45309,#d97706)',
+                    color: '#fff', fontWeight: 700, fontSize: 12,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    border: kitModelosIds.length === 0 ? '1.5px dashed #d97706' : 'none',
                     transition: 'all .2s',
                   }}
                 >
@@ -1214,19 +1203,9 @@ table th { background:#f8fafc; font-weight:700; }
                     ? <><CheckCircle2 size={14}/> Kit gerado!</>
                     : gerandoKit
                       ? 'Gerando…'
-                      : kitModelosIds.length === 0
-                        ? <><Settings size={13}/> Configurar Kit Padrão</>
-                        : <><span style={{ fontSize: 14 }}>📋</span> Kit Padrão ({kitModelosIds.length} docs)</>
+                      : <><span style={{ fontSize: 14 }}>📋</span> Kit Padrão{kitModelosIds.length > 0 ? ` (${kitModelosIds.length} docs)` : ''}</>
                   }
                 </button>
-                {kitModelosIds.length > 0 && (
-                  <button onClick={() => setModalKit(true)}
-                    style={{ width: '100%', marginTop: 4, height: 24, borderRadius: 6, border: 'none', cursor: 'pointer',
-                      background: 'none', fontSize: 10, color: '#b45309', fontWeight: 600,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                    <Settings size={10}/> Editar kit
-                  </button>
-                )}
               </div>
             )}
           </div>
@@ -2062,10 +2041,22 @@ table th { background:#f8fafc; font-weight:700; }
                   </button>
                 )}
                 <button onClick={() => setModalKit(false)}
-                  style={{ padding:'8px 20px', borderRadius:8, border:'none', fontSize:13, fontWeight:700, cursor:'pointer',
-                    background: kitModelosIds.length > 0 ? 'linear-gradient(135deg,#b45309,#d97706)' : '#94a3b8',
+                  style={{ padding:'8px 16px', borderRadius:8, border:'1px solid var(--border)', background:'var(--card)', fontSize:13, fontWeight:600, cursor:'pointer', color:'var(--foreground)' }}>
+                  Fechar
+                </button>
+                <button
+                  onClick={async () => { await gerarKitPadrao() }}
+                  disabled={gerandoKit || kitModelosIds.length === 0}
+                  style={{ padding:'8px 20px', borderRadius:8, border:'none', fontSize:13, fontWeight:700,
+                    cursor: (gerandoKit || kitModelosIds.length === 0) ? 'not-allowed' : 'pointer',
+                    background: kitGerado ? '#16a34a' : (gerandoKit || kitModelosIds.length === 0) ? '#94a3b8' : 'linear-gradient(135deg,#b45309,#d97706)',
                     color:'#fff', display:'flex', alignItems:'center', gap:8 }}>
-                  {kitModelosIds.length > 0 ? <><CheckCircle2 size={14}/> Salvar Kit</> : 'Fechar'}
+                  {kitGerado
+                    ? <><CheckCircle2 size={14}/> Gerado!</>
+                    : gerandoKit
+                      ? 'Gerando…'
+                      : <>🖨️ Gerar Kit ({kitModelosIds.length} doc{kitModelosIds.length !== 1 ? 's' : ''})</>
+                  }
                 </button>
               </div>
             </div>

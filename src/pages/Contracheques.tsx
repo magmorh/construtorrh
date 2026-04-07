@@ -574,7 +574,6 @@ export default function Contracheques() {
     const { data, error: colErr } = await supabase.from('colaboradores')
       .select('id,nome,chapa,cpf,funcao_id,tipo_contrato,status,salario_base,funcoes(nome)')
       .in('status', ['ativo', 'afastado'])
-      .in('tipo_contrato', ['clt', 'menor_aprendiz', 'estagio'])
       .order('nome')
     if (colErr) console.error('[Contracheques] erro ao carregar colaboradores:', colErr.message)
     const mapped = ((data ?? []) as any[]).map(c => ({

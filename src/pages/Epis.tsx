@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import { supabase } from '@/lib/supabase'
 import { PageHeader, EmptyState, LoadingSkeleton } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
@@ -1886,21 +1887,18 @@ export default function Epis() {
                   Todos os EPIs ativos já estão vinculados a esta função.
                 </div>
               ) : (
-                <Select
-                  value={vinculoForm.epi_id || undefined}
-                  onValueChange={v => setVinculoForm(p => ({ ...p, epi_id: v }))}
-                >
-                  <SelectTrigger style={{ width: '100%' }}>
-                    <SelectValue placeholder="Selecione um EPI…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {episDisponiveis.map(e => (
-                      <SelectItem key={e.id} value={e.id}>
-                        {e.nome}{e.categoria ? ` — ${e.categoria}` : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={vinculoForm.epi_id}
+                  onChange={v => setVinculoForm(p => ({ ...p, epi_id: v }))}
+                  placeholder="Pesquisar EPI…"
+                  emptyLabel=""
+                  options={episDisponiveis.map(e => ({
+                    value: e.id,
+                    label: e.nome,
+                    sublabel: e.categoria ?? undefined,
+                  }))}
+                  style={{ width: '100%' }}
+                />
               )}
             </div>
 

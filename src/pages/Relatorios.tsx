@@ -1,6 +1,7 @@
 // Relatorios.tsx — Página completa de relatórios do ConstrutorRH
 // 28 categorias de relatórios | Sidebar + Painel | Print/PDF profissional
 import React, { useState, useEffect, useCallback } from 'react'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import { supabase } from '@/lib/supabase'
 import { fetchEmpresaData, gerarCabecalhoHTML, CABECALHO_CSS } from '@/lib/relatorioHeader'
 import { toast } from 'sonner'
@@ -1503,26 +1504,32 @@ export default function Relatorios() {
             {/* Filtro: Obra */}
             {(['headcount-obra','custo-obra','producao-obra','faltas-obra','acidentes-obra','producao-playbook','ranking-producao','evolucao-horas','painel-acidentes','resumo-folha','meta-realizado','custo-hora','playbook-atividades','historico-ponto-obra'].includes(relatAtivo)) && (
               <FieldWrap label={`Obra${isObraRequired ? ' *' : ''}`}>
-                <Select value={filtroObra} onValueChange={setFiltroObra}>
-                  <SelectTrigger className="w-52 h-8 text-xs"><SelectValue placeholder="Todas as obras" /></SelectTrigger>
-                  <SelectContent>
-                    {!isObraRequired && <SelectItem value="todos">Todas as obras</SelectItem>}
-                    {obras.map(o => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={filtroObra || ''}
+                  onChange={v => setFiltroObra(v || 'todos')}
+                  placeholder="Pesquisar obra…"
+                  emptyLabel={!isObraRequired ? 'Todas as obras' : undefined}
+                  options={obras.map(o => ({ value: o.id, label: o.nome, sublabel: o.codigo ?? undefined }))}
+                  style={{ width: 220 }}
+                />
               </FieldWrap>
             )}
 
             {/* Filtro: Colaborador */}
             {(isColabRequired || ['provisoes','adiantamentos-aberto','painel-atestados','historico-advertencias'].includes(relatAtivo)) && (
               <FieldWrap label={`Colaborador ${isColabRequired ? '*' : ''}`}>
-                <Select value={filtroColaborador} onValueChange={setFiltroColaborador}>
-                  <SelectTrigger className="w-64 h-8 text-xs"><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                  <SelectContent>
-                    {!isColabRequired && <SelectItem value="todos">Todos</SelectItem>}
-                    {colaboradores.map(c => <SelectItem key={c.id} value={c.id}>{c.nome}{c.chapa ? ` (${c.chapa})` : ''}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={filtroColaborador || ''}
+                  onChange={v => setFiltroColaborador(v || 'todos')}
+                  placeholder="Pesquisar colaborador…"
+                  emptyLabel={!isColabRequired ? 'Todos' : undefined}
+                  options={colaboradores.map(c => ({
+                    value: c.id,
+                    label: c.nome,
+                    sublabel: c.chapa ? `Chapa ${c.chapa}` : undefined,
+                  }))}
+                  style={{ width: 280 }}
+                />
               </FieldWrap>
             )}
 

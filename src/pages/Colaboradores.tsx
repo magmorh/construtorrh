@@ -1686,7 +1686,7 @@ ${crachaCardHTML(c, empNome, logoUrl)}
       funcao_id: c.funcao_id ?? '', obra_id: c.obra_id ?? '',
       salario: c.salario ? String(c.salario) : '',
       tipo_contrato: c.tipo_contrato ?? 'clt', data_admissao: c.data_admissao ?? '',
-      ctps_numero: c.ctps_numero ?? '', ctps_serie: c.ctps_serie ?? '',
+      ctps_numero: c.ctps_numero ?? '', ctps_serie: c.ctps_serie ?? '', data_exame_admissional: (c as any).data_exame_admissional ?? '',
       banco: c.banco ?? '', agencia: c.agencia ?? '', conta: c.conta ?? '',
       tipo_conta: c.tipo_conta ?? '', pix_tipo: (c as any).pix_tipo ?? '', pix_chave: c.pix_chave ?? '',
       vt_modalidade: (() => {
@@ -1933,6 +1933,7 @@ ${crachaCardHTML(c, empNome, logoUrl)}
       data_admissao: form.data_admissao || null,
       ctps_numero: form.ctps_numero || null,
       ctps_serie: form.ctps_serie || null,
+      data_exame_admissional: (form as any).data_exame_admissional || null,
       banco: form.banco || null,
       agencia: form.agencia || null,
       conta: form.conta || null,

@@ -745,18 +745,21 @@ function AbaLote({ colaboradores, obras }: { colaboradores: Colaborador[]; obras
     if (!funcaoId) return '<em style="color:#999">[Função não vinculada — EPIs não disponíveis]</em>'
     const { data, error } = await supabase
       .from('funcao_epi')
-      .select('*, epi_catalogo(id, nome, categoria, ca_numero)')
+      .select('id, epi_id, quantidade, obrigatorio, epi_catalogo(id, nome, categoria, numero_ca)')
       .eq('funcao_id', funcaoId)
-    if (error || !data || data.length === 0)
-      return '<em style="color:#999">[Nenhum EPI cadastrado para esta função]</em>'
+    if (error) return `<em style="color:#c00">[Erro ao buscar EPIs: ${error.message}]</em>`
+    if (!data || data.length === 0)
+      return '<em style="color:#888">[Nenhum EPI cadastrado para esta função]</em>'
     const linhas = (data as any[]).map((row, i) => {
       const epi = row.epi_catalogo ?? {}
+      const ca  = epi.numero_ca ? `CA ${epi.numero_ca}` : '—'
+      const qtd = row.quantidade ?? 1
       return `<tr style="background:${i % 2 === 0 ? '#fff' : '#f8fafc'}">
         <td style="padding:5px 8px;border:1px solid #e2e8f0;text-align:center;font-size:10pt">${i + 1}</td>
         <td style="padding:5px 8px;border:1px solid #e2e8f0;font-weight:600;font-size:10pt">${epi.nome ?? '—'}</td>
         <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${epi.categoria ?? '—'}</td>
-        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${epi.ca_numero ? `CA ${epi.ca_numero}` : '—'}</td>
-        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${row.quantidade ?? 1}</td>
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${ca}</td>
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${qtd}</td>
       </tr>`
     }).join('')
     return `<table style="width:100%;border-collapse:collapse;margin:8pt 0;font-family:Arial,sans-serif">

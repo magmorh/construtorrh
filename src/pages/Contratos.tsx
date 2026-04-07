@@ -98,26 +98,27 @@ function valorPorExtenso(v: number | null | undefined): string {
 
 // ── Busca EPIs da função e retorna tabela HTML ────────────────────────────────
 async function buscarEpisDaFuncao(funcaoId: string | null | undefined, supabaseClient: any): Promise<string> {
-  if (!funcaoId) return '[Função não vinculada — EPIs não disponíveis]'
+  if (!funcaoId) return '<em style="color:#888">[Função não vinculada — EPIs não disponíveis]</em>'
   const { data, error } = await supabaseClient
     .from('funcao_epi')
-    .select('*, epi_catalogo(id, nome, categoria, ca_numero)')
+    .select('id, epi_id, quantidade, obrigatorio, epi_catalogo(id, nome, categoria, numero_ca)')
     .eq('funcao_id', funcaoId)
-  if (error || !data || data.length === 0)
-    return '[Nenhum EPI cadastrado para esta função]'
+  if (error) return `<em style="color:#c00">[Erro ao buscar EPIs: ${error.message}]</em>`
+  if (!data || data.length === 0)
+    return '<em style="color:#888">[Nenhum EPI cadastrado para esta função]</em>'
 
   const linhas = data.map((row: any, i: number) => {
     const epi = row.epi_catalogo ?? {}
-    const cat = epi.categoria ? `${epi.categoria}` : '—'
-    const ca  = epi.ca_numero  ? `CA ${epi.ca_numero}` : '—'
+    const cat = epi.categoria ?? '—'
+    const ca  = epi.numero_ca  ? `CA ${epi.numero_ca}` : '—'
+    const qtd = row.quantidade ?? 1
     return `
       <tr style="background:${i % 2 === 0 ? '#fff' : '#f8fafc'}">
         <td style="padding:5px 8px;border:1px solid #e2e8f0;text-align:center;font-size:10pt">${i + 1}</td>
         <td style="padding:5px 8px;border:1px solid #e2e8f0;font-weight:600;font-size:10pt">${epi.nome ?? '—'}</td>
         <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${cat}</td>
         <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${ca}</td>
-        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${row.quantidade ?? 1}</td>
-
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10pt;text-align:center">${qtd}</td>
       </tr>`
   }).join('')
 
@@ -130,7 +131,6 @@ async function buscarEpisDaFuncao(funcaoId: string | null | undefined, supabaseC
       <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:90px">Categoria</th>
       <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:70px">Nº CA</th>
       <th style="padding:6px 8px;border:1px solid #1e3a5f;font-size:9pt;width:50px">Qtd.</th>
-
     </tr>
   </thead>
   <tbody>${linhas}</tbody>

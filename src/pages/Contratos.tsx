@@ -2064,7 +2064,7 @@ table th{background:#f8fafc;font-weight:700;}
         return (
           <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.6)', zIndex:9400, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
             onClick={e => { if (e.target === e.currentTarget) setModalAvulso(false) }}>
-            <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:720, maxHeight:'96vh', display:'flex', flexDirection:'column', boxShadow:'0 16px 48px rgba(0,0,0,.4)', overflow:'hidden' }}>
+            <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:1000, maxHeight:'96vh', display:'flex', flexDirection:'column', boxShadow:'0 16px 48px rgba(0,0,0,.4)', overflow:'hidden' }}>
               {/* Header */}
               <div style={{ padding:'16px 20px', background:'linear-gradient(135deg,#0369a1,#0284c7)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
                 <div>

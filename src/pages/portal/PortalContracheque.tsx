@@ -125,12 +125,17 @@ function fmtHora(h: string | null): string {
 }
 
 // Converte URL pública do Storage em link seguro /doc-viewer
+// Só redireciona URLs reais do Supabase Storage (não base64, não URLs externas)
 function secureDocUrl(url: string | null | undefined): string {
-  if (!url) return '#'
-  // Se já é do supabase storage, passa pelo viewer seguro
-  if (url.includes('.supabase.co/storage/')) {
+  if (!url || url === '#') return '#'
+  // Base64: não redirecionar (é dado local)
+  if (url.startsWith('data:')) return url
+  // Supabase Storage: redirecionar pelo DocViewer autenticado
+  const isSupabaseStorage = url.includes('.supabase.co/storage/') || url.includes('.supabase_')
+  if (isSupabaseStorage) {
     return `${window.location.origin}${window.location.pathname}#/doc-viewer?url=${encodeURIComponent(url)}`
   }
+  // URL externa ou outro: abrir diretamente
   return url
 }
 function fmtDiaSemana(d: string): string {

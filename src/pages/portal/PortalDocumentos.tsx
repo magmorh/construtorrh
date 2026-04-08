@@ -25,9 +25,12 @@ const S: React.CSSProperties = { ...I, cursor:'pointer' }
 
 
 // Converte URL pública do Storage em link seguro via DocViewer autenticado
+// Só redireciona URLs reais do Supabase Storage (não base64, não URLs externas)
 function secureDocUrl(url: string | null | undefined): string {
-  if (!url) return '#'
-  if (url.includes('.supabase.co/storage/') || url.includes('supabase')) {
+  if (!url || url === '#') return '#'
+  if (url.startsWith('data:')) return url
+  const isSupabaseStorage = url.includes('.supabase.co/storage/') || url.includes('.supabase_')
+  if (isSupabaseStorage) {
     return `${window.location.origin}${window.location.pathname}#/doc-viewer?url=${encodeURIComponent(url)}`
   }
   return url

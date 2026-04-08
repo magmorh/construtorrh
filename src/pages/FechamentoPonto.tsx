@@ -1259,7 +1259,7 @@ export default function FechamentoPonto() {
                     <TableHeader>
                       <TableRow style={{ background: 'rgba(0,0,0,0.03)' }}>
                         <TableHead style={{ fontSize: 11 }}>Obra</TableHead>
-                        <TableHead style={{ fontSize: 11 }}>Período</TableHead>
+                        <TableHead style={{ fontSize: 11 }}>Período / Competência</TableHead>
                         <TableHead className="text-center" style={{ fontSize: 11 }}>Dias</TableHead>
                         <TableHead style={{ fontSize: 11, color: '#7c3aed', fontWeight: 700, minWidth: 260 }}>💵 Composição do Salário</TableHead>
                         <TableHead className="text-center" style={{ fontSize: 11, color: '#dc2626' }}>Faltas</TableHead>
@@ -1293,7 +1293,12 @@ export default function FechamentoPonto() {
                               </div>
                             </TableCell>
                             <TableCell style={{ fontFamily: 'monospace', fontSize: 11, whiteSpace: 'nowrap' }}>
-                              {lanc.data_inicio.slice(8)}/{lanc.data_inicio.slice(5,7)} → {lanc.data_fim.slice(8)}/{lanc.data_fim.slice(5,7)}
+                              <div>{lanc.data_inicio.slice(8)}/{lanc.data_inicio.slice(5,7)} → {lanc.data_fim.slice(8)}/{lanc.data_fim.slice(5,7)}</div>
+                              <div style={{ marginTop:3 }}>
+                                <span style={{ fontSize:9, fontWeight:700, background:'#eff6ff', color:'#1d4ed8', border:'1px solid #bfdbfe', borderRadius:5, padding:'1px 6px', textTransform:'uppercase', letterSpacing:'.03em', fontFamily:'sans-serif' }}>
+                                  📅 Comp. {MESES_ABR[parseInt(lanc.mes_referencia.slice(5,7))-1]}/{lanc.mes_referencia.slice(2,4)}
+                                </span>
+                              </div>
                             </TableCell>
                             <TableCell className="text-center" style={{ fontSize: 12 }}>{lanc.dias_trabalhados}</TableCell>
                             {/* ── Composição do Salário ── */}

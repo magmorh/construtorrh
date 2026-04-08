@@ -671,7 +671,6 @@ function AbaFolhaPonto({ sessao, dataAdmissao }: { sessao: Sessao; dataAdmissao:
       .from('portal_ponto_diario')
       .select('id,data,hora_entrada,hora_saida,horas_trabalhadas,horas_extra,horas_falta,status,observacoes')
       .eq('colaborador_id', sessao.colaborador_id)
-      .not('status', 'is', null)
       .gte('data', inicio)
       .lte('data', fim)
       .order('data', { ascending: true })

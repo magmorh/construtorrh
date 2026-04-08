@@ -277,7 +277,7 @@ export default function Configuracoes() {
   // "Outros" encargos de rescisão adicionados pelo usuário
   const [outrosRescisao, setOutrosRescisao] = useState<VerbaRescisoria[]>([])
   const [uploadingLogo, setUploadingLogo]   = useState(false)
-  const [tiposDoc,     setTiposDoc]         = useState<{label:string;visivel:boolean}[]>(TIPOS_DOCUMENTO_PADRAO as any)
+  const [tiposDoc,     setTiposDoc]         = useState<string[]>([])
   const [novoTipoDoc,  setNovoTipoDoc]      = useState('')
   const [savingTiposDoc, setSavingTiposDoc] = useState(false)
   const logoInputRef = useRef<HTMLInputElement>(null)
@@ -391,9 +391,9 @@ export default function Configuracoes() {
       // Carregar tipos de documentos
       if (map['tipos_documentos']) {
         try {
-          const rawParsed = JSON.parse(map['tipos_documentos']); const parsed = Array.isArray(rawParsed) ? rawParsed.map((t:any)=>typeof t==='string'?{label:t,visivel:false}:t) : rawParsed
+          const parsed = JSON.parse(map['tipos_documentos'])
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setTiposDoc(parsed); localStorage.setItem('rh_tipos_documentos',JSON.stringify(parsed))
+            setTiposDoc(Array.isArray(parsed)?parsed.map((t:any)=>typeof t==='string'?t:t.label??String(t)):[])
             localStorage.setItem('rh_tipos_documentos', JSON.stringify(parsed))
           }
         } catch {}
@@ -609,12 +609,12 @@ export default function Configuracoes() {
     if (tiposDoc.some(x => x.toLowerCase() === t.toLowerCase())) {
       toast.error('Tipo já existe na lista'); return
     }
-    setTiposDoc(prev => [...prev, {label:t,visivel:false}])
+    setTiposDoc(prev => [...prev, t])
     setNovoTipoDoc('')
   }
 
   function removeTipoDoc(idx: number) {
-    setTiposDoc(prev => prev.filter((_,i)=>i!==idx))
+    setTiposDoc(prev => prev.filter((_, i) => i !== idx))
   }
 
   function resetTiposDoc() {
@@ -1336,7 +1336,7 @@ export default function Configuracoes() {
                   <div>
                     <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1e293b' }}>Tipos de Documentos</h2>
                     <p style={{ margin: 0, fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                      Liste os tipos e defina quais ficam visíveis no portal do colaborador. {tiposDoc.length} tipo(s) · {(tiposDoc as any[]).filter(t=>typeof t==='object'?t.visivel:false).length} visível(is) no portal.
+                      Liste os tipos e defina quais ficam visíveis no portal do colaborador.
                     </p>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -1372,27 +1372,28 @@ export default function Configuracoes() {
 
                 {/* Lista de tipos */}
                 <div style={{ padding: '8px 16px' }}>
-                  {(tiposDoc as any[]).map((tipo, idx) => {
-                    const label = typeof tipo==='string'?tipo:(tipo.label??tipo)
-                    const visivel = typeof tipo==='object'?!!(tipo.visivel):false
-                    return (
-                    <div key={idx} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 8px', borderBottom: idx < tiposDoc.length-1?'1px solid #f8fafc':'none' }}>
-                      <FileText size={14} color="#94a3b8" style={{ flexShrink:0 }}/>
-                      <span style={{ flex:1, fontSize:13, color:'#1e293b' }}>{label}</span>
-                      {/* Toggle visivel colaborador */}
+                  {tiposDoc.map((tipo, idx) => (
+                    <div key={idx} style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '9px 8px', borderBottom: idx < tiposDoc.length - 1 ? '1px solid #f8fafc' : 'none',
+                    }}>
+                      <FileText size={14} color="#94a3b8" style={{ flexShrink: 0 }}/>
+                      <span style={{ flex: 1, fontSize: 13, color: '#1e293b' }}>{String(tipo)}</span>
                       <button
-                        onClick={()=>setTiposDoc(prev=>(prev as any[]).map((t,i)=>i===idx?{label:typeof t==='string'?t:t.label,visivel:!(typeof t==='object'?t.visivel:false)}:t) as any)}
-                        title={visivel?'Ocultar do portal do colaborador':'Tornar visível no portal do colaborador'}
-                        style={{ border:'none', borderRadius:6, padding:'3px 8px', cursor:'pointer', fontSize:10, fontWeight:700,
-                          background:visivel?'#dcfce7':'#f3f4f6', color:visivel?'#15803d':'#94a3b8', display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap' }}
+                        onClick={() => removeTipoDoc(idx)}
+                        title="Remover tipo"
+                        style={{
+                          border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8',
+                          padding: '3px 6px', borderRadius: 5, display: 'flex', alignItems: 'center',
+                          transition: 'all 0.12s',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#ef4444'; (e.currentTarget as HTMLElement).style.background = '#fef2f2' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#94a3b8'; (e.currentTarget as HTMLElement).style.background = 'none' }}
                       >
-                        {visivel?'👁 Visível':'🔒 Oculto'}
-                      </button>
-                      <button onClick={()=>removeTipoDoc(idx)} title="Remover" style={{ border:'none',background:'none',cursor:'pointer',color:'#94a3b8',padding:'3px 6px',borderRadius:5,display:'flex',alignItems:'center' }}>
                         <X size={13}/>
                       </button>
                     </div>
-                  )})}
+                  ))}
                   {tiposDoc.length === 0 && (
                     <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
                       Nenhum tipo cadastrado. Adicione acima ou restaure o padrão.

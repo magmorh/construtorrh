@@ -200,28 +200,16 @@ const EMPRESA_FIELDS: { chave: string; label: string; placeholder: string }[] = 
 
 // ─── componente ──────────────────────────────────────────────────────────────
 // ─── Itens da nav lateral de Configurações ────────────────────────────────
-const TIPOS_DOCUMENTO_PADRAO = [
-  'Contrato de Trabalho',
-  'Exame Admissional',
-  'Exame Demissional',
-  'Exame Periódico',
-  'Atestado Médico',
-  'Certificado de Treinamento',
-  'Declaração de Vínculo',
-  'Carteira de Trabalho (CTPS)',
-  'Documento de Identidade (RG/CNH)',
-  'CPF',
-  'Comprovante de Residência',
-  'Foto 3x4',
-  'Ficha de Registro',
-  'Advertência',
-  'Suspensão',
-  'Comunicação de Acidente (CAT)',
-  'ASO (Atestado de Saúde Ocupacional)',
-  'NR-35 (Trabalho em Altura)',
-  'NR-18 (Construção Civil)',
-  'Outros',
-]
+type TipoDoc = { label: string; visivel: boolean }
+
+const TIPOS_DOCUMENTO_PADRAO: TipoDoc[] = [
+  'Contrato de Trabalho','Exame Admissional','Exame Demissional','Exame Periódico',
+  'Atestado Médico','Certificado de Treinamento','Declaração de Vínculo',
+  'Carteira de Trabalho (CTPS)','Documento de Identidade (RG/CNH)','CPF',
+  'Comprovante de Residência','Foto 3x4','Ficha de Registro','Advertência',
+  'Suspensão','Comunicação de Acidente (CAT)','ASO (Atestado de Saúde Ocupacional)',
+  'NR-35 (Trabalho em Altura)','NR-18 (Construção Civil)','Outros',
+].map(label => ({ label, visivel: false }))
 
 const CFG_NAV = [
   { id: 'empresa',    label: 'Empresa',                icon: Building2, color: '#0ea5e9' },
@@ -277,7 +265,7 @@ export default function Configuracoes() {
   // "Outros" encargos de rescisão adicionados pelo usuário
   const [outrosRescisao, setOutrosRescisao] = useState<VerbaRescisoria[]>([])
   const [uploadingLogo, setUploadingLogo]   = useState(false)
-  const [tiposDoc,     setTiposDoc]         = useState<string[]>([])
+  const [tiposDoc,     setTiposDoc]         = useState<TipoDoc[]>([])
   const [novoTipoDoc,  setNovoTipoDoc]      = useState('')
   const [savingTiposDoc, setSavingTiposDoc] = useState(false)
   const logoInputRef = useRef<HTMLInputElement>(null)
@@ -393,9 +381,11 @@ export default function Configuracoes() {
         try {
           const parsed = JSON.parse(map['tipos_documentos'])
           if (Array.isArray(parsed) && parsed.length > 0) {
-            const normalized = parsed.map((t: any) => typeof t === 'string' ? t : t.label ?? String(t)).filter(Boolean) as string[]
+            // Migrar de string[] antigo para TipoDoc[]
+            const normalized: TipoDoc[] = parsed.map((t: any) =>
+              typeof t === 'string' ? { label: t, visivel: false } : { label: t.label ?? String(t), visivel: !!t.visivel }
+            ).filter((t: TipoDoc) => t.label)
             setTiposDoc(normalized)
-            // Salvar sempre como string[] no localStorage (migração do formato antigo {label,visivel})
             localStorage.setItem('rh_tipos_documentos', JSON.stringify(normalized))
           }
         } catch {}
@@ -608,15 +598,19 @@ export default function Configuracoes() {
   function addTipoDoc() {
     const t = novoTipoDoc.trim()
     if (!t) return
-    if (tiposDoc.some(x => x.toLowerCase() === t.toLowerCase())) {
+    if (tiposDoc.some(x => x.label.toLowerCase() === t.toLowerCase())) {
       toast.error('Tipo já existe na lista'); return
     }
-    setTiposDoc(prev => [...prev, t])
+    setTiposDoc(prev => [...prev, { label: t, visivel: false }])
     setNovoTipoDoc('')
   }
 
   function removeTipoDoc(idx: number) {
     setTiposDoc(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  function toggleVisivelDoc(idx: number) {
+    setTiposDoc(prev => prev.map((t, i) => i === idx ? { ...t, visivel: !t.visivel } : t))
   }
 
   function resetTiposDoc() {
@@ -1338,7 +1332,8 @@ export default function Configuracoes() {
                   <div>
                     <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1e293b' }}>Tipos de Documentos</h2>
                     <p style={{ margin: 0, fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                      Liste os tipos e defina quais ficam visíveis no portal do colaborador.
+                      Liste os tipos e defina quais ficam visíveis no portal do colaborador.{' '}
+                        <strong style={{ color: '#15803d' }}>{tiposDoc.filter(t => t.visivel).length} visível(is)</strong> · {tiposDoc.length} total.
                     </p>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -1380,7 +1375,22 @@ export default function Configuracoes() {
                       padding: '9px 8px', borderBottom: idx < tiposDoc.length - 1 ? '1px solid #f8fafc' : 'none',
                     }}>
                       <FileText size={14} color="#94a3b8" style={{ flexShrink: 0 }}/>
-                      <span style={{ flex: 1, fontSize: 13, color: '#1e293b' }}>{String(tipo)}</span>
+                      <span style={{ flex: 1, fontSize: 13, color: '#1e293b' }}>{tipo.label}</span>
+                      {/* Toggle: Visível para colaborador */}
+                      <button
+                        onClick={() => toggleVisivelDoc(idx)}
+                        title={tipo.visivel ? 'Ocultar do portal do colaborador' : 'Tornar visível no portal do colaborador'}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 5,
+                          border: 'none', borderRadius: 6, padding: '3px 9px', cursor: 'pointer',
+                          fontSize: 10, fontWeight: 700, flexShrink: 0, transition: 'all .15s',
+                          background: tipo.visivel ? '#dcfce7' : '#f3f4f6',
+                          color: tipo.visivel ? '#15803d' : '#94a3b8',
+                        }}
+                      >
+                        <span style={{ fontSize: 11 }}>{tipo.visivel ? '👁' : '🙈'}</span>
+                        {tipo.visivel ? 'Visível' : 'Oculto'}
+                      </button>
                       <button
                         onClick={() => removeTipoDoc(idx)}
                         title="Remover tipo"

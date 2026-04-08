@@ -725,7 +725,7 @@ function AbaContracheque({ sessao, holerites, lancamentos, colab, empresa, aceit
 
 // ─── ABA FOLHA DE PONTO ───────────────────────────────────────────────────────
 // Mês padrão = mês atual. Busca lançamentos do portal_ponto_diario.
-function AbaFolhaPonto({ sessao, dataAdmissao }: { sessao: Sessao; dataAdmissao: string | null }) {
+function AbaFolhaPonto({ sessao, dataAdmissao, lancamentos }: { sessao: Sessao; dataAdmissao: string | null; lancamentos: PontoLancamento[] }) {
   const [mesSel, setMesSel]       = useState(mesAtualStr)
   const [registros, setRegistros] = useState<RegistroPonto[]>([])
   const [loading, setLoading]     = useState(false)
@@ -922,26 +922,62 @@ function AbaFolhaPonto({ sessao, dataAdmissao }: { sessao: Sessao; dataAdmissao:
 
 // ─── ABA MEUS DOCUMENTOS ─────────────────────────────────────────────────────
 function AbaMeusDocumentos({ sessao }: { sessao: Sessao }) {
-  const [documentos, setDocumentos] = useState<ColaboradorDocumento[]>([])
+  const [documentos, setDocumentos] = useState<any[]>([])
   const [loading, setLoading]       = useState(false)
   const [erro, setErro]             = useState('')
 
   const carregar = useCallback(async () => {
     setLoading(true); setErro('')
     try {
-      const { data, error } = await supabase
+      // 1 – Buscar tipos visíveis das configurações
+      const { data: cfgData } = await supabase
+        .from('configuracoes').select('valor').eq('chave','tipos_documentos').single()
+      let tiposVisiveis: string[] = []
+      if (cfgData?.valor) {
+        try {
+          const arr = JSON.parse(cfgData.valor)
+          tiposVisiveis = arr
+            .filter((t: any) => typeof t === 'object' ? t.visivel : false)
+            .map((t: any) => typeof t === 'string' ? t : t.label)
+        } catch {}
+      }
+
+      // 2 – Buscar documentos_avulsos do colaborador
+      const { data: avulsos } = await supabase
+        .from('documentos_avulsos')
+        .select('id,tipo,data,descricao,documento_url,documento_nome')
+        .eq('colaborador_id', sessao.colaborador_id)
+        .order('data', { ascending: false })
+
+      // 3 – Buscar documentos formais (colaborador_documentos)
+      const { data: formais } = await supabase
         .from('colaborador_documentos')
-        .select('id,titulo,tipo,descricao,arquivo_url,visivel_colaborador,criado_em,assinou_em')
+        .select('id,titulo,tipo,descricao,arquivo_url,visivel_colaborador,criado_em')
         .eq('colaborador_id', sessao.colaborador_id)
         .eq('visivel_colaborador', true)
         .order('criado_em', { ascending: false })
-      if (error) {
-        if (error.code==='42P01'||error.message?.includes('does not exist')) setDocumentos([])
-        else setErro('Erro ao carregar documentos.')
-      } else {
-        setDocumentos((data as ColaboradorDocumento[]) ?? [])
+        .catchError?.(() => null)
+
+      // 4 – Montar lista: formais + avulsos filtrados por tipo visível
+      const lista: any[] = []
+
+      // Documentos formais (sempre visíveis se marcados)
+      for (const d of (formais ?? []) as any[]) {
+        lista.push({ id: d.id, titulo: d.titulo, tipo: d.tipo, descricao: d.descricao, url: d.arquivo_url, nome: d.titulo, data: d.criado_em, fonte: 'formal' })
       }
-    } catch { setErro('Erro ao carregar documentos.') }
+
+      // Avulsos filtrados por tipo visível
+      for (const d of (avulsos ?? []) as any[]) {
+        const visivel = tiposVisiveis.some(tv => tv.toLowerCase() === (d.tipo ?? '').toLowerCase())
+        if (visivel) {
+          lista.push({ id: d.id, titulo: d.tipo, tipo: d.tipo, descricao: d.descricao, url: d.documento_url, nome: d.documento_nome, data: d.data, fonte: 'avulso' })
+        }
+      }
+
+      setDocumentos(lista)
+    } catch (e: any) {
+      setErro('Erro ao carregar documentos.')
+    }
     setLoading(false)
   }, [sessao.colaborador_id])
 
@@ -992,17 +1028,16 @@ function AbaMeusDocumentos({ sessao }: { sessao: Sessao }) {
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontWeight:700, fontSize:14, color:'#111827' }}>{doc.titulo}</div>
                       <div style={{ display:'flex', gap:6, marginTop:4, flexWrap:'wrap' }}>
-                        <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:8, color:cor, background:bg }}>{TIPO_DOC[doc.tipo]??doc.tipo}</span>
-                        {doc.assinou_em&&<span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:8, color:'#16a34a', background:'#dcfce7', border:'1px solid #86efac' }}>✓ Assinado</span>}
+                        <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:8, color:cor, background:bg }}>{doc.tipo}</span>
                       </div>
                       {doc.descricao&&<div style={{ fontSize:11, color:'#6b7280', marginTop:5 }}>{doc.descricao}</div>}
                     </div>
                   </div>
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 14px 12px', borderTop:'1px solid #f3f4f6' }}>
-                    <span style={{ fontSize:10, color:'#9ca3af' }}>📅 {fmtData(doc.criado_em?.slice(0,10)??null)}</span>
-                    {doc.arquivo_url ? (
-                      <a href={secureDocUrl(doc.arquivo_url)} target="_blank" rel="noreferrer" style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 14px', borderRadius:8, background:'#1a56a0', color:'#fff', fontSize:12, fontWeight:700, textDecoration:'none' }}>
-                        <Download size={13}/> Baixar
+                    <span style={{ fontSize:10, color:'#9ca3af' }}>📅 {fmtData((doc.data??'').slice(0,10))}</span>
+                    {(doc.url||doc.arquivo_url) ? (
+                      <a href={secureDocUrl(doc.url||doc.arquivo_url)} target="_blank" rel="noreferrer" style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 14px', borderRadius:8, background:'#1a56a0', color:'#fff', fontSize:12, fontWeight:700, textDecoration:'none' }}>
+                        <Download size={13}/> Ver / Baixar
                       </a>
                     ) : (
                       <span style={{ fontSize:11, color:'#9ca3af', padding:'5px 10px', background:'#f3f4f6', borderRadius:8 }}>Sem arquivo</span>
@@ -1322,8 +1357,8 @@ export default function PortalContracheque() {
 
       {/* ══ MODAL ACEITE DIGITAL ══ */}
       {modalAceite && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.6)', zIndex:9999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
-          <div style={{ background:'#fff', borderRadius:'16px 16px 0 0', padding:'24px 20px 36px', width:'100%', maxWidth:480, animation:'slideUp .22s ease' }}>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.6)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:'16px' }}>
+          <div style={{ background:'#fff', borderRadius:16, padding:'24px 20px 28px', width:'100%', maxWidth:460, animation:'fadeIn .2s ease', boxShadow:'0 20px 60px rgba(0,0,0,.3)' }}>
             <div style={{ display:'flex', justifyContent:'center', marginBottom:14 }}>
               <span style={{ width:44, height:44, borderRadius:'50%', background:'#dbeafe', display:'flex', alignItems:'center', justifyContent:'center' }}>
                 <ShieldCheck size={22} color="#1d4ed8"/>
@@ -1360,7 +1395,7 @@ export default function PortalContracheque() {
           </div>
         </div>
       )}
-      <style>{`@keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
+      <style>{`@keyframes fadeIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}`}</style>
     </PortalLayout>
   )
 }

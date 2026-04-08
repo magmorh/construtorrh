@@ -393,8 +393,10 @@ export default function Configuracoes() {
         try {
           const parsed = JSON.parse(map['tipos_documentos'])
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setTiposDoc(Array.isArray(parsed)?parsed.map((t:any)=>typeof t==='string'?t:t.label??String(t)):[])
-            localStorage.setItem('rh_tipos_documentos', JSON.stringify(parsed))
+            const normalized = parsed.map((t: any) => typeof t === 'string' ? t : t.label ?? String(t)).filter(Boolean) as string[]
+            setTiposDoc(normalized)
+            // Salvar sempre como string[] no localStorage (migração do formato antigo {label,visivel})
+            localStorage.setItem('rh_tipos_documentos', JSON.stringify(normalized))
           }
         } catch {}
       }

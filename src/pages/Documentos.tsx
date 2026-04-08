@@ -87,7 +87,16 @@ const BUCKET = 'ocorrencias-documentos'
 function getTiposDoc(): string[] {
   try {
     const s = localStorage.getItem('rh_tipos_documentos')
-    if (s) { const p = JSON.parse(s); if (Array.isArray(p) && p.length) return p }
+    if (s) {
+      const p = JSON.parse(s)
+      if (Array.isArray(p) && p.length) {
+        // Compatibilidade: suporte ao formato antigo {label, visivel} e ao novo string[]
+        const normalized = p.map((t: unknown) =>
+          typeof t === 'string' ? t : (t as any).label ?? String(t)
+        ).filter(Boolean) as string[]
+        if (normalized.length) return normalized
+      }
+    }
   } catch {}
   return TIPOS_PADRAO
 }

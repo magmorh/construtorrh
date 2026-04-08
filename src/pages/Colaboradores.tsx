@@ -941,7 +941,7 @@ export default function Colaboradores() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editId, setEditId]       = useState<string | null>(null)
   const [form, setForm]           = useState<FormData>(EMPTY)
-  const [section, setSection]     = useState<'status' | 'pessoal' | 'funcao' | 'bancario' | 'vt' | 'epis'>('status')
+  const [section, setSection]     = useState<'status' | 'pessoal' | 'funcao' | 'bancario' | 'vt' | 'epis' | 'docs'>('status')
   // ── Modo edição inline no painel direito ─────────────────────────────────
   const [inlineEditing, setInlineEditing] = useState(false)
 
@@ -951,6 +951,12 @@ export default function Colaboradores() {
   const [preAdmissao, setPreAdmissao]     = useState('')
   const [preLoading, setPreLoading]       = useState(false)
   const [epiList, setEpiList]         = useState<ColabEpiItem[]>([])
+  // documentos do colaborador
+  const [colabDocs, setColabDocs]     = useState<Array<{id:string;titulo:string;tipo:string;descricao:string|null;arquivo_url:string|null;visivel_colaborador:boolean;criado_em:string}>>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false)
+  const [savingDoc, setSavingDoc]     = useState(false)
+  const [novoDoc, setNovoDoc]         = useState<{titulo:string;tipo:string;descricao:string;arquivo_url:string;visivel_colaborador:boolean}>({titulo:'',tipo:'contrato_trabalho',descricao:'',arquivo_url:'',visivel_colaborador:false})
+  const [showNovoDoc, setShowNovoDoc] = useState(false)
   const [saving, setSaving]       = useState(false)
 
   // chapa
@@ -2206,6 +2212,52 @@ ${crachaCardHTML(c, empNome, logoUrl)}
   }
 
   // ── histórico chapa ───────────────────────────────────────────────────────
+  // ── Carregar documentos do colaborador ──────────────────────────────────
+  const fetchColabDocs = useCallback(async (colaboradorId: string) => {
+    setLoadingDocs(true)
+    const { data } = await supabase
+      .from('colaborador_documentos')
+      .select('id,titulo,tipo,descricao,arquivo_url,visivel_colaborador,criado_em')
+      .eq('colaborador_id', colaboradorId)
+      .order('criado_em', { ascending: false })
+    setColabDocs((data ?? []) as any)
+    setLoadingDocs(false)
+  }, [])
+
+  const salvarNovoDoc = useCallback(async (colaboradorId: string) => {
+    if (!novoDoc.titulo.trim()) { toast.error('Informe o título do documento.'); return }
+    setSavingDoc(true)
+    const { error } = await supabase.from('colaborador_documentos').insert({
+      colaborador_id: colaboradorId,
+      titulo: novoDoc.titulo.trim(),
+      tipo: novoDoc.tipo,
+      descricao: novoDoc.descricao || null,
+      arquivo_url: novoDoc.arquivo_url || null,
+      visivel_colaborador: novoDoc.visivel_colaborador,
+    })
+    setSavingDoc(false)
+    if (error) { toast.error('Erro ao salvar documento: ' + error.message); return }
+    toast.success('Documento adicionado!')
+    setNovoDoc({ titulo:'', tipo:'contrato_trabalho', descricao:'', arquivo_url:'', visivel_colaborador:false })
+    setShowNovoDoc(false)
+    fetchColabDocs(colaboradorId)
+  }, [novoDoc, fetchColabDocs])
+
+  const toggleVisivelDoc = useCallback(async (docId: string, visivel: boolean, colaboradorId: string) => {
+    const { error } = await supabase.from('colaborador_documentos').update({ visivel_colaborador: visivel }).eq('id', docId)
+    if (error) { toast.error('Erro ao atualizar visibilidade.'); return }
+    toast.success(visivel ? '✅ Documento visível no portal' : '🔒 Documento ocultado do portal')
+    fetchColabDocs(colaboradorId)
+  }, [fetchColabDocs])
+
+  const excluirDoc = useCallback(async (docId: string, colaboradorId: string) => {
+    if (!window.confirm('Excluir este documento?')) return
+    const { error } = await supabase.from('colaborador_documentos').delete().eq('id', docId)
+    if (error) { toast.error('Erro ao excluir.'); return }
+    toast.success('Documento excluído.')
+    fetchColabDocs(colaboradorId)
+  }, [fetchColabDocs])
+
   const openHist = async (colaboradorId: string) => {
     setHistColabId(colaboradorId)
     setHistLoading(true)
@@ -2541,11 +2593,12 @@ ${crachaCardHTML(c, empNome, logoUrl)}
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     {/* Abas (sem Status) */}
                     <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', padding: '0 14px', flexShrink: 0, background: 'var(--background)', flexWrap: 'wrap' }}>
-                      {(['pessoal', 'funcao', 'bancario', 'vt', 'epis'] as const).map(s => {
-                        const labels: Record<string, string> = { pessoal: 'Dados Pessoais', funcao: 'Função & Contrato', bancario: 'Dados Bancários', vt: 'Vale Transporte', epis: '🦺 EPIs' }
+                      {(['pessoal', 'funcao', 'bancario', 'vt', 'epis', 'docs'] as const).map(s => {
+                        const labels: Record<string, string> = { pessoal: 'Dados Pessoais', funcao: 'Função & Contrato', bancario: 'Dados Bancários', vt: 'Vale Transporte', epis: '🦺 EPIs', docs: '📄 Documentos' }
                         const hasEpis = s === 'epis' && epiList.length > 0
+                        const hasDocs = s === 'docs' && colabDocs.length > 0
                         return (
-                          <button key={s} onClick={() => setSection(s)} style={{
+                          <button key={s} onClick={() => { setSection(s); if (s === 'docs' && editId) fetchColabDocs(editId) }} style={{
                             padding: '8px 12px', fontSize: 12, fontWeight: 500, border: 'none', background: 'none',
                             cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
                             borderBottom: section === s ? '2px solid var(--primary)' : '2px solid transparent',
@@ -2556,6 +2609,11 @@ ${crachaCardHTML(c, empNome, logoUrl)}
                             {hasEpis && (
                               <span style={{ background: section === s ? 'var(--primary)' : '#16a34a', color: '#fff', fontSize: 10, fontWeight: 700, borderRadius: 10, padding: '1px 5px' }}>
                                 {epiList.length}
+                              </span>
+                            )}
+                            {hasDocs && (
+                              <span style={{ background: section === s ? 'var(--primary)' : '#1d4ed8', color: '#fff', fontSize: 10, fontWeight: 700, borderRadius: 10, padding: '1px 5px' }}>
+                                {colabDocs.length}
                               </span>
                             )}
                           </button>
@@ -3177,13 +3235,14 @@ ${crachaCardHTML(c, empNome, logoUrl)}
 
           {/* abas do modal — sem Status */}
           <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #e2e8f0', margin: '0 24px', flexShrink: 0, background: '#fff' }}>
-            {(['pessoal', 'funcao', 'bancario', 'vt', 'epis'] as const).map(s => {
-              const labels: Record<string, string> = { pessoal: 'Dados Pessoais', funcao: 'Função & Contrato', bancario: 'Dados Bancários', vt: 'Vale Transporte', epis: '🦺 EPIs' }
+            {(['pessoal', 'funcao', 'bancario', 'vt', 'epis', 'docs'] as const).map(s => {
+              const labels: Record<string, string> = { pessoal: 'Dados Pessoais', funcao: 'Função & Contrato', bancario: 'Dados Bancários', vt: 'Vale Transporte', epis: '🦺 EPIs', docs: '📄 Documentos' }
               const isEpisTab = s === 'epis'
               const hasEpis   = isEpisTab && epiList.length > 0
-              const icons: Record<string, string> = { pessoal: '👤', funcao: '💼', bancario: '🏦', vt: '🚌', epis: '🦺' }
+              const hasDocs   = s === 'docs' && colabDocs.length > 0
+              const icons: Record<string, string> = { pessoal: '👤', funcao: '💼', bancario: '🏦', vt: '🚌', epis: '🦺', docs: '📄' }
               return (
-                <button key={s} onClick={() => setSection(s)} style={{
+                <button key={s} onClick={() => { setSection(s); if (s === 'docs' && editId) fetchColabDocs(editId) }} style={{
                   padding: '10px 16px', fontSize: 13, fontWeight: section === s ? 700 : 500, border: 'none',
                   background: section === s ? '#fff' : 'transparent',
                   cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
@@ -3200,6 +3259,15 @@ ${crachaCardHTML(c, empNome, logoUrl)}
                       borderRadius: 10, padding: '1px 6px', lineHeight: '16px',
                     }}>
                       {epiList.length}
+                    </span>
+                  )}
+                  {hasDocs && (
+                    <span style={{
+                      background: section === s ? '#0d3f56' : '#1d4ed8',
+                      color: '#fff', fontSize: 10, fontWeight: 700,
+                      borderRadius: 10, padding: '1px 6px', lineHeight: '16px',
+                    }}>
+                      {colabDocs.length}
                     </span>
                   )}
                 </button>
@@ -3513,6 +3581,136 @@ ${crachaCardHTML(c, empNome, logoUrl)}
                 )}
 
                 <EpiColabSection epiList={epiList} setEpiList={setEpiList} funcaoNome={funcoes.find(f => f.id === form.funcao_id)?.nome} />
+              </div>
+            )}
+
+            {/* ── SEÇÃO DOCUMENTOS DO COLABORADOR ──────────────────────── */}
+            {section === 'docs' && editId && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+                {/* Aviso */}
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#1d4ed8', fontWeight: 600 }}>
+                  📄 Adicione documentos do colaborador (contrato, exames, etc.) e habilite a visualização no portal.
+                  <br/><span style={{ fontWeight: 400, fontSize: 12, color: '#3b82f6' }}>O toggle <strong>Visível no Portal</strong> libera o acesso para o colaborador ver o documento.</span>
+                </div>
+
+                {/* Botão novo */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button onClick={() => setShowNovoDoc(s => !s)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 8, border: 'none', background: '#1e3a5f', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                    <Plus size={14}/> {showNovoDoc ? 'Cancelar' : 'Novo Documento'}
+                  </button>
+                </div>
+
+                {/* Formulário novo doc */}
+                {showNovoDoc && (
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>Título *</label>
+                        <input value={novoDoc.titulo} onChange={e => setNovoDoc(d => ({ ...d, titulo: e.target.value }))}
+                          placeholder="Ex: Contrato de Trabalho"
+                          style={{ width: '100%', height: 38, borderRadius: 8, border: '1.5px solid #e5e7eb', padding: '0 10px', fontSize: 13, boxSizing: 'border-box' as const }}/>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>Tipo</label>
+                        <select value={novoDoc.tipo} onChange={e => setNovoDoc(d => ({ ...d, tipo: e.target.value }))}
+                          style={{ width: '100%', height: 38, borderRadius: 8, border: '1.5px solid #e5e7eb', padding: '0 8px', fontSize: 13, boxSizing: 'border-box' as const, cursor: 'pointer' }}>
+                          <option value="contrato_trabalho">Contrato de Trabalho</option>
+                          <option value="admissao">Documentos Admissionais</option>
+                          <option value="rescisao">Rescisão</option>
+                          <option value="exame_medico">Exame Médico</option>
+                          <option value="ferias">Aviso de Férias</option>
+                          <option value="comprovante">Comprovante</option>
+                          <option value="outro">Outro</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>Descrição (opcional)</label>
+                      <input value={novoDoc.descricao} onChange={e => setNovoDoc(d => ({ ...d, descricao: e.target.value }))}
+                        placeholder="Descrição curta…"
+                        style={{ width: '100%', height: 38, borderRadius: 8, border: '1.5px solid #e5e7eb', padding: '0 10px', fontSize: 13, boxSizing: 'border-box' as const }}/>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4, textTransform: 'uppercase' }}>URL do Arquivo (opcional)</label>
+                      <input value={novoDoc.arquivo_url} onChange={e => setNovoDoc(d => ({ ...d, arquivo_url: e.target.value }))}
+                        placeholder="https://… (link do arquivo)"
+                        style={{ width: '100%', height: 38, borderRadius: 8, border: '1.5px solid #e5e7eb', padding: '0 10px', fontSize: 13, boxSizing: 'border-box' as const }}/>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type="checkbox" id="visivel_portal" checked={novoDoc.visivel_colaborador}
+                        onChange={e => setNovoDoc(d => ({ ...d, visivel_colaborador: e.target.checked }))}
+                        style={{ width: 16, height: 16, cursor: 'pointer' }}/>
+                      <label htmlFor="visivel_portal" style={{ fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
+                        ✅ Visível no Portal do Colaborador
+                      </label>
+                    </div>
+                    <button onClick={() => salvarNovoDoc(editId)} disabled={savingDoc}
+                      style={{ alignSelf: 'flex-end', padding: '8px 20px', borderRadius: 8, border: 'none', background: savingDoc ? '#94a3b8' : '#16a34a', color: '#fff', fontWeight: 700, fontSize: 13, cursor: savingDoc ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {savingDoc ? <><Loader2 size={14} className="animate-spin"/>Salvando…</> : <>✓ Salvar Documento</>}
+                    </button>
+                  </div>
+                )}
+
+                {/* Lista de documentos */}
+                {loadingDocs ? (
+                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#9ca3af', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    <Loader2 size={20} className="animate-spin"/> Carregando documentos…
+                  </div>
+                ) : colabDocs.length === 0 ? (
+                  <div style={{ background: '#f9fafb', borderRadius: 10, padding: '24px', textAlign: 'center', border: '1px dashed #e5e7eb', color: '#9ca3af', fontSize: 13 }}>
+                    Nenhum documento cadastrado ainda.<br/>
+                    <span style={{ fontSize: 12 }}>Clique em "Novo Documento" para adicionar.</span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {colabDocs.map((doc: any) => {
+                      const tipoLabel: Record<string,string> = { contrato_trabalho:'Contrato de Trabalho', admissao:'Admissional', rescisao:'Rescisão', exame_medico:'Exame Médico', ferias:'Férias', comprovante:'Comprovante', outro:'Outro' }
+                      return (
+                        <div key={doc.id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 700, fontSize: 13, color: '#111' }}>{doc.titulo}</div>
+                            <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' as const }}>
+                              <span style={{ fontSize: 10, background: '#f3f4f6', color: '#374151', padding: '1px 7px', borderRadius: 6, fontWeight: 600 }}>
+                                {tipoLabel[doc.tipo] ?? doc.tipo}
+                              </span>
+                              <span style={{
+                                fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
+                                background: doc.visivel_colaborador ? '#dcfce7' : '#fee2e2',
+                                color: doc.visivel_colaborador ? '#15803d' : '#dc2626',
+                              }}>
+                                {doc.visivel_colaborador ? '✅ Visível no Portal' : '🔒 Oculto'}
+                              </span>
+                            </div>
+                            {doc.descricao && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, fontStyle: 'italic' }}>{doc.descricao}</div>}
+                          </div>
+                          <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                            {/* Toggle visibilidade */}
+                            <button
+                              onClick={() => toggleVisivelDoc(doc.id, !doc.visivel_colaborador, editId)}
+                              title={doc.visivel_colaborador ? 'Ocultar do portal' : 'Tornar visível no portal'}
+                              style={{ padding: '5px 9px', borderRadius: 7, border: `1px solid ${doc.visivel_colaborador ? '#fca5a5' : '#86efac'}`, background: doc.visivel_colaborador ? '#fff1f2' : '#f0fdf4', color: doc.visivel_colaborador ? '#dc2626' : '#16a34a', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+                              {doc.visivel_colaborador ? '🔒 Ocultar' : '👁 Liberar'}
+                            </button>
+                            {/* Download */}
+                            {doc.arquivo_url && (
+                              <a href={doc.arquivo_url} target="_blank" rel="noreferrer"
+                                style={{ padding: '5px 9px', borderRadius: 7, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: 11, fontWeight: 700, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                🔗
+                              </a>
+                            )}
+                            {/* Excluir */}
+                            <button onClick={() => excluirDoc(doc.id, editId)}
+                              style={{ padding: '5px 9px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff1f2', color: '#dc2626', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                              🗑
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>

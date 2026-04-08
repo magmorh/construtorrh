@@ -14,7 +14,7 @@ import { toast } from 'sonner'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 type Colaborador = {
-  id: string; nome: string; chapa: string; cpf: string
+  id: string; nome: string; chapa: string | null; cpf: string | null
   funcao: string; funcao_id: string | null; tipo_contrato: string; status: string; salario: number | null
 }
 
@@ -605,13 +605,17 @@ export default function Contracheques() {
 
   const colabFiltrados = colaboradores.filter(c => {
     const q = busca.toLowerCase()
-    return c.nome.toLowerCase().includes(q) || c.chapa.toLowerCase().includes(q)
+    return (
+      (c.nome?.toLowerCase() ?? '').includes(q) ||
+      (c.chapa?.toLowerCase() ?? '').includes(q)
+    )
   })
 
   const portalDoColab = selected ? portais.find(p => p.colaborador_id === selected.id) : null
 
   async function criarLogin() {
     if (!selected) return
+    if (!selected.cpf) { toast.error('Este colaborador não possui CPF cadastrado.'); return }
     setCriandoLogin(true)
     try {
       const cpf = cpfClean(selected.cpf)
@@ -721,7 +725,7 @@ export default function Contracheques() {
                         {temPortal ? '✓' : '—'}
                       </span>
                     </div>
-                    <span style={{ fontSize: 11, color: '#64748b' }}>{c.chapa} · {c.funcao || '—'}</span>
+                    <span style={{ fontSize: 11, color: '#64748b' }}>{c.chapa ?? '—'} · {c.funcao || '—'}</span>
                   </button>
                 )
               })}
@@ -757,7 +761,7 @@ export default function Contracheques() {
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Chapa: <strong>{selected.chapa}</strong> · {selected.funcao || '—'}</div>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Chapa: <strong>{selected.chapa ?? '—'}</strong> · {selected.funcao || '—'}</div>
               </div>
             </div>
 

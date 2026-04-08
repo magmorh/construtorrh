@@ -1011,27 +1011,69 @@ ${colabsLote.map((c, i) => paginaHtml(c, i)).join('')}
     }
     htmlConteudo = aplicarVariaveis(htmlConteudo, varMap)
     const cat = CATEGORIAS[modeloSel.categoria] ?? CATEGORIAS.outro
+    const dataGer = new Date().toLocaleDateString('pt-BR')
+    let logoBlock = `<div class="logo-fallback">🏗️</div>`
+    if (empData.logoUrl) logoBlock = `<img src="${empData.logoUrl}" class="logo" alt="Logo" onerror="this.style.display='none'" />`
 
     const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
 <title>Preview — ${modeloSel.titulo}</title>
 <style>
+@page{size:A4 portrait;margin:12mm 14mm;}
 * { box-sizing:border-box; margin:0; padding:0; }
-body { background:#f0f4f8; font-family:'Times New Roman',Georgia,serif; }
-.page { max-width:700px; margin:30px auto; background:#fff; border-radius:8px; padding:40px 44px; box-shadow:0 2px 20px rgba(0,0,0,.12); font-size:12px; line-height:1.8; color:#1a1a1a; }
-.badge { display:inline-block; background:${cat.bg}; color:${cat.cor}; border-radius:20px; padding:2px 10px; font-size:10px; font-weight:700; margin-bottom:12px; }
-h1 { font-size:18pt; font-weight:900; text-align:center; margin:0 0 12px; text-transform:uppercase; letter-spacing:.04em; line-height:1.3; }
-h2 { font-size:14pt; font-weight:800; margin:16px 0 6px; text-transform:uppercase; border-bottom:1.5px solid #334155; padding-bottom:3px; line-height:1.3; }
-h3 { font-size:12pt; font-weight:700; margin:12px 0 4px; line-height:1.4; }
-h4 { font-size:11pt; font-weight:700; margin:10px 0 3px; font-style:italic; line-height:1.4; }
-blockquote { font-size:11pt; margin:10px 0; border-left:3px solid #94a3b8; padding-left:12px; color:#475569; font-style:italic; line-height:1.6; }
-p  { font-size:12pt; margin:8px 0; line-height:1.6; }
-table { width:100%; border-collapse:collapse; margin:10px 0; font-size:11px; }
-table td,table th { border:1px solid #d1d5db; padding:5px 8px; }
-table th { background:#f8fafc; font-weight:700; }
+body { font-family:Calibri,Arial,sans-serif; font-size:12pt; color:#1a1a1a; }
+.folha { width:100%; min-height:246mm; display:flex; flex-direction:column; }
+.timbre { background:#1e3a5f; color:#fff; padding:12px 18px; display:flex; align-items:center; gap:14px; flex-shrink:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+.logo { height:52px; max-width:160px; object-fit:contain; filter:brightness(0) invert(1); border-radius:3px; }
+.logo-fallback { width:44px; height:44px; background:rgba(255,255,255,.15); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+.emp-nome { font-size:15pt; font-weight:900; letter-spacing:.04em; line-height:1.2; }
+.emp-det { font-size:8.5pt; color:#93c5fd; margin-top:3px; }
+.linha-dupla { border-top:3pt solid #1e3a5f; border-bottom:1pt solid #93c5fd; flex-shrink:0; }
+.corpo { flex:1; padding:14pt 0 0; display:flex; flex-direction:column; }
+.doc-meta { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12pt; }
+.meta-right { font-size:9pt; color:#555; text-align:right; line-height:1.5; }
+.badge { display:inline-block; background:${cat.bg}; color:${cat.cor}; border-radius:20px; padding:2px 10px; font-size:8.5pt; font-weight:700; }
+.conteudo { flex:1; }
+.conteudo h1 { font-size:15pt; font-weight:900; text-align:center; margin:0 0 12pt; text-transform:uppercase; letter-spacing:.04em; line-height:1.3; }
+.conteudo h2 { font-size:12pt; font-weight:800; margin:12pt 0 5pt; text-transform:uppercase; border-bottom:1.5pt solid #334155; padding-bottom:3pt; line-height:1.3; }
+.conteudo h3 { font-size:11pt; font-weight:700; margin:9pt 0 4pt; }
+.conteudo h4 { font-size:10pt; font-weight:700; font-style:italic; margin:7pt 0 3pt; }
+.conteudo p  { font-size:11pt; margin:5pt 0; line-height:1.7; text-align:justify; orphans:3; widows:3; }
+.conteudo li { font-size:11pt; line-height:1.7; text-align:justify; margin-bottom:3pt; }
+.conteudo strong,.conteudo b { font-weight:700; }
+.conteudo blockquote { font-size:10.5pt; margin:7pt 0; border-left:2.5pt solid #94a3b8; padding-left:10pt; color:#475569; font-style:italic; line-height:1.6; }
+.conteudo table { width:100%; border-collapse:collapse; margin:7pt 0; font-size:9.5pt; }
+.conteudo td,.conteudo th { border:0.5pt solid #d1d5db; padding:4pt 6pt; }
+.conteudo th { background:#f8fafc; font-weight:700; }
+.assinaturas { display:grid; grid-template-columns:1fr 1fr; gap:28pt; margin-top:28pt; flex-shrink:0; page-break-inside:avoid; }
+.ass { border-top:1pt solid #0f172a; padding-top:6pt; font-size:10pt; font-weight:700; text-align:center; line-height:1.5; }
+.ass span { font-size:8.5pt; font-weight:400; color:#555; }
+.rodape { font-size:7.5pt; color:#aaa; text-align:center; border-top:0.5pt solid #e5e7eb; padding-top:5pt; margin-top:10pt; flex-shrink:0; }
+@media screen { body { background:#3c3f41; padding:24px; } .folha { background:#fff; padding:12mm 14mm; margin:0 auto; max-width:210mm; box-shadow:0 2px 16px rgba(0,0,0,.4),0 8px 32px rgba(0,0,0,.25); } }
+@media print { body { background:#fff; padding:0; } .folha { margin:0; padding:0; box-shadow:none; } h1,h2,h3,h4 { page-break-after:avoid; } }
 </style></head><body>
-<div class="page">
-  <div class="badge">${cat.emoji} ${cat.label}</div>
-  <div>${htmlConteudo}</div>
+<div class="folha">
+  <div class="timbre">
+    ${logoBlock}
+    <div>
+      <div class="emp-nome">${empData.nome || 'EMPRESA'}</div>
+      <div class="emp-det">${empData.cnpj ? 'CNPJ: ' + empData.cnpj : ''}${empData.cnpj && empData.endereco ? ' &nbsp;|&nbsp; ' : ''}${empData.endereco}${empData.cidade ? ' &nbsp;|&nbsp; ' + empData.cidade : ''}</div>
+    </div>
+  </div>
+  <div class="linha-dupla"></div>
+  <div class="corpo">
+    <div class="doc-meta">
+      <span class="badge">${cat.emoji} ${cat.label}</span>
+      <div class="meta-right">Emitido em ${dataGer}${colabSel ? '<br/><strong>' + colabSel.nome + '</strong>' + (colabSel.chapa ? ' · ' + colabSel.chapa : '') : '<br/><em style="color:#aaa;">Pré-visualização</em>'}</div>
+    </div>
+    <div class="conteudo">${htmlConteudo}</div>
+    <div class="assinaturas">
+      <div class="ass">${empData.nome || 'Empresa'}<br/><span>Representante Legal</span></div>
+      ${colabSel
+        ? `<div class="ass">${colabSel.nome}<br/><span>${(colabSel.funcoes as any)?.nome ?? 'Colaborador(a)'}</span></div>`
+        : '<div class="ass">Colaborador(a)<br/><span>Assinatura</span></div>'}
+    </div>
+  </div>
+  <div class="rodape">${modeloSel.titulo} &nbsp;·&nbsp; ${dataGer}</div>
 </div>
 </body></html>`
 
@@ -2060,21 +2102,69 @@ table th { background:#f8fafc; font-weight:700; }
             if (htmlConteudo.trimStart().startsWith('#') || (!htmlConteudo.includes('<') && htmlConteudo.includes('\n')))
               htmlConteudo = markdownToHtml(htmlConteudo)
             htmlConteudo = aplicarVariaveis(htmlConteudo, varMap)
+            const cat = CATEGORIAS[avulsoModelo.categoria] ?? CATEGORIAS.outro
+            const dataGer = new Date().toLocaleDateString('pt-BR')
+            let logoBlock = `<div class="logo-fallback">🏗️</div>`
+            if (empData.logoUrl) logoBlock = `<img src="${empData.logoUrl}" class="logo" alt="Logo" onerror="this.style.display='none'" />`
             const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
 <title>${avulsoModelo.titulo} — ${avulsoColab.nome}</title>
 <style>
-@page{size:A4 portrait;margin:20mm 20mm 20mm 20mm;}
+@page{size:A4 portrait;margin:12mm 14mm;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Times New Roman',Georgia,serif;font-size:12pt;color:#1a1a1a;}
-table{width:100%;border-collapse:collapse;margin:10px 0;font-size:11px;}
-table td,table th{border:1px solid #d1d5db;padding:5px 8px;}
-table th{background:#f8fafc;font-weight:700;}
-@media screen{body{background:#525659;padding:24px;}
-.pagina{background:#fff;margin:0 auto 24px;max-width:700px;box-shadow:0 2px 16px rgba(0,0,0,.3);border-radius:6px;padding:24px 28px;}}
-@media print{body{background:#fff;padding:0;}.pagina{padding:0;}}
+body{font-family:Calibri,Arial,sans-serif;font-size:12pt;color:#1a1a1a;}
+.folha{width:100%;min-height:246mm;display:flex;flex-direction:column;}
+.timbre{background:#1e3a5f;color:#fff;padding:12px 18px;display:flex;align-items:center;gap:14px;flex-shrink:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.logo{height:52px;max-width:160px;object-fit:contain;filter:brightness(0) invert(1);border-radius:3px;}
+.logo-fallback{width:44px;height:44px;background:rgba(255,255,255,.15);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
+.emp-nome{font-size:15pt;font-weight:900;letter-spacing:.04em;line-height:1.2;}
+.emp-det{font-size:8.5pt;color:#93c5fd;margin-top:3px;}
+.linha-dupla{border-top:3pt solid #1e3a5f;border-bottom:1pt solid #93c5fd;flex-shrink:0;}
+.corpo{flex:1;padding:14pt 0 0;display:flex;flex-direction:column;}
+.doc-meta{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12pt;}
+.meta-right{font-size:9pt;color:#555;text-align:right;line-height:1.5;}
+.badge{border-radius:20px;padding:2px 10px;font-size:8.5pt;font-weight:700;display:inline-block;background:${cat.bg};color:${cat.cor};}
+.conteudo{flex:1;}
+.conteudo h1{font-size:15pt;font-weight:900;text-align:center;margin:0 0 12pt;text-transform:uppercase;letter-spacing:.04em;line-height:1.3;}
+.conteudo h2{font-size:12pt;font-weight:800;margin:12pt 0 5pt;text-transform:uppercase;border-bottom:1.5pt solid #334155;padding-bottom:3pt;line-height:1.3;}
+.conteudo h3{font-size:11pt;font-weight:700;margin:9pt 0 4pt;}
+.conteudo h4{font-size:10pt;font-weight:700;font-style:italic;margin:7pt 0 3pt;}
+.conteudo p{font-size:11pt;margin:5pt 0;line-height:1.7;text-align:justify;orphans:3;widows:3;}
+.conteudo li{font-size:11pt;line-height:1.7;text-align:justify;margin-bottom:3pt;}
+.conteudo strong,.conteudo b{font-weight:700;}
+.conteudo blockquote{font-size:10.5pt;margin:7pt 0;border-left:2.5pt solid #94a3b8;padding-left:10pt;color:#475569;font-style:italic;line-height:1.6;}
+.conteudo table{width:100%;border-collapse:collapse;margin:7pt 0;font-size:9.5pt;}
+.conteudo td,.conteudo th{border:0.5pt solid #d1d5db;padding:4pt 6pt;}
+.conteudo th{background:#f8fafc;font-weight:700;}
+.assinaturas{display:grid;grid-template-columns:1fr 1fr;gap:28pt;margin-top:28pt;flex-shrink:0;page-break-inside:avoid;}
+.ass{border-top:1pt solid #0f172a;padding-top:6pt;font-size:10pt;font-weight:700;text-align:center;line-height:1.5;}
+.ass span{font-size:8.5pt;font-weight:400;color:#555;}
+.rodape{font-size:7.5pt;color:#aaa;text-align:center;border-top:0.5pt solid #e5e7eb;padding-top:5pt;margin-top:10pt;flex-shrink:0;}
+@media screen{body{background:#525659;padding:24px;}.folha{background:#fff;padding:12mm 14mm;margin:0 auto;max-width:210mm;box-shadow:0 2px 16px rgba(0,0,0,.3),0 8px 32px rgba(0,0,0,.25);border-radius:6px;}.btn-imprimir{position:fixed;bottom:20px;right:20px;background:#1d4ed8;color:#fff;border:none;border-radius:9px;padding:11px 22px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25);z-index:9999;font-family:Calibri,Arial,sans-serif;}}
+@media print{body{background:#fff;padding:0;}.folha{margin:0;padding:0;box-shadow:none;}.btn-imprimir{display:none!important;}h1,h2,h3,h4{page-break-after:avoid;}}
 </style></head><body>
-<div class="pagina">
-${htmlConteudo}
+<div class="folha">
+  <div class="timbre">
+    ${logoBlock}
+    <div>
+      <div class="emp-nome">${empData.nome || 'EMPRESA'}</div>
+      <div class="emp-det">${empData.cnpj ? 'CNPJ: ' + empData.cnpj : ''}${empData.cnpj && empData.endereco ? ' &nbsp;|&nbsp; ' : ''}${empData.endereco}${empData.cidade ? ' &nbsp;|&nbsp; ' + empData.cidade : ''}</div>
+    </div>
+  </div>
+  <div class="linha-dupla"></div>
+  <div class="corpo">
+    <div class="doc-meta">
+      <span class="badge">${cat.emoji} ${cat.label}</span>
+      <div class="meta-right">Emitido em ${dataGer}<br/><strong>${avulsoColab.nome}</strong>${(avulsoColab as any).chapa ? ' · ' + (avulsoColab as any).chapa : ''}</div>
+    </div>
+    <div class="conteudo">${htmlConteudo}</div>
+    <div class="assinaturas">
+      <div class="ass">${empData.nome || 'Empresa'}<br/><span>Representante Legal</span></div>
+      <div class="ass">${avulsoColab.nome}<br/><span>${(avulsoColab as any).funcoes?.nome ?? 'Colaborador(a)'}</span></div>
+    </div>
+  </div>
+  <div class="rodape">${avulsoModelo.titulo} &nbsp;·&nbsp; ${avulsoColab.nome} &nbsp;·&nbsp; ${dataGer}</div>
+</div>
+<button class="btn-imprimir" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
 </div>
 </body></html>`
             const win = window.open('', '_blank', 'width=900,height=750')
@@ -2267,7 +2357,33 @@ ${htmlConteudo}
               }
               let html = m.conteudo
               if (html.trimStart().startsWith('#') || (!html.includes('<') && html.includes('\n'))) html = markdownToHtml(html)
-              return `<div style="page-break-after:always;padding:24px 28px;font-family:'Times New Roman',Georgia,serif;font-size:12pt;line-height:1.6;color:#1a1a1a;min-height:257mm;">${aplicarVariaveis(html, varMap)}</div>`
+              const cat = CATEGORIAS[m.categoria] ?? CATEGORIAS.outro
+              const dataGer = new Date().toLocaleDateString('pt-BR')
+              let logoBlock = `<div class="logo-fallback">🏗️</div>`
+              if (empData.logoUrl) logoBlock = `<img src="${empData.logoUrl}" class="logo" alt="Logo" onerror="this.style.display='none'" />`
+              return `
+<div class="folha">
+  <div class="timbre">
+    ${logoBlock}
+    <div>
+      <div class="emp-nome">${empData.nome || 'EMPRESA'}</div>
+      <div class="emp-det">${empData.cnpj ? 'CNPJ: ' + empData.cnpj : ''}${empData.cnpj && empData.endereco ? ' &nbsp;|&nbsp; ' : ''}${empData.endereco}${empData.cidade ? ' &nbsp;|&nbsp; ' + empData.cidade : ''}</div>
+    </div>
+  </div>
+  <div class="linha-dupla"></div>
+  <div class="corpo">
+    <div class="doc-meta">
+      <span class="badge" style="background:${cat.bg};color:${cat.cor};">${cat.emoji} ${cat.label}</span>
+      <div class="meta-right">Emitido em ${dataGer}<br/><strong>${c.nome}</strong>${(c as any).chapa ? ' · ' + (c as any).chapa : ''}</div>
+    </div>
+    <div class="conteudo">${aplicarVariaveis(html, varMap)}</div>
+    <div class="assinaturas">
+      <div class="ass">${empData.nome || 'Empresa'}<br/><span>Representante Legal</span></div>
+      <div class="ass">${c.nome}<br/><span>${(c.funcoes as any)?.nome ?? 'Colaborador(a)'}</span></div>
+    </div>
+  </div>
+  <div class="rodape">${m.titulo} &nbsp;·&nbsp; ${c.nome} &nbsp;·&nbsp; ${dataGer}</div>
+</div>`
             }
             const paginas: string[] = []
             for (const c of colabsLote) {
@@ -2278,16 +2394,43 @@ ${htmlConteudo}
             const totalStr = `${colabsLote.length} colaborador(es) × ${modelosLote.length} documento(s)`
             const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
 <title>Lote — ${totalStr}</title>
-<style>@page{size:A4 portrait;margin:20mm 20mm 20mm 20mm;}
+<style>
+@page{size:A4 portrait;margin:12mm 14mm;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Times New Roman',Georgia,serif;font-size:12pt;color:#1a1a1a;}
-table{width:100%;border-collapse:collapse;margin:10px 0;font-size:11px;}
-table td,table th{border:1px solid #d1d5db;padding:5px 8px;}
-table th{background:#f8fafc;font-weight:700;}
-@media screen{body{background:#525659;padding:24px;}div[style*="page-break"]{background:#fff;margin:0 auto 24px;max-width:700px;box-shadow:0 2px 16px rgba(0,0,0,.3);border-radius:6px;}}
-@media print{body{background:#fff;padding:0;}}
+body{font-family:Calibri,Arial,sans-serif;font-size:12pt;color:#1a1a1a;}
+.folha{width:100%;min-height:246mm;display:flex;flex-direction:column;page-break-after:always;break-after:page;}
+.folha:last-child{page-break-after:avoid;break-after:avoid;}
+.timbre{background:#1e3a5f;color:#fff;padding:12px 18px;display:flex;align-items:center;gap:14px;flex-shrink:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.logo{height:52px;max-width:160px;object-fit:contain;filter:brightness(0) invert(1);border-radius:3px;}
+.logo-fallback{width:44px;height:44px;background:rgba(255,255,255,.15);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
+.emp-nome{font-size:15pt;font-weight:900;letter-spacing:.04em;line-height:1.2;}
+.emp-det{font-size:8.5pt;color:#93c5fd;margin-top:3px;}
+.linha-dupla{border-top:3pt solid #1e3a5f;border-bottom:1pt solid #93c5fd;flex-shrink:0;}
+.corpo{flex:1;padding:14pt 0 0;display:flex;flex-direction:column;}
+.doc-meta{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12pt;}
+.meta-right{font-size:9pt;color:#555;text-align:right;line-height:1.5;}
+.badge{border-radius:20px;padding:2px 10px;font-size:8.5pt;font-weight:700;display:inline-block;}
+.conteudo{flex:1;}
+.conteudo h1{font-size:15pt;font-weight:900;text-align:center;margin:0 0 12pt;text-transform:uppercase;letter-spacing:.04em;line-height:1.3;}
+.conteudo h2{font-size:12pt;font-weight:800;margin:12pt 0 5pt;text-transform:uppercase;border-bottom:1.5pt solid #334155;padding-bottom:3pt;line-height:1.3;}
+.conteudo h3{font-size:11pt;font-weight:700;margin:9pt 0 4pt;}
+.conteudo h4{font-size:10pt;font-weight:700;font-style:italic;margin:7pt 0 3pt;}
+.conteudo p{font-size:11pt;margin:5pt 0;line-height:1.7;text-align:justify;orphans:3;widows:3;}
+.conteudo li{font-size:11pt;line-height:1.7;text-align:justify;margin-bottom:3pt;}
+.conteudo strong,.conteudo b{font-weight:700;}
+.conteudo blockquote{font-size:10.5pt;margin:7pt 0;border-left:2.5pt solid #94a3b8;padding-left:10pt;color:#475569;font-style:italic;line-height:1.6;}
+.conteudo table{width:100%;border-collapse:collapse;margin:7pt 0;font-size:9.5pt;}
+.conteudo td,.conteudo th{border:0.5pt solid #d1d5db;padding:4pt 6pt;}
+.conteudo th{background:#f8fafc;font-weight:700;}
+.assinaturas{display:grid;grid-template-columns:1fr 1fr;gap:28pt;margin-top:28pt;flex-shrink:0;page-break-inside:avoid;}
+.ass{border-top:1pt solid #0f172a;padding-top:6pt;font-size:10pt;font-weight:700;text-align:center;line-height:1.5;}
+.ass span{font-size:8.5pt;font-weight:400;color:#555;}
+.rodape{font-size:7.5pt;color:#aaa;text-align:center;border-top:0.5pt solid #e5e7eb;padding-top:5pt;margin-top:10pt;flex-shrink:0;}
+@media screen{body{background:#525659;padding:24px;}.folha{background:#fff;padding:12mm 14mm;margin:0 auto 24px;max-width:210mm;box-shadow:0 2px 16px rgba(0,0,0,.3),0 8px 32px rgba(0,0,0,.25);border-radius:6px;}.btn-imprimir{position:fixed;bottom:20px;right:20px;background:#7c3aed;color:#fff;border:none;border-radius:9px;padding:11px 22px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25);z-index:9999;font-family:Calibri,Arial,sans-serif;}}
+@media print{body{background:#fff;padding:0;}.folha{margin:0;padding:0;box-shadow:none;}.btn-imprimir{display:none!important;}h1,h2,h3,h4{page-break-after:avoid;}}
 </style></head><body>
 ${paginas.join('\n')}
+<button class="btn-imprimir" onclick="window.print()">🖨️ Imprimir Lote (${paginas.length} docs)</button>
 </body></html>`
             const win = window.open('', '_blank', 'width=900,height=750')
             if (win) { win.document.write(html); win.document.close(); setTimeout(() => { win.focus(); win.print() }, 600) }

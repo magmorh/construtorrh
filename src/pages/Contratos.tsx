@@ -418,6 +418,8 @@ export default function Contratos() {
   const [confirmDel, setConfirmDel]   = useState<Modelo | null>(null)
   const [previewModelo, setPreviewModelo] = useState<Modelo | null>(null)
   const [previewColabId, setPreviewColabId] = useState('')
+  const [previewEpiHtml, setPreviewEpiHtml] = useState<string>('')
+  const [previewEpiLoading, setPreviewEpiLoading] = useState(false)
 
   // aba principal da página
   const [abaMain, setAbaMain]         = useState<'gerar' | 'modelos'>('gerar')
@@ -1172,6 +1174,22 @@ table th { background:#f8fafc; font-weight:700; }
       buscarEpisDaFuncao(fId, supabase).then(h => setEpiPreviewHtml(h))
     } else { setEpiPreviewHtml('') }
   }, [modeloSel?.id, colabSel?.id])
+
+  // ── EPIs para o modal "Visualizar Modelo" ────────────────────────────────
+  useEffect(() => {
+    if (!previewModelo) { setPreviewEpiHtml(''); return }
+    const conteudo = previewModelo.conteudo
+    if (!conteudo.includes('{{EPIs da Função}}') && !conteudo.includes('{{Tabela EPIs}}')) {
+      setPreviewEpiHtml(''); return
+    }
+    const pvColab = colaboradores.find(c => c.id === previewColabId) ?? colaboradores[0] ?? null
+    const fId = (pvColab as any)?.funcao_id ?? null
+    setPreviewEpiLoading(true)
+    buscarEpisDaFuncao(fId, supabase).then(h => {
+      setPreviewEpiHtml(h)
+      setPreviewEpiLoading(false)
+    })
+  }, [previewModelo, previewColabId, colaboradores])
 
   const previewHtml = modeloSel ? (() => {
     let html = modeloSel.conteudo
@@ -1940,6 +1958,7 @@ table th { background:#f8fafc; font-weight:700; }
       {previewModelo && (() => {
         const pvColab = colaboradores.find(c => c.id === previewColabId) ?? colaboradores[0] ?? null
         const varMap = buildVarMap(pvColab as ColaboradorRow, empData)
+        if (previewEpiHtml) { varMap['EPIs da Função'] = previewEpiHtml; varMap['Tabela EPIs'] = previewEpiHtml }
         let html = previewModelo.conteudo
         if (html.trimStart().startsWith('#') || (!html.includes('<') && html.includes('\n'))) html = markdownToHtml(html)
         const previewHtmlLocal = aplicarVariaveis(html, varMap)
@@ -1970,7 +1989,12 @@ table th { background:#f8fafc; font-weight:700; }
                 </div>
               </div>
               {/* Preview */}
-              <div style={{ flex:1, overflowY:'auto', padding:'20px', background:'#3c3f41' }}>
+              <div style={{ flex:1, overflowY:'auto', padding:'20px', background:'#3c3f41', position:'relative' }}>
+                {previewEpiLoading && (
+                  <div style={{ position:'absolute', top:12, left:'50%', transform:'translateX(-50%)', background:'rgba(14,30,54,.9)', color:'#93c5fd', fontSize:12, fontWeight:600, padding:'6px 16px', borderRadius:20, zIndex:10, pointerEvents:'none' }}>
+                    ⏳ Carregando EPIs...
+                  </div>
+                )}
                 <div style={{ background:'#fff', maxWidth:700, margin:'0 auto', boxShadow:'0 2px 12px rgba(0,0,0,.5)', borderRadius:6, overflow:'hidden' }}>
                   <div style={{ background:'#1e3a5f', color:'#fff', padding:'10px 18px', display:'flex', alignItems:'center', gap:10 }}>
                     <span style={{ fontSize:20 }}>🏗️</span>

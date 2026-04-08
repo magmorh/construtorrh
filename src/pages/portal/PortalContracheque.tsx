@@ -349,6 +349,7 @@ ${h.fgts&&h.fgts>0?`<div style="font-size:10px;color:#6b7280;padding:6px 18px;ba
 <div style="padding:10px 18px">${aceiteBlock}</div>
 </div><script>window.onload=()=>{window.print()}</script></body></html>`)
     w.document.close()
+    setTimeout(() => { w.print() }, 800)
   }
 
   // ── bloco de aceite na tela ─────────────────────────────────────────────────
@@ -377,7 +378,7 @@ ${h.fgts&&h.fgts>0?`<div style="font-size:10px;color:#6b7280;padding:6px 18px;ba
           </button>
           <span style={{ color:'#fff', fontWeight:700, fontSize:17, flex:1 }}>Contracheque</span>
           <button onClick={imprimir} style={{ background:'rgba(255,255,255,.15)', border:'1px solid rgba(255,255,255,.3)', borderRadius:7, padding:'5px 10px', color:'#fff', cursor:'pointer', display:'flex', alignItems:'center', gap:5, fontSize:12 }}>
-            <Printer size={13}/> Imprimir
+            <Download size={13}/> Gerar PDF
           </button>
           {h.arquivo_url && (
             <a href={secureDocUrl(h.arquivo_url)} target="_blank" rel="noreferrer" style={{ background:'rgba(255,255,255,.15)', border:'1px solid rgba(255,255,255,.3)', borderRadius:7, padding:'5px 10px', color:'#fff', textDecoration:'none', display:'flex', alignItems:'center', gap:5, fontSize:12 }}>
@@ -950,19 +951,22 @@ function AbaMeusDocumentos({ sessao }: { sessao: Sessao }) {
         .order('data', { ascending: false })
 
       // 3 – Buscar documentos formais (colaborador_documentos)
-      const { data: formais } = await supabase
-        .from('colaborador_documentos')
-        .select('id,titulo,tipo,descricao,arquivo_url,visivel_colaborador,criado_em')
-        .eq('colaborador_id', sessao.colaborador_id)
-        .eq('visivel_colaborador', true)
-        .order('criado_em', { ascending: false })
-        .catchError?.(() => null)
+      let formais: any[] = []
+      try {
+        const { data } = await supabase
+          .from('colaborador_documentos')
+          .select('id,titulo,tipo,descricao,arquivo_url,visivel_colaborador,criado_em')
+          .eq('colaborador_id', sessao.colaborador_id)
+          .eq('visivel_colaborador', true)
+          .order('criado_em', { ascending: false })
+        formais = data ?? []
+      } catch {}
 
       // 4 – Montar lista: formais + avulsos filtrados por tipo visível
       const lista: any[] = []
 
       // Documentos formais (sempre visíveis se marcados)
-      for (const d of (formais ?? []) as any[]) {
+      for (const d of formais as any[]) {
         lista.push({ id: d.id, titulo: d.titulo, tipo: d.tipo, descricao: d.descricao, url: d.arquivo_url, nome: d.titulo, data: d.criado_em, fonte: 'formal' })
       }
 

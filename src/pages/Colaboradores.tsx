@@ -2006,7 +2006,25 @@ ${crachaCardHTML(c, empNome, logoUrl)}
 
       const { data: inserted, error } = await supabase
         .from('colaboradores').insert(payloadFull).select('id').single()
-      if (error || !inserted) { toast.error(traduzirErro(error?.message ?? 'Erro ao criar colaborador')); setSaving(false); return }
+      if (error || !inserted) {
+        // Tratamento especial: CPF duplicado pode ser recontratação
+        if (error?.message?.includes('colaboradores_cpf_key') || (error?.message?.includes('unique') && error?.message?.includes('cpf'))) {
+          const cpfDigits = form.cpf ? form.cpf.replace(/\D/g, '') : ''
+          const { data: existente } = await supabase
+            .from('colaboradores')
+            .select('id, status, nome')
+            .eq('cpf', cpfDigits)
+            .eq('status', 'inativo')
+            .single()
+          if (existente) {
+            toast.warning(`CPF já existe para ${existente.nome} (inativo). Crie um novo registro sem CPF ou use a recontratação.`)
+          } else {
+            toast.error('CPF já cadastrado para um colaborador ativo.')
+          }
+          setSaving(false); return
+        }
+        toast.error(traduzirErro(error?.message ?? 'Erro ao criar colaborador')); setSaving(false); return
+      }
       colaboradorId = inserted.id
     }
 

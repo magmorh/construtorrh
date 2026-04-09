@@ -331,31 +331,53 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
   const row: React.CSSProperties = { display: 'flex', gap: 10 }
   const col: React.CSSProperties = { flex: 1, display: 'flex', flexDirection: 'column' }
 
+  const TIPO_EMOJI: Record<string,string> = { mensal:'💵', adiantamento:'💳', ferias:'🏖️', '13o_1a':'🎁', '13o_2a':'🎁', rescisorio:'📋' }
+
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent style={{ maxWidth: 620, maxHeight: '92vh', overflowY: 'auto' }}>
-        <DialogHeader>
-          <DialogTitle style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16 }}>
-            <Receipt size={18} color="#0d3f56" />
-            Adicionar Holerite — {colaborador.nome.split(' ')[0]}
-          </DialogTitle>
-        </DialogHeader>
+      <DialogContent style={{ maxWidth: 640, maxHeight: '94vh', overflowY: 'auto', padding: 0 }}>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '2px 0' }}>
-
-          {/* Competência + Tipo */}
-          <div style={row}>
-            <div style={col}>
-              <span style={lbl}>Competência *</span>
-              <input type="month" value={competencia} onChange={e => setCompetencia(e.target.value)} style={inp} />
+        {/* Header estilizado */}
+        <div style={{ background:'linear-gradient(135deg,#0d3f56,#1a56a0)', padding:'16px 20px', borderRadius:'8px 8px 0 0' }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <span style={{ width:36, height:36, borderRadius:10, background:'rgba(255,255,255,.18)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <Receipt size={18} color="#fff"/>
+              </span>
+              <div>
+                <div style={{ color:'#fff', fontWeight:800, fontSize:15 }}>Adicionar Holerite</div>
+                <div style={{ color:'rgba(255,255,255,.7)', fontSize:11 }}>{colaborador.nome} · {colaborador.chapa ?? ''}</div>
+              </div>
             </div>
-            <div style={col}>
-              <span style={lbl}>Tipo</span>
+          </div>
+        </div>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:12, padding:'16px 20px' }}>
+
+          {/* Competência + Tipo — destaque visual */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+            <div>
+              <span style={lbl}>📅 Competência *</span>
+              <input type="month" value={competencia} onChange={e => setCompetencia(e.target.value)}
+                style={{ ...inp, height:40, fontWeight:700, color:'#1a56a0', border:'1.5px solid #bfdbfe', background:'#eff6ff' }} />
+            </div>
+            <div>
+              <span style={lbl}>📋 Tipo de Holerite</span>
               <select value={tipo} onChange={e => setTipo(e.target.value)}
-                style={{ ...inp, background: '#fff', cursor: 'pointer' }}>
-                {Object.entries(TIPO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                style={{ ...inp, height:40, background:'#fff', cursor:'pointer', fontWeight:700, color:'#1a56a0', border:'1.5px solid #e2e8f0' }}>
+                {Object.entries(TIPO_LABEL).map(([v, l]) => <option key={v} value={v}>{TIPO_EMOJI[v] ?? '📄'} {l}</option>)}
               </select>
             </div>
+          </div>
+
+          {/* Badge tipo selecionado */}
+          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'#f8fafc', borderRadius:8, border:'1px solid #e2e8f0' }}>
+            <span style={{ fontSize:20 }}>{TIPO_EMOJI[tipo] ?? '📄'}</span>
+            <div>
+              <div style={{ fontSize:12, fontWeight:700, color:'#0d3f56' }}>{TIPO_LABEL[tipo] ?? tipo}</div>
+              <div style={{ fontSize:11, color:'#6b7280' }}>{competencia ? `Competência: ${competencia}` : 'Selecione a competência'}</div>
+            </div>
+            {geradoDoSistema && <span style={{ marginLeft:'auto', fontSize:10, background:'#dcfce7', color:'#15803d', padding:'2px 8px', borderRadius:20, fontWeight:700 }}>✓ Gerado do Sistema</span>}
           </div>
 
           {/* Botão Gerar do Sistema */}

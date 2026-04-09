@@ -2129,127 +2129,139 @@ export default function Ponto() {
                   {/* Tabela de ponto */}
                   {exp ? (
                     <div style={{overflowX:'auto',overflowY:'auto',maxHeight:'calc(100vh - 300px)'}}>
-                      <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,tableLayout:'fixed',minWidth:860}}>
+                        <colgroup>
+                          <col style={{width:38}}/><col style={{width:46}}/>
+                          <col style={{width:32}}/><col style={{width:26}}/>
+                          <col style={{width:78}}/><col style={{width:78}}/><col style={{width:78}}/><col style={{width:78}}/>
+                          <col style={{width:78}}/><col style={{width:78}}/>
+                          <col style={{width:58}}/><col style={{width:52}}/><col style={{width:58}}/>
+                          <col style={{width:80}}/><col style={{width:80}}/>
+                        </colgroup>
                         <thead>
                           <tr style={{background:'#1e3a5f',color:'#fff',position:'sticky',top:0,zIndex:2}}>
-                            <th style={{...TH,width:32}}>Dia</th><th style={{...TH,width:38}}>Data</th>
-                            <th style={{...TH,width:32}}>✓</th><th style={{...TH,width:26}}>✗</th>
-                            <th style={{...TH,minWidth:64}}>Ent.</th><th style={{...TH,minWidth:64}}>S.Alm.</th><th style={{...TH,minWidth:64}}>R.Alm.</th><th style={{...TH,minWidth:64}}>Saída</th>
-                            <th style={{...TH,background:'#2d5a9e',minWidth:64}} title="Entrada hora extra">H.E Ent.</th>
-                            <th style={{...TH,background:'#2d5a9e',minWidth:64}} title="Saída hora extra">H.E Saí.</th>
-                            <th style={{...TH,background:'#1a4a1a',width:42}}>Norm</th><th style={{...TH,background:'#2d5a1a',width:38}}>Ext</th><th style={{...TH,background:'#0f3320',width:42}}>Total</th>
-                            <th style={{...TH,background:'#4a1a7a',width:72}}>Valor</th>
-                            <th style={{...TH,width:60}}>Obs.</th>
+                            <th style={{...TH,textAlign:'left',paddingLeft:6}}>Dia</th>
+                            <th style={TH}>Data</th>
+                            <th style={TH}>✓</th>
+                            <th style={TH}>✗</th>
+                            <th style={{...TH,borderLeft:'1px solid rgba(255,255,255,0.15)'}}>Entrada</th>
+                            <th style={TH}>S. Almoço</th>
+                            <th style={TH}>R. Almoço</th>
+                            <th style={{...TH,borderRight:'1px solid rgba(255,255,255,0.15)'}}>Saída</th>
+                            <th style={{...TH,background:'#2e4a8a',borderLeft:'1px solid rgba(255,255,255,0.15)'}}>HE Ent.</th>
+                            <th style={{...TH,background:'#2e4a8a',borderRight:'1px solid rgba(255,255,255,0.15)'}}>HE Saí.</th>
+                            <th style={{...TH,background:'#166534'}}>Norm.</th>
+                            <th style={{...TH,background:'#1e40af'}}>Ext.</th>
+                            <th style={{...TH,background:'#374151'}}>Total</th>
+                            <th style={{...TH,background:'#5b21b6'}}>Valor</th>
+                            <th style={{...TH,textAlign:'left',paddingLeft:4}}>Obs.</th>
                           </tr>
                         </thead>
                         <tbody>
                           {diasLanc.map((d,idx)=>{
                             const fds=isFDS(d.data); const eFeriado=feriados.has(d.data); const _isClt=lancIsClt(lanc.id!)
-                            // horasJornada para feriado_remunerado
                             const diaSemKey2=DIAS_KEY[new Date(d.data+'T12:00:00').getDay()]
                             const horObraLanc=horariosObra[lanc.obra_id]?.[diaSemKey2]
                             const jornMin=horObraLanc?.hora_entrada&&horObraLanc?.hora_saida ? Math.max(0,diffMin(horObraLanc.hora_entrada,horObraLanc.hora_saida)-(horObraLanc.saida_almoco&&horObraLanc.retorno_almoco?diffMin(horObraLanc.saida_almoco,horObraLanc.retorno_almoco):horObraLanc.saida_almoco?60:0)) : 0
                             const calc=calcDia(d,eFeriado,_isClt,jornMin); const lancBloq=!['rascunho','recusado'].includes(lanc.status)
-                            const bg=d.evento==='suspensao'?'rgba(239,68,68,0.09)':d.evento==='atestado'?'rgba(59,130,246,0.09)':eFeriado&&d.feriado_remunerado?'rgba(245,158,11,0.13)':eFeriado?'rgba(245,158,11,0.07)':fds?'rgba(100,100,100,0.04)':d.falta?'rgba(239,68,68,0.05)':d.presente?'rgba(22,163,74,0.03)':'transparent'
+                            // Cor de fundo da linha — limpa e sem excesso
+                            const rowBg = d.evento==='suspensao' ? '#fff1f2'
+                              : d.evento==='atestado' ? '#eff6ff'
+                              : eFeriado&&d.feriado_remunerado ? '#fefce8'
+                              : eFeriado ? '#fffbeb'
+                              : fds ? '#f9fafb'
+                              : d.falta ? '#fff1f2'
+                              : d.presente ? '#f0fdf4'
+                              : '#ffffff'
+                            const TDc:React.CSSProperties = {...TD, padding:'4px 3px', verticalAlign:'middle'}
                             return(
-                              <tr key={d.data} style={{borderBottom:'1px solid var(--border)',background:bg}}>
-                                <td style={{...TD,fontWeight:700,textAlign:'center',color:eFeriado?'#d97706':fds?'#9ca3af':undefined}}>
+                              <tr key={d.data} style={{borderBottom:'1px solid #e5e7eb',background:rowBg}}>
+                                {/* Dia semana */}
+                                <td style={{...TDc,fontWeight:700,paddingLeft:6,color:eFeriado?'#b45309':fds?'#9ca3af':'#374151',fontSize:11}}>
                                   {diaSemana(d.data)}
-                                  {eFeriado&&(
-                                    d.presente
-                                      ? <span title='Feriado trabalhado (+100%)' style={{fontSize:9,marginLeft:2}}>🎌+</span>
-                                      : d.feriado_remunerado
-                                        ? <span title='Feriado remunerado (dia normal pago)' style={{fontSize:9,marginLeft:2}}>🎌✓</span>
-                                        : <span title='Feriado — marque presença ou remunerado' style={{fontSize:9,marginLeft:2,color:'#9ca3af'}}>🎌</span>
-                                  )}
+                                  {eFeriado&&(d.presente?<span title='Feriado trabalhado' style={{fontSize:9,marginLeft:2}}>🎌</span>:d.feriado_remunerado?<span title='Feriado remunerado' style={{fontSize:9,marginLeft:2}}>✓🎌</span>:<span style={{fontSize:9,marginLeft:2,color:'#d1d5db'}}>🎌</span>)}
                                 </td>
-                                <td style={{...TD,textAlign:'center',fontFamily:'monospace',fontWeight:600}}>{d.data.slice(8)}/{d.data.slice(5,7)}</td>
-                                <td style={{...TD,textAlign:'center'}}>
+                                {/* Data */}
+                                <td style={{...TDc,textAlign:'center',fontFamily:'monospace',fontWeight:600,color:'#111827',fontSize:11}}>{d.data.slice(8)}/{d.data.slice(5,7)}</td>
+                                {/* ✓ Presente */}
+                                <td style={{...TDc,textAlign:'center'}}>
                                   {d.evento==='atestado'?<span title="Afastamento">🩺</span>
                                   :d.evento==='suspensao'?<span title="Suspensão">⛔</span>
-                                  :d.evento==='outro_lancamento'?<span title={`🔒 Dia lançado em: ${d.justificativa||'outra obra'}`} style={{cursor:'default'}}>🔒</span>
-                                  :<button onClick={()=>!lancBloq&&togglePresente(lanc.id,idx,colabSel!)} style={{border:'none',background:'none',cursor:lancBloq?'not-allowed':'pointer',padding:2,color:d.presente?'#16a34a':'#9ca3af',opacity:lancBloq?0.5:1}}>
-                                    {d.presente?<CheckCircle2 size={16}/>:<span style={{fontSize:16,opacity:0.3}}>○</span>}
+                                  :d.evento==='outro_lancamento'?<span title={`Dia lançado em: ${d.justificativa||'outra obra'}`}>🔒</span>
+                                  :<button onClick={()=>!lancBloq&&togglePresente(lanc.id,idx,colabSel!)} style={{border:'none',background:'none',cursor:lancBloq?'default':'pointer',padding:2,color:d.presente?'#16a34a':'#d1d5db',display:'flex',alignItems:'center'}}>
+                                    {d.presente?<CheckCircle2 size={15}/>:<span style={{fontSize:15}}>○</span>}
                                   </button>}
                                 </td>
-                                <td style={{...TD,textAlign:'center'}}>
-                                  {!d.bloqueado&&<button onClick={()=>!lancBloq&&toggleFalta(lanc.id,idx)} style={{border:'none',background:'none',cursor:lancBloq?'not-allowed':'pointer',padding:2,color:d.falta?'#dc2626':'#9ca3af',opacity:lancBloq?0.5:1}}><span style={{fontSize:15,opacity:d.falta?1:0.3}}>✗</span></button>}
-                                  {/* Botão Feriado Remunerado — só em dias de feriado sem presença */}
+                                {/* ✗ Falta */}
+                                <td style={{...TDc,textAlign:'center'}}>
+                                  {!d.bloqueado&&<button onClick={()=>!lancBloq&&toggleFalta(lanc.id,idx)} style={{border:'none',background:'none',cursor:lancBloq?'default':'pointer',padding:2,color:d.falta?'#dc2626':'#d1d5db'}}>
+                                    <span style={{fontSize:14}}>{d.falta?'✗':'○'}</span>
+                                  </button>}
                                   {eFeriado&&!d.bloqueado&&!d.presente&&(
-                                    <button
-                                      onClick={()=>!lancBloq&&toggleFeriadoRemunerado(lanc.id,idx)}
-                                      title={d.feriado_remunerado?'Feriado remunerado ativo (clique para desativar)':'Marcar como feriado remunerado (paga jornada normal)'}
-                                      style={{border:'none',cursor:lancBloq?'not-allowed':'pointer',padding:'1px 3px',borderRadius:3,
-                                        background:d.feriado_remunerado?'#fef3c7':'transparent',
-                                        color:d.feriado_remunerado?'#92400e':'#d1d5db',
-                                        fontSize:11,fontWeight:700,opacity:lancBloq?0.5:1,marginLeft:2}}
-                                    >
-                                      $
-                                    </button>
+                                    <button onClick={()=>!lancBloq&&toggleFeriadoRemunerado(lanc.id,idx)}
+                                      title={d.feriado_remunerado?'Feriado remunerado — clique para desativar':'Marcar feriado remunerado'}
+                                      style={{border:'none',cursor:lancBloq?'default':'pointer',padding:'1px 3px',borderRadius:3,background:d.feriado_remunerado?'#fef3c7':'transparent',color:d.feriado_remunerado?'#92400e':'#d1d5db',fontSize:10,fontWeight:700}}>$</button>
                                   )}
                                 </td>
-                                <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.hora_entrada} onChange={v=>updDia(lanc.id,idx,'hora_entrada',v)}/></td>
-                                <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.saida_almoco} onChange={v=>updDia(lanc.id,idx,'saida_almoco',v)}/></td>
-                                <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.retorno_almoco} onChange={v=>updDia(lanc.id,idx,'retorno_almoco',v)}/></td>
-                                <td style={TD}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.hora_saida} onChange={v=>updDia(lanc.id,idx,'hora_saida',v)}/></td>
-                                {/* H.E ↑↓ — unificado em 1 célula com 2 linhas */}
-                                <td style={{...TD,background:'rgba(45,90,158,0.06)'}}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.he_entrada} onChange={v=>updDia(lanc.id,idx,'he_entrada',v)}/></td>
-                                <td style={{...TD,background:'rgba(45,90,158,0.06)'}}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.he_saida} onChange={v=>updDia(lanc.id,idx,'he_saida',v)}/></td>
-                                <td style={{...TD,textAlign:'center',fontWeight:600,color:calc.normais>0?'#15803d':'#9ca3af',background:'rgba(22,163,74,0.05)'}}>{calc.normais>0?fmtHHMM(calc.normais):'—'}</td>
-                                <td style={{...TD,textAlign:'center',fontWeight:600,color:calc.extras100>0?'#dc2626':calc.extras50>0?'#1d4ed8':'#9ca3af',background:calc.extras100>0?'rgba(220,38,38,0.06)':'rgba(45,90,158,0.05)'}}>{calc.extras100>0 ? fmtHHMM(calc.extras100)+'🔴' : calc.extras50>0 ? fmtHHMM(calc.extras50)+'*' : '—'}</td>
-                                <td style={{...TD,textAlign:'center',fontWeight:700,background:'rgba(0,0,0,0.03)'}}>{calc.total>0?fmtHHMM(calc.total):'—'}</td>
-                                <td style={{...TD,textAlign:'right',fontWeight:700,background:'rgba(74,26,122,0.05)',color:'#6d28d9',fontSize:11}}>
+                                {/* Campos de hora */}
+                                <td style={{...TDc,borderLeft:'1px solid #e5e7eb'}}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.hora_entrada} onChange={v=>updDia(lanc.id,idx,'hora_entrada',v)}/></td>
+                                <td style={TDc}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.saida_almoco} onChange={v=>updDia(lanc.id,idx,'saida_almoco',v)}/></td>
+                                <td style={TDc}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.retorno_almoco} onChange={v=>updDia(lanc.id,idx,'retorno_almoco',v)}/></td>
+                                <td style={{...TDc,borderRight:'1px solid #e5e7eb'}}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.hora_saida} onChange={v=>updDia(lanc.id,idx,'hora_saida',v)}/></td>
+                                {/* HE */}
+                                <td style={{...TDc,background:'rgba(46,74,138,0.05)',borderLeft:'1px solid #e5e7eb'}}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.he_entrada} onChange={v=>updDia(lanc.id,idx,'he_entrada',v)}/></td>
+                                <td style={{...TDc,background:'rgba(46,74,138,0.05)',borderRight:'1px solid #e5e7eb'}}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.he_saida} onChange={v=>updDia(lanc.id,idx,'he_saida',v)}/></td>
+                                {/* Cálculos */}
+                                <td style={{...TDc,textAlign:'center',fontWeight:600,fontFamily:'monospace',fontSize:11,color:calc.normais>0?'#15803d':'#9ca3af'}}>{calc.normais>0?fmtHHMM(calc.normais):'—'}</td>
+                                <td style={{...TDc,textAlign:'center',fontWeight:600,fontFamily:'monospace',fontSize:11,color:calc.extras100>0?'#dc2626':calc.extras50>0?'#1d4ed8':'#9ca3af'}}>{calc.extras100>0?fmtHHMM(calc.extras100):calc.extras50>0?fmtHHMM(calc.extras50):'—'}</td>
+                                <td style={{...TDc,textAlign:'center',fontWeight:700,fontFamily:'monospace',fontSize:11,color:calc.total>0?'#111827':'#9ca3af'}}>{calc.total>0?fmtHHMM(calc.total):'—'}</td>
+                                {/* Valor */}
+                                <td style={{...TDc,textAlign:'right',fontWeight:700,fontSize:11,color:'#5b21b6',paddingRight:6}}>
                                   {d.evento==='atestado'||d.evento==='suspensao'||d.falta
                                     ? <span style={{color:'#9ca3af'}}>—</span>
-                                    : d.evento==='outro_lancamento'
-                                    ? null
+                                    : d.evento==='outro_lancamento' ? null
                                     : d.presente&&calc.total>0
                                     ? (() => {
                                         const ehAuto=colabSel?.tipo_contrato==='autonomo'||colabSel?.tipo_contrato==='pj'
                                         const vhLinha = valorHoraDoLanc(lanc.id!)
                                         const vHoras=calcValorMin(calc.normais,calc.extras50,calc.extras100,vhLinha,heCoef50,heCoef100)
-                                        // Autônomo: se este dia foi marcado na produção → mostra prod proporcional; senão → horas
                                         if(ehAuto&&diasComProd.has(d.data)&&prodPorDia>0){
-                                          return <span title={`Dia marcado na produção: ${formatCurrency(prodPorDia)}`} style={{cursor:'default',color:'#b45309',fontWeight:700}}>
-                                            {formatCurrency(prodPorDia)}
-                                            <span style={{display:'block',fontSize:9,fontWeight:400}}>prod.</span>
-                                          </span>
+                                          return <span title={`Produção: ${formatCurrency(prodPorDia)}`} style={{cursor:'default',color:'#b45309'}}>{formatCurrency(prodPorDia)}</span>
                                         }
-                                        // CLT ou autônomo sem prod neste dia: mostra horas
                                         return <span title={`Horas: ${formatCurrency(vHoras)}`} style={{cursor:'default'}}>
                                           {valorHoraEfetivo>0?formatCurrency(vHoras):'—'}
                                         </span>
                                       })()
-                                    : <span style={{color:'#d1d5db',fontSize:9}}>{valorHoraEfetivo===0?'s/val':'—'}</span>
+                                    : <span style={{color:'#d1d5db'}}>—</span>
                                   }
                                 </td>
-                                <td style={{...TD,fontSize:10}}>
-                                  {d.evento==='atestado'&&<span style={{color:'#1d4ed8',fontWeight:600}}>Afastamento</span>}
+                                {/* Obs */}
+                                <td style={{...TDc,paddingLeft:4,fontSize:10,color:'#6b7280',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:80}}>
+                                  {d.evento==='atestado'&&<span style={{color:'#1d4ed8',fontWeight:600}}>Atestado</span>}
                                   {d.evento==='suspensao'&&<span style={{color:'#b91c1c',fontWeight:600}}>Suspensão</span>}
-                                  {d.evento==='outro_lancamento'&&<span style={{color:'#6b7280',fontSize:10}}>🔒 {d.justificativa||'outra obra'}</span>}
+                                  {d.evento==='outro_lancamento'&&<span style={{color:'#6b7280'}}>🔒 {d.justificativa||'outra obra'}</span>}
                                 </td>
                               </tr>
                             )
                           })}
                         </tbody>
                         <tfoot>
-                          <tr style={{background:'#1e3a5f',color:'#fff',fontWeight:700}}>
-                            <td colSpan={4} style={{padding:'7px 12px',fontSize:11}}>
-                              {tot.presentes} dia{tot.presentes!==1?'s':''} trabalhado{tot.presentes!==1?'s':''}
-                              {tot.faltas>0&&<span style={{color:'#fca5a5',marginLeft:8}}>· {tot.faltas} falta{tot.faltas!==1?'s':''}</span>}
+                          <tr style={{background:'#1e3a5f',color:'#fff',fontWeight:700,fontSize:11}}>
+                            <td colSpan={4} style={{padding:'6px 8px'}}>
+                              {tot.presentes} dia{tot.presentes!==1?'s':''} trab.
+                              {tot.faltas>0&&<span style={{color:'#fca5a5',marginLeft:6}}>{tot.faltas} falta{tot.faltas!==1?'s':''}</span>}
                             </td>
-                            <td colSpan={6} style={{padding:'7px 12px',textAlign:'right',fontSize:10,opacity:0.7}}>{(()=>{const vh=valorHoraDoLanc(lanc.id!);return vh>0&&`R$ ${vh.toFixed(4)}/h`})()}</td>
-                            <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(22,163,74,0.3)'}}>{fmtHHMM(tot.normais)}</td>
-                            <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(45,90,158,0.4)'}}>{fmtHHMM(tot.extras50)}</td>
-                            <td style={{padding:'7px 6px',textAlign:'center',background:'rgba(0,0,0,0.2)'}}>{fmtHHMM(tot.total)}</td>
-                            <td style={{padding:'7px 8px',textAlign:'right',background:'rgba(74,26,122,0.4)',color:'#e9d5ff',fontWeight:700,fontSize:11}}>
+                            <td colSpan={6} style={{padding:'6px 8px',textAlign:'right',fontSize:10,opacity:0.75}}>{(()=>{const vh=valorHoraDoLanc(lanc.id!);return vh>0&&`R$ ${vh.toFixed(2)}/h`})()}</td>
+                            <td style={{padding:'6px 4px',textAlign:'center',background:'rgba(22,163,74,0.25)',fontFamily:'monospace'}}>{fmtHHMM(tot.normais)}</td>
+                            <td style={{padding:'6px 4px',textAlign:'center',background:'rgba(30,64,175,0.3)',fontFamily:'monospace'}}>{tot.extras50>0||tot.extras100>0?fmtHHMM(tot.extras50+tot.extras100):'—'}</td>
+                            <td style={{padding:'6px 4px',textAlign:'center',background:'rgba(0,0,0,0.2)',fontFamily:'monospace'}}>{fmtHHMM(tot.total)}</td>
+                            <td style={{padding:'6px 6px',textAlign:'right',background:'rgba(91,33,182,0.35)',color:'#e9d5ff',paddingRight:6}}>
                               {(() => {
                                 const vhLancFoot = valorHoraDoLanc(lanc.id!)
                                 const vHoras=calcValorMin(tot.normais,tot.extras50,tot.extras100,vhLancFoot,heCoef50,heCoef100)
                                 const ehAuto=colabSel?.tipo_contrato==='autonomo'||colabSel?.tipo_contrato==='pj'
                                 if(vHoras===0&&totalProdLancamento===0)return '—'
                                 if(ehAuto){
-                                  // Autônomo: calcular horas só dos dias SEM produção neste lançamento
                                   const diasLancamento=diasMap[lanc.id]??[]
                                   let minNormLanc=0,minExtra50Lanc=0,minExtra100Lanc=0
                                   diasLancamento.forEach(d=>{
@@ -2257,22 +2269,13 @@ export default function Ponto() {
                                   })
                                   const horasLancSemProd=calcValorMin(minNormLanc,minExtra50Lanc,minExtra100Lanc,vhLancFoot,heCoef50,heCoef100)
                                   const vTotalAuto=horasLancSemProd+totalProdLancamento
-                                  return <span title={`Horas(sem prod): ${formatCurrency(horasLancSemProd)} + Prod: ${formatCurrency(totalProdLancamento)}`}>
-                                    {formatCurrency(vTotalAuto)}
-                                    {totalProdLancamento>0&&<span style={{display:'block',fontSize:9,opacity:0.8}}>+{formatCurrency(totalProdLancamento)} prod</span>}
-                                  </span>
+                                  return formatCurrency(vTotalAuto)
                                 }
-                                // CLT: horas + DSR proporcional do lançamento
-                                // usar calcDSRComFaltas para consistência
                                 const _duLanc=diasUteisPeriodo(lanc.data_inicio,lanc.data_fim,feriados)
                                 const _domLanc=domingosFeriadosPeriodo(lanc.data_inicio,lanc.data_fim,feriados)
                                 const extrasLanc=fmtDecimal(tot.extras50)*vhLancFoot*heCoef50 + fmtDecimal(tot.extras100)*vhLancFoot*heCoef100
                                 const dsrLanc=_duLanc>0&&_domLanc>0&&extrasLanc>0?(extrasLanc/_duLanc)*_domLanc:0
-                                const totalLanc=vHoras+dsrLanc
-                                return <span title={`Horas: ${formatCurrency(vHoras)}${dsrLanc>0?' + DSR: '+formatCurrency(dsrLanc):''}`}>
-                                  {formatCurrency(totalLanc)}
-                                  {dsrLanc>0&&<span style={{display:'block',fontSize:9,opacity:0.8}}>+{formatCurrency(dsrLanc)} DSR</span>}
-                                </span>
+                                return formatCurrency(vHoras+dsrLanc)
                               })()}
                             </td>
                             <td/>
@@ -2885,5 +2888,5 @@ const LBL:React.CSSProperties={display:'block',fontSize:12,fontWeight:600,margin
 const SEL:React.CSSProperties={width:'100%',padding:'8px 10px',fontSize:13,border:'1px solid var(--border)',borderRadius:6,background:'var(--background)',color:'var(--foreground)'}
 
 function TI({value,onChange,disabled}:{value:string;onChange:(v:string)=>void;disabled:boolean}){
-  return<input type="time" value={value} onChange={e=>onChange(e.target.value)} disabled={disabled} style={{width:70,padding:'3px 4px',fontSize:12,border:'1px solid var(--border)',borderRadius:4,background:disabled?'transparent':'var(--background)',color:disabled?'#9ca3af':'var(--foreground)',fontFamily:'monospace',textAlign:'center',cursor:disabled?'not-allowed':'text',outline:'none'}}/>
+  return<input type="time" value={value} onChange={e=>onChange(e.target.value)} disabled={disabled} style={{width:'100%',padding:'3px 2px',fontSize:12,border:'1px solid',borderColor:disabled?'transparent':'#d1d5db',borderRadius:4,background:disabled?'transparent':'#fff',color:disabled?'#9ca3af':'#111827',fontFamily:'monospace',textAlign:'center',cursor:disabled?'default':'text',outline:'none',boxSizing:'border-box',minWidth:64}}/>
 }

@@ -962,7 +962,7 @@ function AbaFolhaPonto({ sessao, dataAdmissao, lancamentos }: { sessao: Sessao; 
     ])
     const r1 = (!pontoRes.error ? (pontoRes.data as any[]) ?? [] : [])
     const r2 = (!pontoAltRes.error ? (pontoAltRes.data as any[]) ?? [] : [])
-      .map((r:any)=>({...r, horas_extra: r.horas_extras ?? r.horas_extra}))
+      .map((r:any)=>({...r, horas_extra: r.horas_extras ?? r.horas_extra, status: r.status ?? (r.hora_entrada ? 'presente' : null)}))
     const merged = r1.length > 0 ? r1 : r2
     setRegistros(merged as RegistroPonto[])
     setProducoes((prodRes.data as any[]) ?? [])
@@ -976,8 +976,8 @@ function AbaFolhaPonto({ sessao, dataAdmissao, lancamentos }: { sessao: Sessao; 
   const totalPresentes = registros.filter(r=>['presente','meio_periodo','producao'].includes((r.status??'').toLowerCase())).length
   const totalFaltas   = registros.filter(r=>['falta','falta_justificada'].includes((r.status??'').toLowerCase())).length
 
-  function badgeStatus(status: string | null) {
-    const s = (status??'').toLowerCase()
+  function badgeStatus(status: string | null, horaEntrada?: string | null) {
+    const s = (status ?? (horaEntrada ? 'presente' : '')).toLowerCase()
     if (s==='presente')          return { texto:'Presente',     cor:'#16a34a', bg:'#dcfce7', border:'#86efac', emoji:'✅' }
     if (s==='falta')             return { texto:'Falta',        cor:'#dc2626', bg:'#fee2e2', border:'#fca5a5', emoji:'❌' }
     if (s==='falta_justificada') return { texto:'Falta Just.',  cor:'#6b7280', bg:'#f3f4f6', border:'#e5e7eb', emoji:'📋' }
@@ -1002,9 +1002,10 @@ function AbaFolhaPonto({ sessao, dataAdmissao, lancamentos }: { sessao: Sessao; 
     const fh = (hh: string|null) => hh ? hh.slice(0,5) : '—'
     const temRegistros = registros.length > 0
     const tbodyRows = temRegistros ? registros.map((reg, i) => {
-      const isFalta = ['falta','falta_justificada'].includes((reg.status??'').toLowerCase())
+      const statusPdf = reg.status ?? (reg.hora_entrada ? 'presente' : null)
+      const isFalta = ['falta','falta_justificada'].includes((statusPdf??'').toLowerCase())
       const cor = isFalta ? '#fee2e2' : (i%2===0 ? '#fff' : '#f8fafc')
-      const statusLabel = isFalta ? 'FALTA' : (reg.status??'—')
+      const statusLabel = isFalta ? 'FALTA' : (reg.status ?? (reg.hora_entrada ? 'Presente' : '—'))
       const statusCor = isFalta ? '#dc2626' : '#374151'
       const [y,m,d]=reg.data.split('-')
       return `<tr style="background:${cor}">
@@ -1219,8 +1220,9 @@ function AbaFolhaPonto({ sessao, dataAdmissao, lancamentos }: { sessao: Sessao; 
           <>
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
               {registros.map(reg=>{
-                const badge   = badgeStatus(reg.status)
-                const isFalta = ['falta','falta_justificada'].includes((reg.status??'').toLowerCase())
+                const statusEf = reg.status ?? (reg.hora_entrada ? 'presente' : null)
+                const badge   = badgeStatus(statusEf, reg.hora_entrada)
+                const isFalta = ['falta','falta_justificada'].includes((statusEf??'').toLowerCase())
                 const htrab   = reg.horas_trabalhadas ?? 0
                 const hext    = reg.horas_extra ?? 0
                 return (

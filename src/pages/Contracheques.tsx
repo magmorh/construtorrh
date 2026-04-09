@@ -228,7 +228,7 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
         setDescontoAdiant(adTotal > 0   ? adTotal.toFixed(2)     : '')
         setObraNome(obras.join(' / '))
         setFuncao(colab?.funcao ?? colaborador.funcao ?? '')
-        setDiasTrab('')
+        // será preenchido após buscar registros diários
         setFaltas(sumFaltas > 0         ? String(sumFaltas)      : '')
         const primLancId = lancs[0]?.id ?? null
         setLancamentoId(primLancId)
@@ -238,16 +238,25 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
         if (primLancId) {
           const dataIni = (lancs[0] as any).data_inicio ?? mesRef+'-01'
           const dataFim = (lancs[0] as any).data_fim   ?? mesRef+'-31'
-          const [rpRes, rprodRes] = await Promise.all([
+          const [rpRes, rpAltRes, rprodRes] = await Promise.all([
             supabase.from('portal_ponto_diario')
               .select('id,data,hora_entrada,hora_saida,horas_trabalhadas,horas_extra,status,observacoes')
               .eq('colaborador_id', colaborador.id).gte('data',dataIni).lte('data',dataFim).order('data'),
+            supabase.from('registro_ponto')
+              .select('id,data,hora_entrada,hora_saida,horas_trabalhadas,horas_extras,horas_falta,status,observacoes')
+              .eq('lancamento_id', primLancId).order('data'),
             supabase.from('ponto_producao')
-              .select('id,data,quantidade,valor_total,observacoes,playbook_itens(descricao,unidade)')
+              .select('id,data,quantidade,valor_total,observacoes,playbook_itens(descricao,unidade,categoria)')
               .eq('colaborador_id', colaborador.id).gte('data',dataIni).lte('data',dataFim).order('data'),
           ])
-          setRegistrosPonto((rpRes.data as any[]) ?? [])
+          const rp1 = rpRes.data ?? []
+          const rp2 = (rpAltRes.data ?? []).map((r:any)=>({...r, horas_extra:r.horas_extras??r.horas_extra??0, status:r.status??(r.hora_entrada?'presente':null)}))
+          const registrosFinal = rp1.length > 0 ? rp1 : rp2
+          setRegistrosPonto(registrosFinal)
           setRegistrosProducao((rprodRes.data as any[]) ?? [])
+          // Auto-preencher dias trabalhados
+          const presentes = registrosFinal.filter((r:any) => !['falta','falta_justificada'].includes((r.status??'').toLowerCase()) && (r.hora_entrada || r.status))
+          if (presentes.length > 0) setDiasTrab(String(presentes.length))
         }
 
         const info = `✅ ${lancs.length} lançamento(s) encontrado(s).${totalPremios > 0 ? ` • ${(premios ?? []).length} prêmio(s) adicionado(s).` : ''}${totalAdiant > 0 ? ` • ${(adiantamentos ?? []).length} adiantamento(s) descontado(s).` : ''}`
@@ -560,75 +569,156 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
             </div>
           </div>
 
-          {/* Registros de Ponto Diário */}
-          {registrosPonto.length > 0 && (
-            <div style={{ borderTop:'2px solid #f1f5f9', paddingTop:10 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
-                <span style={{ fontSize:13 }}>⏱</span>
-                <span style={{ fontSize:13, fontWeight:700, color:'#0d3f56' }}>REGISTROS DE PONTO ({registrosPonto.length} dias)</span>
+          {/* ── Registros de Ponto Diário ──────────────────────────────── */}
+          {registrosPonto.length > 0 && (() => {
+            const presentes = registrosPonto.filter((r:any)=>!['falta','falta_justificada'].includes((r.status??'').toLowerCase()))
+            const faltas    = registrosPonto.filter((r:any)=>['falta','falta_justificada'].includes((r.status??'').toLowerCase()))
+            const totHoras  = registrosPonto.reduce((s:number,r:any)=>s+(Number(r.horas_trabalhadas)||0),0)
+            const totExtras = registrosPonto.reduce((s:number,r:any)=>s+(Number(r.horas_extra)||0),0)
+            return (
+              <div style={{ borderTop:'2px solid #f1f5f9', paddingTop:10 }}>
+                {/* Cards resumo */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:6, marginBottom:10 }}>
+                  {[
+                    { l:'Dias Trabalhados', v:presentes.length, bg:'#dbeafe', cor:'#1d4ed8' },
+                    { l:'Faltas',           v:faltas.length,    bg:'#fee2e2', cor:'#dc2626' },
+                    { l:'H. Normais',       v:`${totHoras.toFixed(1)}h`,  bg:'#dcfce7', cor:'#15803d' },
+                    { l:'H. Extras',        v:`${totExtras.toFixed(1)}h`, bg:'#fef9c3', cor:'#92400e' },
+                  ].map(s=>(
+                    <div key={s.l} style={{ background:s.bg, borderRadius:8, padding:'7px 8px', textAlign:'center' }}>
+                      <div style={{ fontSize:15, fontWeight:800, color:s.cor }}>{s.v}</div>
+                      <div style={{ fontSize:9, color:s.cor, fontWeight:600 }}>{s.l}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* Tabela */}
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+                  <span style={{ fontSize:13 }}>⏱</span>
+                  <span style={{ fontSize:12, fontWeight:700, color:'#0d3f56' }}>REGISTROS DE PONTO ({registrosPonto.length} dias)</span>
+                </div>
+                <div style={{ maxHeight:160, overflowY:'auto', border:'1px solid #e2e8f0', borderRadius:8, fontSize:11 }}>
+                  <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                    <thead><tr style={{ background:'#0d3f56', position:'sticky', top:0 }}>
+                      {['Data','Entrada','Saída','H.Trab','H.Extra','Status'].map(h=>(
+                        <th key={h} style={{ padding:'5px 8px', textAlign:'left', fontSize:10, color:'#fff', fontWeight:700 }}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {registrosPonto.map((r:any,i:number)=>{
+                        const dt=r.data?.slice(5).replace('-','/')
+                        const isFalta=['falta','falta_justificada'].includes((r.status??'').toLowerCase())
+                        return (
+                          <tr key={r.id||i} style={{ background:isFalta?'#fff1f2':i%2===0?'#fff':'#f9fafb', borderBottom:'1px solid #f1f5f9' }}>
+                            <td style={{ padding:'4px 8px', fontWeight:700 }}>{dt}</td>
+                            <td style={{ padding:'4px 8px', color:'#16a34a', fontWeight:600 }}>{r.hora_entrada?.slice(0,5)??'—'}</td>
+                            <td style={{ padding:'4px 8px', color:'#dc2626', fontWeight:600 }}>{r.hora_saida?.slice(0,5)??'—'}</td>
+                            <td style={{ padding:'4px 8px', fontWeight:700 }}>{r.horas_trabalhadas?`${Number(r.horas_trabalhadas).toFixed(1)}h`:'—'}</td>
+                            <td style={{ padding:'4px 8px', color:Number(r.horas_extra)>0?'#92400e':'#9ca3af', fontWeight:Number(r.horas_extra)>0?700:400 }}>{Number(r.horas_extra)>0?`+${Number(r.horas_extra).toFixed(1)}h`:'—'}</td>
+                            <td style={{ padding:'4px 8px' }}>
+                              <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:4, background:isFalta?'#fee2e2':'#dcfce7', color:isFalta?'#dc2626':'#15803d' }}>
+                                {isFalta?'Falta':'Pres.'}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot><tr style={{ background:'#0d3f56' }}>
+                      <td colSpan={3} style={{ padding:'5px 8px', fontSize:11, fontWeight:700, color:'#fff' }}>TOTAIS — {presentes.length} dias</td>
+                      <td style={{ padding:'5px 8px', fontSize:11, fontWeight:700, color:'#fff' }}>{totHoras.toFixed(1)}h</td>
+                      <td style={{ padding:'5px 8px', fontSize:11, fontWeight:700, color:'#fbbf24' }}>{totExtras.toFixed(1)}h</td>
+                      <td style={{ padding:'5px 8px', fontSize:11, color:'#fca5a5' }}>{faltas.length} falta(s)</td>
+                    </tr></tfoot>
+                  </table>
+                </div>
               </div>
-              <div style={{ maxHeight:160, overflowY:'auto', border:'1px solid #e2e8f0', borderRadius:8, fontSize:11 }}>
-                <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                  <thead><tr style={{ background:'#f8fafc' }}>
-                    {['Data','Entrada','Saída','H.Trab','H.Extra','Status'].map(h=>(
-                      <th key={h} style={{ padding:'5px 8px', textAlign:'left', fontSize:10, color:'#6b7280', fontWeight:700, borderBottom:'1px solid #e2e8f0' }}>{h}</th>
-                    ))}
-                  </tr></thead>
-                  <tbody>
-                    {registrosPonto.map((r:any,i:number)=>{
-                      const dt=r.data?.slice(5).replace('-','/')
-                      const isFalta=['falta','falta_justificada'].includes(r.status??'')
-                      return (
-                        <tr key={r.id} style={{ background:isFalta?'#fff1f2':i%2===0?'#fff':'#f9fafb' }}>
-                          <td style={{ padding:'4px 8px', fontWeight:600 }}>{dt}</td>
-                          <td style={{ padding:'4px 8px', color:'#16a34a' }}>{r.hora_entrada?.slice(0,5)??'—'}</td>
-                          <td style={{ padding:'4px 8px', color:'#dc2626' }}>{r.hora_saida?.slice(0,5)??'—'}</td>
-                          <td style={{ padding:'4px 8px' }}>{r.horas_trabalhadas?`${r.horas_trabalhadas}h`:'—'}</td>
-                          <td style={{ padding:'4px 8px', color:r.horas_extra>0?'#92400e':'#9ca3af' }}>{r.horas_extra>0?`+${r.horas_extra}h`:'—'}</td>
-                          <td style={{ padding:'4px 8px' }}>
-                            <span style={{ fontSize:10, fontWeight:700, padding:'1px 5px', borderRadius:4,
-                              background:isFalta?'#fee2e2':'#dcfce7', color:isFalta?'#dc2626':'#15803d' }}>
-                              {isFalta?'Falta':'Pres.'}
-                            </span>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+            )
+          })()}
 
-          {/* Produções relacionadas */}
-          {registrosProducao.length > 0 && (
-            <div style={{ borderTop:'2px solid #f1f5f9', paddingTop:10 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
-                <span style={{ fontSize:13 }}>⚡</span>
-                <span style={{ fontSize:13, fontWeight:700, color:'#7c3aed' }}>PRODUÇÕES ({registrosProducao.length} lançamentos)</span>
+          {/* ── Produções por Categoria ─────────────────────────────────── */}
+          {registrosProducao.length > 0 && (() => {
+            // Agrupar por categoria/serviço
+            const porServico: Record<string, {descricao:string; unidade:string; categoria:string; qtdTotal:number; valorTotal:number; count:number}> = {}
+            for (const r of registrosProducao as any[]) {
+              const desc = r.playbook_itens?.descricao ?? 'Serviço'
+              const cat  = r.playbook_itens?.categoria ?? 'Geral'
+              const key  = desc
+              if (!porServico[key]) porServico[key] = { descricao:desc, unidade:r.playbook_itens?.unidade??'', categoria:cat, qtdTotal:0, valorTotal:0, count:0 }
+              porServico[key].qtdTotal  += Number(r.quantidade) || 0
+              porServico[key].valorTotal += Number(r.valor_total) || 0
+              porServico[key].count++
+            }
+            const grupos = Object.values(porServico)
+            const totalGeral = grupos.reduce((s,g)=>s+g.valorTotal, 0)
+            // Agrupar por categoria para exibição
+            const porCat: Record<string, typeof grupos> = {}
+            for (const g of grupos) {
+              if (!porCat[g.categoria]) porCat[g.categoria] = []
+              porCat[g.categoria].push(g)
+            }
+            return (
+              <div style={{ borderTop:'2px solid #f1f5f9', paddingTop:10 }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    <span style={{ fontSize:13 }}>⚡</span>
+                    <span style={{ fontSize:12, fontWeight:700, color:'#7c3aed' }}>PRODUÇÕES POR CATEGORIA ({registrosProducao.length} lançamentos)</span>
+                  </div>
+                  <span style={{ fontSize:13, fontWeight:800, color:'#7c3aed' }}>R$ {totalGeral.toFixed(2)}</span>
+                </div>
+                {/* Por categoria */}
+                {Object.entries(porCat).map(([cat, itens])=>(
+                  <div key={cat} style={{ marginBottom:10 }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:'#fff', background:'#7c3aed', padding:'3px 8px', borderRadius:4, display:'inline-block', marginBottom:4 }}>
+                      {cat.toUpperCase()}
+                    </div>
+                    <div style={{ border:'1px solid #e9d5ff', borderRadius:8, overflow:'hidden', fontSize:11 }}>
+                      <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                        <thead><tr style={{ background:'#f5f3ff' }}>
+                          {['Serviço','Qtd Total','Lançamentos','Valor Total'].map(h=>(
+                            <th key={h} style={{ padding:'5px 8px', textAlign:'left', fontSize:10, color:'#7c3aed', fontWeight:700, borderBottom:'1px solid #e9d5ff' }}>{h}</th>
+                          ))}
+                        </tr></thead>
+                        <tbody>
+                          {itens.map((g,i)=>(
+                            <tr key={g.descricao} style={{ background:i%2===0?'#fff':'#faf5ff', borderBottom:'1px solid #f3e8ff' }}>
+                              <td style={{ padding:'5px 8px', fontWeight:600 }}>{g.descricao}</td>
+                              <td style={{ padding:'5px 8px', color:'#374151' }}>{g.qtdTotal.toFixed(2)} {g.unidade}</td>
+                              <td style={{ padding:'5px 8px', color:'#6b7280', textAlign:'center' }}>{g.count}x</td>
+                              <td style={{ padding:'5px 8px', fontWeight:700, color:'#7c3aed' }}>R$ {g.valorTotal.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+                {/* Tabela detalhada recolhível */}
+                <details style={{ marginTop:4 }}>
+                  <summary style={{ fontSize:11, color:'#6b7280', cursor:'pointer', userSelect:'none', fontWeight:600 }}>▸ Ver lançamentos detalhados ({registrosProducao.length})</summary>
+                  <div style={{ maxHeight:140, overflowY:'auto', border:'1px solid #e2e8f0', borderRadius:8, marginTop:6, fontSize:11 }}>
+                    <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                      <thead><tr style={{ background:'#f5f3ff' }}>
+                        {['Data','Serviço','Qtd','Valor','Obs'].map(h=>(
+                          <th key={h} style={{ padding:'4px 8px', textAlign:'left', fontSize:10, color:'#6b7280', fontWeight:700, borderBottom:'1px solid #e2e8f0' }}>{h}</th>
+                        ))}
+                      </tr></thead>
+                      <tbody>
+                        {(registrosProducao as any[]).map((r:any,i:number)=>(
+                          <tr key={r.id||i} style={{ background:i%2===0?'#fff':'#faf5ff', borderBottom:'1px solid #f3e8ff' }}>
+                            <td style={{ padding:'4px 8px', fontWeight:600 }}>{r.data?.slice(5).replace('-','/')}</td>
+                            <td style={{ padding:'4px 8px' }}>{r.playbook_itens?.descricao??'—'}</td>
+                            <td style={{ padding:'4px 8px' }}>{r.quantidade} {r.playbook_itens?.unidade??''}</td>
+                            <td style={{ padding:'4px 8px', fontWeight:700, color:'#7c3aed' }}>R$ {Number(r.valor_total||0).toFixed(2)}</td>
+                            <td style={{ padding:'4px 8px', color:'#9ca3af', fontStyle:'italic' }}>{r.observacoes??'—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
               </div>
-              <div style={{ maxHeight:140, overflowY:'auto', border:'1px solid #e2e8f0', borderRadius:8, fontSize:11 }}>
-                <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                  <thead><tr style={{ background:'#f5f3ff' }}>
-                    {['Data','Serviço','Qtd','Total','Obs'].map(h=>(
-                      <th key={h} style={{ padding:'5px 8px', textAlign:'left', fontSize:10, color:'#6b7280', fontWeight:700, borderBottom:'1px solid #e2e8f0' }}>{h}</th>
-                    ))}
-                  </tr></thead>
-                  <tbody>
-                    {registrosProducao.map((r:any,i:number)=>(
-                      <tr key={r.id} style={{ background:i%2===0?'#fff':'#faf5ff' }}>
-                        <td style={{ padding:'4px 8px', fontWeight:600 }}>{r.data?.slice(5).replace('-','/')}</td>
-                        <td style={{ padding:'4px 8px' }}>{(r.playbook_itens as any)?.descricao??'—'}</td>
-                        <td style={{ padding:'4px 8px' }}>{r.quantidade} {(r.playbook_itens as any)?.unidade??''}</td>
-                        <td style={{ padding:'4px 8px', fontWeight:700, color:'#7c3aed' }}>R$ {Number(r.valor_total||0).toFixed(2)}</td>
-                        <td style={{ padding:'4px 8px', color:'#9ca3af', fontStyle:'italic' }}>{r.observacoes??'—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* Descrição */}
           <div style={col}>

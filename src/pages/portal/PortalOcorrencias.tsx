@@ -319,8 +319,8 @@ export default function PortalOcorrencias() {
   }
 
   const INP = (err?: boolean): React.CSSProperties => ({
-    width:'100%', height:44, border:`2px solid ${err?'#fca5a5':'#e5e7eb'}`, borderRadius:8,
-    padding:'0 12px', fontSize:13, boxSizing:'border-box', background:err?'#fff5f5':'#fff',
+    width:'100%', height:42, border:`1.5px solid ${err?'#fca5a5':'#e5e7eb'}`, borderRadius:10,
+    padding:'0 12px', fontSize:14, boxSizing:'border-box', background:err?'#fff5f5':'#fff', outline:'none'
   })
   const SEL = (err?: boolean): React.CSSProperties => ({ ...INP(err), cursor:'pointer' })
   const INPS = INP()

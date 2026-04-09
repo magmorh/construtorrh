@@ -17,19 +17,33 @@ function fmtDiaSemana(d: string): string {
   return dias[data.getDay()]
 }
 function abrirHtmlComoPdf(html: string, titulo: string): void {
-  const iframe = document.createElement('iframe')
-  iframe.style.display = 'none'
-  document.body.appendChild(iframe)
-  const doc = iframe.contentWindow?.document || iframe.contentDocument
-  if (!doc) return
-  (doc as any).open()
-  (doc as any).write(html)
-  (doc as any).close()
-  setTimeout(() => {
-    iframe.contentWindow?.focus()
-    iframe.contentWindow?.print()
-    setTimeout(() => document.body.removeChild(iframe), 1000)
-  }, 500)
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  document.body.appendChild(iframe);
+  const doc = iframe.contentWindow?.document || iframe.contentDocument;
+  if (!doc) return;
+  (doc as any).open();
+  (doc as any).write(html);
+  (doc as any).close();
+  const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  if (isiOS) {
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => document.body.removeChild(iframe), 2000);
+    }, 1000);
+  } else {
+    iframe.onload = () => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => document.body.removeChild(iframe), 1000);
+    };
+  }
 }
 
 
@@ -278,7 +292,7 @@ export default function AbaFolhaPontoNova({
         <select
           value={mesSel}
           onChange={e => setMesSel(e.target.value)}
-          style={{ width:'100%', height:42, borderRadius:10, border:'1.5px solid #d1d5db', padding:'0 12px', fontSize:14, fontWeight:600, color:'#1e3a5f', background:'#fff', outline:'none' }}
+          style={{ width:'100%', height:42, borderRadius:10, border:'1.5px solid #e5e7eb', padding:'0 12px', fontSize:14, fontWeight:600, color:'#1a56a0', background:'#fff', cursor:'pointer', outline:'none' }}
         >
           {opcoesMes().map(o => <option key={o.val} value={o.val}>{o.label}</option>)}
         </select>
@@ -324,7 +338,7 @@ export default function AbaFolhaPontoNova({
               Registros diários não disponíveis
             </div>
             <div style={{ fontSize:12, color:'#6b7280', marginBottom: lancsMes.length > 0 ? 14 : 0 }}>
-              Nenhum registro lançado para <strong>{fmtComp(mesSel)}</strong>
+              Nenhum registro liberado para <strong>{fmtComp(mesSel)}</strong>
             </div>
             {lancsMes.length > 0 && (
               <div style={{ background:'#eff6ff', borderRadius:10, padding:'12px', border:'1px solid #bfdbfe', textAlign:'left' }}>
@@ -565,8 +579,7 @@ export default function AbaFolhaPontoNova({
           </button>
         </div>
       )}
-    </div>
-
+ 
       {/* ── Modal de Preview ── */}
       {showPreview && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.7)', zIndex:100, display:'flex', flexDirection:'column' }}>
@@ -576,7 +589,6 @@ export default function AbaFolhaPontoNova({
           </div>
           <div style={{ flex:1, overflow:'auto', padding:10, background:'#94a3b8' }}>
             <div style={{ background:'#fff', width:'100%', maxWidth:800, margin:'0 auto', padding:'20px', borderRadius:4, boxShadow:'0 10px 25px rgba(0,0,0,.2)', minHeight:'100%' }}>
-               {/* Usando o mesmo layout do PDF aqui para o preview */}
                <div dangerouslySetInnerHTML={{ __html: `
                  <div style="font-family:sans-serif; color:#333;">
                    <div style="background:#1e3a5f; color:#fff; padding:15px; border-radius:6px; margin-bottom:15px;">
@@ -633,5 +645,6 @@ export default function AbaFolhaPontoNova({
         </div>
       )}
 
+    </div>
   )
 }

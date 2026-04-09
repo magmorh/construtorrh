@@ -37,10 +37,15 @@ function F({ label, required, half, children }: { label: string; required?: bool
 }
 
 const I: React.CSSProperties = {
-  width: '100%', height: 40, border: '1px solid #d1d5db', borderRadius: 7,
-  padding: '0 10px', fontSize: 13, boxSizing: 'border-box', background: '#fff', color: '#111',
+  width: '100%', height: 42, border: '1.5px solid #e5e7eb', borderRadius: 10,
+  padding: '0 12px', fontSize: 14, boxSizing: 'border-box', background: '#fff', color: '#111', outline: 'none'
 }
-const S: React.CSSProperties = { ...I, cursor: 'pointer' }
+const S: React.CSSProperties = {
+  ...I,
+  cursor: 'pointer',
+  fontWeight: 600,
+  color: '#1a56a0',
+}
 
 export default function PortalSolicitacoes() {
   const nav     = useNavigate()

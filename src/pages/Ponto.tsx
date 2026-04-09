@@ -2134,9 +2134,9 @@ export default function Ponto() {
                           <tr style={{background:'#1e3a5f',color:'#fff',position:'sticky',top:0,zIndex:2}}>
                             <th style={{...TH,width:32}}>Dia</th><th style={{...TH,width:38}}>Data</th>
                             <th style={{...TH,width:32}}>✓</th><th style={{...TH,width:26}}>✗</th>
-                            <th style={{...TH,minWidth:46}}>Ent.</th><th style={{...TH,minWidth:46}}>S.Alm.</th><th style={{...TH,minWidth:46}}>R.Alm.</th><th style={{...TH,minWidth:46}}>Saída</th>
-                            <th style={{...TH,background:'#2d5a9e',minWidth:46}} title="Entrada hora extra">H.E Ent.</th>
-                            <th style={{...TH,background:'#2d5a9e',minWidth:46}} title="Saída hora extra">H.E Saí.</th>
+                            <th style={{...TH,minWidth:64}}>Ent.</th><th style={{...TH,minWidth:64}}>S.Alm.</th><th style={{...TH,minWidth:64}}>R.Alm.</th><th style={{...TH,minWidth:64}}>Saída</th>
+                            <th style={{...TH,background:'#2d5a9e',minWidth:64}} title="Entrada hora extra">H.E Ent.</th>
+                            <th style={{...TH,background:'#2d5a9e',minWidth:64}} title="Saída hora extra">H.E Saí.</th>
                             <th style={{...TH,background:'#1a4a1a',width:42}}>Norm</th><th style={{...TH,background:'#2d5a1a',width:38}}>Ext</th><th style={{...TH,background:'#0f3320',width:42}}>Total</th>
                             <th style={{...TH,background:'#4a1a7a',width:72}}>Valor</th>
                             <th style={{...TH,width:60}}>Obs.</th>
@@ -2885,5 +2885,5 @@ const LBL:React.CSSProperties={display:'block',fontSize:12,fontWeight:600,margin
 const SEL:React.CSSProperties={width:'100%',padding:'8px 10px',fontSize:13,border:'1px solid var(--border)',borderRadius:6,background:'var(--background)',color:'var(--foreground)'}
 
 function TI({value,onChange,disabled}:{value:string;onChange:(v:string)=>void;disabled:boolean}){
-  return<input type="time" value={value} onChange={e=>onChange(e.target.value)} disabled={disabled} style={{width:52,padding:'2px 2px',fontSize:10,border:'1px solid var(--border)',borderRadius:4,background:disabled?'transparent':'var(--background)',color:disabled?'#9ca3af':'var(--foreground)',fontFamily:'monospace',textAlign:'center',cursor:disabled?'not-allowed':'text',outline:'none'}}/>
+  return<input type="time" value={value} onChange={e=>onChange(e.target.value)} disabled={disabled} style={{width:70,padding:'3px 4px',fontSize:12,border:'1px solid var(--border)',borderRadius:4,background:disabled?'transparent':'var(--background)',color:disabled?'#9ca3af':'var(--foreground)',fontFamily:'monospace',textAlign:'center',cursor:disabled?'not-allowed':'text',outline:'none'}}/>
 }

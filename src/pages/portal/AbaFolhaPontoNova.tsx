@@ -87,17 +87,22 @@ export default function AbaFolhaPontoNova({
     setLoading(true)
     setErro(null)
     try {
-      const { data: lancsRef } = await supabase
+      // Buscar lançamento do mês - sem filtro de status para garantir encontrar
+      const { data: lancsRef, error: eLanc } = await supabase
         .from('ponto_lancamentos')
         .select('id,data_inicio,data_fim,status')
         .eq('colaborador_id', sessao.colaborador_id)
         .eq('mes_referencia', mes)
         .order('created_at', { ascending: false })
         .limit(1)
+      
+      if (eLanc) console.warn('[AbaFolha] ponto_lancamentos error:', eLanc.message)
+      console.log('[AbaFolha] mes:', mes, '| lançamento:', JSON.stringify(lancsRef?.[0] ?? null))
 
       const lancId = lancsRef?.[0]?.id ?? null
       const inicio = lancsRef?.[0]?.data_inicio ?? mes + '-01'
       const fim    = lancsRef?.[0]?.data_fim    ?? mes + '-31'
+      console.log('[AbaFolha] periodo busca:', inicio, '->', fim)
       // Guardar período real para exibir ao usuário
       if (lancsRef?.[0]?.data_inicio && lancsRef?.[0]?.data_fim) {
         setPeriodoReal({ inicio: lancsRef[0].data_inicio, fim: lancsRef[0].data_fim })

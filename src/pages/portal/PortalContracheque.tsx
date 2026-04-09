@@ -918,8 +918,8 @@ function AbaContracheque({ sessao, holerites, lancamentos, colab, empresa, aceit
 
 
 // ─── ABA FOLHA DE PONTO (delegado para AbaFolhaPontoNova) ─────────────────
-function AbaFolhaPonto({ sessao, dataAdmissao, lancamentos }: { sessao: any; dataAdmissao: string | null; lancamentos: any[] }) {
-  return <AbaFolhaPontoNova sessao={sessao} dataAdmissao={dataAdmissao} lancamentos={lancamentos} />
+function AbaFolhaPonto({ sessao, dataAdmissao, lancamentos, colab, empresa }: { sessao: any; dataAdmissao: string | null; lancamentos: any[]; colab: any; empresa: any }) {
+  return <AbaFolhaPontoNova sessao={sessao} dataAdmissao={dataAdmissao} lancamentos={lancamentos} colab={colab} empresa={empresa} />
 }
 
 // ─── ABA MEUS DOCUMENTOS ─────────────────────────────────────────────────────
@@ -1433,7 +1433,7 @@ export default function PortalContracheque() {
       {aba==='contracheque' && (
         <AbaContracheque sessao={sessao} holerites={holerites} lancamentos={lancamentos} colab={colab} empresa={empresa} aceites={aceites} onSelecionar={abrirHolerite}/>
       )}
-      {aba==='ponto' && <AbaFolhaPonto sessao={sessao} dataAdmissao={colab?.data_admissao ?? null} lancamentos={lancamentos}/>}
+      {aba==='ponto' && <AbaFolhaPonto sessao={sessao} dataAdmissao={colab?.data_admissao ?? null} lancamentos={lancamentos} colab={colab} empresa={empresa}/>}
       {aba==='documentos' && <AbaMeusDocumentos sessao={sessao}/>}
 
       {/* ══ MODAL ACEITE DIGITAL ══ */}

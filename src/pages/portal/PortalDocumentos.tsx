@@ -24,18 +24,6 @@ const I: React.CSSProperties = { width:'100%', height:40, border:'1px solid #d1d
 const S: React.CSSProperties = { ...I, cursor:'pointer' }
 
 
-// Converte URL pública do Storage em link seguro via DocViewer autenticado
-// Só redireciona URLs reais do Supabase Storage (não base64, não URLs externas)
-function secureDocUrl(url: string | null | undefined): string {
-  if (!url || url === '#') return '#'
-  if (url.startsWith('data:')) return url
-  const isSupabaseStorage = url.includes('.supabase.co/storage/') || url.includes('.supabase_')
-  if (isSupabaseStorage) {
-    return `${window.location.origin}${window.location.pathname}#/doc-viewer?url=${encodeURIComponent(url)}`
-  }
-  return url
-}
-
 const BUCKET = 'portal-documentos'
 // Compressão: máximo 1600px de largura, qualidade 82%
 const MAX_PX = 1600
@@ -421,12 +409,22 @@ export default function PortalDocumentos() {
                     {b.label}
                   </span>
                   {d.arquivo_url && (
-                    <a href={secureDocUrl(d.arquivo_url)} target="_blank" rel="noopener noreferrer" style={{
-                      fontSize:11, color:'#1e3a5f', fontWeight:600, textDecoration:'none',
-                      display:'flex', alignItems:'center', gap:3,
-                    }}>
+                    <button
+                      onClick={() => {
+                        const url = d.arquivo_url!
+                        // base64 → abre em nova aba diretamente
+                        if (url.startsWith('data:')) {
+                          const w = window.open()
+                          if (w) { w.document.write(`<img src="${url}" style="max-width:100%"><br><a href="${url}" download="${d.arquivo_nome||'documento'}">Baixar</a>`) }
+                          return
+                        }
+                        // URL Storage / externa → tenta abrir
+                        window.open(url, '_blank')
+                      }}
+                      style={{ fontSize:11, color:'#1e3a5f', fontWeight:600, background:'none', border:'none', cursor:'pointer', padding:0, display:'flex', alignItems:'center', gap:3 }}
+                    >
                       <Download size={11}/> Ver
-                    </a>
+                    </button>
                   )}
                 </div>
               </div>

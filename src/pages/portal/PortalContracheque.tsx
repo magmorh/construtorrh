@@ -1045,15 +1045,29 @@ function AbaMeusDocumentos({ sessao }: { sessao: Sessao }) {
                         onClick={async () => {
                           const url = doc.url || doc.arquivo_url
                           if (!url) return
+                          const nomeArq = doc.nome || doc.titulo || 'documento'
                           try {
+                            // Se for base64, criar link direto sem fetch
+                            if (url.startsWith('data:')) {
+                              const a = document.createElement('a')
+                              a.href = url
+                              a.download = nomeArq
+                              document.body.appendChild(a); a.click(); document.body.removeChild(a)
+                              return
+                            }
+                            // URL remota: tenta fetch com blob
                             const resp = await fetch(url)
+                            if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
                             const blob = await resp.blob()
+                            // Verifica se blob tem conteúdo
+                            if (blob.size === 0) throw new Error('Arquivo vazio')
                             const a = document.createElement('a')
                             a.href = URL.createObjectURL(blob)
-                            a.download = doc.nome || doc.titulo || 'documento'
-                            a.click()
-                            URL.revokeObjectURL(a.href)
+                            a.download = nomeArq
+                            document.body.appendChild(a); a.click(); document.body.removeChild(a)
+                            setTimeout(() => URL.revokeObjectURL(a.href), 5000)
                           } catch {
+                            // Fallback: abre em nova aba
                             window.open(url, '_blank')
                           }
                         }}

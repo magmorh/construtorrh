@@ -341,7 +341,32 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
 
       const { error } = await supabase.from('contracheques').insert(payload)
       if (error) throw error
-      toast.success(publicar ? '✅ Holerite publicado!' : 'Rascunho salvo.')
+
+      // ── Ao publicar: copiar registros de ponto para portal_ponto_diario ──
+      // Isso garante que o colaborador veja os horários no portal sem depender de RLS de registro_ponto
+      if (publicar && registrosPonto.length > 0) {
+        const pontoRows = registrosPonto.map((r: any) => ({
+          colaborador_id:   colaborador.id,
+          data:             r.data,
+          hora_entrada:     r.hora_entrada ?? null,
+          hora_saida:       r.hora_saida   ?? null,
+          horas_trabalhadas:Number(r.horas_trabalhadas) || 0,
+          horas_extra:      Number(r.horas_extra)        || 0,
+          horas_falta:      Number(r.horas_falta)        || 0,
+          status:           r.status ?? (r.hora_entrada ? 'presente' : null),
+          observacoes:      r.observacoes ?? null,
+          lancamento_id:    lancamentoId ?? null,
+        }))
+        // upsert por colaborador_id + data para não duplicar
+        const { error: ePonto } = await supabase
+          .from('portal_ponto_diario')
+          .upsert(pontoRows, { onConflict: 'colaborador_id,data' })
+        if (ePonto) console.warn('Aviso: não foi possível copiar ponto para portal:', ePonto.message)
+        else toast.success(`✅ Holerite publicado com ${pontoRows.length} registros de ponto!`)
+      } else {
+        toast.success(publicar ? '✅ Holerite publicado!' : 'Rascunho salvo.')
+      }
+
       onSaved(); onClose()
     } catch (e: unknown) {
       toast.error('Erro: ' + (e instanceof Error ? e.message : String(e)))

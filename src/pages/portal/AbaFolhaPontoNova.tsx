@@ -1,6 +1,37 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Loader2, CalendarDays, Download } from 'lucide-react'
+import { Loader2, CalendarDays, Download, Eye } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+
+function fmtR(v: number | null | undefined): string {
+  if (v === null || v === undefined) return 'R$ 0,00'
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+}
+function fmtData(d: string | null) {
+  if (!d) return '—'
+  const [y, m, dd] = d.split('-')
+  return `${dd}/${m}/${y}`
+}
+function fmtDiaSemana(d: string): string {
+  const data = new Date(d + 'T12:00:00')
+  const dias = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+  return dias[data.getDay()]
+}
+function abrirHtmlComoPdf(html: string, titulo: string): void {
+  const iframe = document.createElement('iframe')
+  iframe.style.display = 'none'
+  document.body.appendChild(iframe)
+  const doc = iframe.contentWindow?.document || iframe.contentDocument
+  if (!doc) return
+  (doc as any).open()
+  (doc as any).write(html)
+  (doc as any).close()
+  setTimeout(() => {
+    iframe.contentWindow?.focus()
+    iframe.contentWindow?.print()
+    setTimeout(() => document.body.removeChild(iframe), 1000)
+  }, 500)
+}
+
 
 interface Sessao { colaborador_id: string; nome: string; chapa?: string }
 interface Lancamento { id: string; mes_referencia: string; data_inicio: string; data_fim: string; status: string; snap_horas_normais?: number; snap_horas_extras?: number; snap_valor_producao?: number; snap_liquido?: number }
@@ -28,6 +59,7 @@ export default function AbaFolhaPontoNova({
   const [producoes, setProducoes] = useState<any[]>([])
   const [loading, setLoading]   = useState(false)
   const [erro, setErro]         = useState<string|null>(null)
+  const [showPreview, setShowPreview] = useState(false)
 
   // Montar opções de mês a partir da admissão
   const opcoesMes = useCallback((): {val:string; label:string}[] => {
@@ -127,6 +159,112 @@ export default function AbaFolhaPontoNova({
     if (s === 'folga')             return { label:'Folga',      bg:'#dbeafe', cor:'#1d4ed8' }
     if (s === 'meio_periodo')      return { label:'Meio Per.',  bg:'#fef3c7', cor:'#d97706' }
     return { label:'Presente', bg:'#dcfce7', cor:'#16a34a' }
+  }
+
+
+  function gerarPdfPonto() {
+    const mesLabel = fmtComp(mesSel)
+    const fh = (hh: string|null) => hh ? hh.slice(0,5) : '—'
+    const temRegistros = registros.length > 0
+    const tbodyRows = temRegistros ? registros.map((reg, i) => {
+      const statusPdf = reg.status ?? (reg.hora_entrada ? 'presente' : null)
+      const isFalta = ['falta','falta_justificada'].includes((statusPdf??'').toLowerCase())
+      const cor = isFalta ? '#fee2e2' : (i%2===0 ? '#fff' : '#f8fafc')
+      const statusLabel = isFalta ? 'FALTA' : (reg.status ?? (reg.hora_entrada ? 'Presente' : '—'))
+      const statusCor = isFalta ? '#dc2626' : '#374151'
+      const [y,m,d]=reg.data.split('-')
+      return `<tr style="background:${cor}">
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px">${d}/${m}/${y}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;color:#16a34a;font-weight:600">${fh(reg.hora_entrada)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;color:#6b7280">${isFalta ? '—' : '12:00'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;color:#6b7280">${isFalta ? '—' : '13:00'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;color:#dc2626;font-weight:600">${fh(reg.hora_saida)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;font-weight:700;color:#1e3a5f">${reg.horas_trabalhadas ? Number(reg.horas_trabalhadas).toFixed(2)+'h' : '0,00h'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;color:${(Number(reg.horas_extra)||0)>0?'#92400e':'#6b7280'}">${reg.horas_extra ? Number(reg.horas_extra).toFixed(2)+'h' : '0,00h'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;font-weight:700;color:${statusCor}">${statusLabel}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;color:#6b7280">${reg.observacoes??'—'}</td>
+      </tr>`
+    }).join('') : ''
+    
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><title>Folha de Ponto — ${sessao.nome} — ${mesLabel}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box }
+  body { font-family:'Segoe UI',Arial,sans-serif; font-size:12px; background:#fff }
+  @page { size:A4 landscape; margin:15mm 10mm }
+  @media print { body { margin:0 } }
+</style>
+</head>
+<body>
+  <div style="background:#1e3a5f;padding:14px 16px;margin-bottom:12px;border-radius:6px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <div style="color:#fff;font-size:16px;font-weight:800">${sessao.nome.toUpperCase()}</div>
+        <div style="display:flex;gap:16px;margin-top:5px">
+          <span style="background:rgba(255,255,255,.2);color:#fff;padding:2px 8px;border-radius:4px;font-size:11px">Chapa: ${sessao.chapa||'—'}</span>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="color:#fff;font-size:14px;font-weight:700">Folha de Ponto</div>
+        <div style="color:rgba(255,255,255,.7);font-size:12px">${mesLabel}</div>
+      </div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">
+    <div style="background:#dcfce7;border-radius:6px;padding:8px 12px;text-align:center">
+      <div style="font-size:18px;font-weight:800;color:#16a34a">${totalPresentes}</div>
+      <div style="font-size:10px;color:#16a34a;font-weight:600">Presenças</div>
+    </div>
+    <div style="background:#fee2e2;border-radius:6px;padding:8px 12px;text-align:center">
+      <div style="font-size:18px;font-weight:800;color:#dc2626">${totalFaltas}</div>
+      <div style="font-size:10px;color:#dc2626;font-weight:600">Faltas</div>
+    </div>
+    <div style="background:#dbeafe;border-radius:6px;padding:8px 12px;text-align:center">
+      <div style="font-size:18px;font-weight:800;color:#1d4ed8">${totalHoras.toFixed(0)}h</div>
+      <div style="font-size:10px;color:#1d4ed8;font-weight:600">H. Trabalhadas</div>
+    </div>
+    <div style="background:#fef9c3;border-radius:6px;padding:8px 12px;text-align:center">
+      <div style="font-size:18px;font-weight:800;color:#92400e">${totalExtras.toFixed(0)}h</div>
+      <div style="font-size:10px;color:#92400e;font-weight:600">H. Extras</div>
+    </div>
+  </div>
+  ${temRegistros ? `
+  <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden">
+    <thead>
+      <tr style="background:#1e3a5f">
+        ${['Data','Entrada','Saída Alm.','Retorno','Saída','Hs Trab.','Hs Extra','Status','Justificativa'].map(hh=>
+          `<th style="padding:8px 8px;color:#fff;font-size:10px;text-align:center;font-weight:700;white-space:nowrap">${hh}</th>`
+        ).join('')}
+      </tr>
+    </thead>
+    <tbody>${tbodyRows}</tbody>
+    <tfoot>
+      <tr style="background:#1e3a5f">
+        <td colspan="5" style="padding:8px 8px;color:#fff;font-size:11px;font-weight:700">TOTAIS — ${totalPresentes} dias</td>
+        <td style="padding:8px 8px;color:#fff;font-size:11px;font-weight:700;text-align:center">${totalHoras.toFixed(2)}h</td>
+        <td style="padding:8px 8px;color:#fbbf24;font-size:11px;font-weight:700;text-align:center">${totalExtras.toFixed(2)}h</td>
+        <td style="padding:8px 8px;color:#fca5a5;font-size:11px;font-weight:700;text-align:center">${totalFaltas} falta(s)</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>` : `
+  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px 16px;margin-bottom:14px;text-align:center">
+    Nenhum registro diário disponível para este período.
+  </div>`}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:30px;padding-top:12px">
+    <div style="border-top:1.5px solid #1e3a5f;padding-top:6px">
+      <div style="font-size:11px;color:#374151;font-weight:600">${sessao.nome.toUpperCase()}</div>
+      <div style="font-size:10px;color:#6b7280;margin-top:2px">Colaborador(a) — Assinatura</div>
+    </div>
+    <div style="border-top:1.5px solid #1e3a5f;padding-top:6px">
+      <div style="font-size:11px;color:#374151;font-weight:600">___________________________</div>
+      <div style="font-size:10px;color:#6b7280;margin-top:2px">Responsável RH / Carimbo</div>
+    </div>
+  </div>
+<script>window.onload=()=>{ window.print() }</script>
+</body></html>`
+    abrirHtmlComoPdf(html, `Folha de Ponto — ${sessao.nome} — ${mesLabel}`)
   }
 
   return (
@@ -241,7 +379,113 @@ export default function AbaFolhaPontoNova({
                 const htrab    = Number(reg.horas_trabalhadas) || 0
                 const hext     = Number(reg.horas_extra) || 0
                 const [yy,mm,dd] = (reg.data??'').split('-')
-                return (
+              
+  function gerarPdfPonto() {
+    const mesLabel = fmtComp(mesSel)
+    const fh = (hh: string|null) => hh ? hh.slice(0,5) : '—'
+    const temRegistros = registros.length > 0
+    const tbodyRows = temRegistros ? registros.map((reg, i) => {
+      const statusPdf = reg.status ?? (reg.hora_entrada ? 'presente' : null)
+      const isFalta = ['falta','falta_justificada'].includes((statusPdf??'').toLowerCase())
+      const cor = isFalta ? '#fee2e2' : (i%2===0 ? '#fff' : '#f8fafc')
+      const statusLabel = isFalta ? 'FALTA' : (reg.status ?? (reg.hora_entrada ? 'Presente' : '—'))
+      const statusCor = isFalta ? '#dc2626' : '#374151'
+      const [y,m,d]=reg.data.split('-')
+      return `<tr style="background:${cor}">
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px">${d}/${m}/${y}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;color:#16a34a;font-weight:600">${fh(reg.hora_entrada)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;color:#6b7280">${isFalta ? '—' : '12:00'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;color:#6b7280">${isFalta ? '—' : '13:00'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;color:#dc2626;font-weight:600">${fh(reg.hora_saida)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;font-weight:700;color:#1e3a5f">${reg.horas_trabalhadas ? Number(reg.horas_trabalhadas).toFixed(2)+'h' : '0,00h'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;color:${(Number(reg.horas_extra)||0)>0?'#92400e':'#6b7280'}">${reg.horas_extra ? Number(reg.horas_extra).toFixed(2)+'h' : '0,00h'}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;text-align:center;font-weight:700;color:${statusCor}">${statusLabel}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:11px;color:#6b7280">${reg.observacoes??'—'}</td>
+      </tr>`
+    }).join('') : ''
+    
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><title>Folha de Ponto — ${sessao.nome} — ${mesLabel}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box }
+  body { font-family:'Segoe UI',Arial,sans-serif; font-size:12px; background:#fff }
+  @page { size:A4 landscape; margin:15mm 10mm }
+  @media print { body { margin:0 } }
+</style>
+</head>
+<body>
+  <div style="background:#1e3a5f;padding:14px 16px;margin-bottom:12px;border-radius:6px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <div style="color:#fff;font-size:16px;font-weight:800">${sessao.nome.toUpperCase()}</div>
+        <div style="display:flex;gap:16px;margin-top:5px">
+          <span style="background:rgba(255,255,255,.2);color:#fff;padding:2px 8px;border-radius:4px;font-size:11px">Chapa: ${sessao.chapa||'—'}</span>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="color:#fff;font-size:14px;font-weight:700">Folha de Ponto</div>
+        <div style="color:rgba(255,255,255,.7);font-size:12px">${mesLabel}</div>
+      </div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">
+    <div style="background:#dcfce7;border-radius:6px;padding:8px 12px;text-align:center">
+      <div style="font-size:18px;font-weight:800;color:#16a34a">${totalPresentes}</div>
+      <div style="font-size:10px;color:#16a34a;font-weight:600">Presenças</div>
+    </div>
+    <div style="background:#fee2e2;border-radius:6px;padding:8px 12px;text-align:center">
+      <div style="font-size:18px;font-weight:800;color:#dc2626">${totalFaltas}</div>
+      <div style="font-size:10px;color:#dc2626;font-weight:600">Faltas</div>
+    </div>
+    <div style="background:#dbeafe;border-radius:6px;padding:8px 12px;text-align:center">
+      <div style="font-size:18px;font-weight:800;color:#1d4ed8">${totalHoras.toFixed(0)}h</div>
+      <div style="font-size:10px;color:#1d4ed8;font-weight:600">H. Trabalhadas</div>
+    </div>
+    <div style="background:#fef9c3;border-radius:6px;padding:8px 12px;text-align:center">
+      <div style="font-size:18px;font-weight:800;color:#92400e">${totalExtras.toFixed(0)}h</div>
+      <div style="font-size:10px;color:#92400e;font-weight:600">H. Extras</div>
+    </div>
+  </div>
+  ${temRegistros ? `
+  <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden">
+    <thead>
+      <tr style="background:#1e3a5f">
+        ${['Data','Entrada','Saída Alm.','Retorno','Saída','Hs Trab.','Hs Extra','Status','Justificativa'].map(hh=>
+          `<th style="padding:8px 8px;color:#fff;font-size:10px;text-align:center;font-weight:700;white-space:nowrap">${hh}</th>`
+        ).join('')}
+      </tr>
+    </thead>
+    <tbody>${tbodyRows}</tbody>
+    <tfoot>
+      <tr style="background:#1e3a5f">
+        <td colspan="5" style="padding:8px 8px;color:#fff;font-size:11px;font-weight:700">TOTAIS — ${totalPresentes} dias</td>
+        <td style="padding:8px 8px;color:#fff;font-size:11px;font-weight:700;text-align:center">${totalHoras.toFixed(2)}h</td>
+        <td style="padding:8px 8px;color:#fbbf24;font-size:11px;font-weight:700;text-align:center">${totalExtras.toFixed(2)}h</td>
+        <td style="padding:8px 8px;color:#fca5a5;font-size:11px;font-weight:700;text-align:center">${totalFaltas} falta(s)</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>` : `
+  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px 16px;margin-bottom:14px;text-align:center">
+    Nenhum registro diário disponível para este período.
+  </div>`}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:30px;padding-top:12px">
+    <div style="border-top:1.5px solid #1e3a5f;padding-top:6px">
+      <div style="font-size:11px;color:#374151;font-weight:600">${sessao.nome.toUpperCase()}</div>
+      <div style="font-size:10px;color:#6b7280;margin-top:2px">Colaborador(a) — Assinatura</div>
+    </div>
+    <div style="border-top:1.5px solid #1e3a5f;padding-top:6px">
+      <div style="font-size:11px;color:#374151;font-weight:600">___________________________</div>
+      <div style="font-size:10px;color:#6b7280;margin-top:2px">Responsável RH / Carimbo</div>
+    </div>
+  </div>
+<script>window.onload=()=>{ window.print() }</script>
+</body></html>`
+    abrirHtmlComoPdf(html, `Folha de Ponto — ${sessao.nome} — ${mesLabel}`)
+  }
+
+  return (
                   <div
                     key={reg.id ?? i}
                     style={{ display:'grid', gridTemplateColumns:'90px 52px 58px 54px 52px 54px 54px 1fr', padding:'7px 8px', borderBottom:'1px solid #f1f5f9', background: isFalta ? '#fff5f5' : i%2===0 ? '#fff' : '#f9fafb', alignItems:'center' }}
@@ -304,16 +548,90 @@ export default function AbaFolhaPontoNova({
 
       {/* ── Botão gerar PDF ── */}
       {!loading && (
-        <div style={{ padding:'0 12px', marginTop:8 }}>
+        <div style={{ padding:'0 12px', marginTop:8, display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
           <button
-            onClick={() => alert('PDF: em desenvolvimento')}
-            style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'12px', borderRadius:10, border:'none', background:'#1e3a5f', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}
+            onClick={() => setShowPreview(true)}
+            style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'12px', borderRadius:10, border:'1.5px solid #1e3a5f', background:'#fff', color:'#1e3a5f', fontSize:13, fontWeight:700, cursor:'pointer' }}
+          >
+            <Eye size={15} />
+            Visualizar
+          </button>
+          <button
+            onClick={gerarPdfPonto}
+            style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'12px', borderRadius:10, border:'none', background:'#1e3a5f', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}
           >
             <Download size={15} />
-            Baixar Folha de Ponto (PDF)
+            Baixar PDF
           </button>
         </div>
       )}
     </div>
+
+      {/* ── Modal de Preview ── */}
+      {showPreview && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.7)', zIndex:100, display:'flex', flexDirection:'column' }}>
+          <div style={{ background:'#fff', padding:'12px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid #e5e7eb' }}>
+            <span style={{ fontWeight:800, color:'#1e3a5f' }}>Visualizar Folha</span>
+            <button onClick={() => setShowPreview(false)} style={{ background:'#f3f4f6', border:'none', borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700 }}>Fechar</button>
+          </div>
+          <div style={{ flex:1, overflow:'auto', padding:10, background:'#94a3b8' }}>
+            <div style={{ background:'#fff', width:'100%', maxWidth:800, margin:'0 auto', padding:'20px', borderRadius:4, boxShadow:'0 10px 25px rgba(0,0,0,.2)', minHeight:'100%' }}>
+               {/* Usando o mesmo layout do PDF aqui para o preview */}
+               <div dangerouslySetInnerHTML={{ __html: `
+                 <div style="font-family:sans-serif; color:#333;">
+                   <div style="background:#1e3a5f; color:#fff; padding:15px; border-radius:6px; margin-bottom:15px;">
+                     <div style="font-weight:bold; font-size:16px;">${sessao.nome.toUpperCase()}</div>
+                     <div style="font-size:12px; margin-top:4px;">Folha de Ponto · ${fmtComp(mesSel)}</div>
+                   </div>
+                   <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:15px;">
+                     <div style="background:#dcfce7; padding:10px; border-radius:6px; text-align:center;">
+                       <div style="font-weight:bold; font-size:18px; color:#16a34a;">${totalPresentes}</div>
+                       <div style="font-size:10px; color:#16a34a;">Presenças</div>
+                     </div>
+                     <div style="background:#fee2e2; padding:10px; border-radius:6px; text-align:center;">
+                       <div style="font-weight:bold; font-size:18px; color:#dc2626;">${totalFaltas}</div>
+                       <div style="font-size:10px; color:#dc2626;">Faltas</div>
+                     </div>
+                     <div style="background:#dbeafe; padding:10px; border-radius:6px; text-align:center;">
+                       <div style="font-weight:bold; font-size:18px; color:#1d4ed8;">${totalHoras.toFixed(0)}h</div>
+                       <div style="font-size:10px; color:#1d4ed8;">Trabalhadas</div>
+                     </div>
+                     <div style="background:#fef9c3; padding:10px; border-radius:6px; text-align:center;">
+                       <div style="font-weight:bold; font-size:18px; color:#92400e;">${totalExtras.toFixed(0)}h</div>
+                       <div style="font-size:10px; color:#92400e;">Extras</div>
+                     </div>
+                   </div>
+                   <table style="width:100%; border-collapse:collapse; font-size:10px; border:1px solid #eee;">
+                     <thead>
+                       <tr style="background:#f8fafc;">
+                         <th style="padding:6px; border:1px solid #eee; text-align:left;">Data</th>
+                         <th style="padding:6px; border:1px solid #eee; text-align:center;">Entrada</th>
+                         <th style="padding:6px; border:1px solid #eee; text-align:center;">Saída</th>
+                         <th style="padding:6px; border:1px solid #eee; text-align:center;">Horas</th>
+                         <th style="padding:6px; border:1px solid #eee; text-align:center;">Status</th>
+                       </tr>
+                     </thead>
+                     <tbody>
+                       ${registros.map(r => `
+                         <tr>
+                           <td style="padding:6px; border:1px solid #eee;">${fmtData(r.data)}</td>
+                           <td style="padding:6px; border:1px solid #eee; text-align:center;">${fmtHora(r.hora_entrada)}</td>
+                           <td style="padding:6px; border:1px solid #eee; text-align:center;">${fmtHora(r.hora_saida)}</td>
+                           <td style="padding:6px; border:1px solid #eee; text-align:center; font-weight:bold;">${(r.horas_trabalhadas||0).toFixed(2)}h</td>
+                           <td style="padding:6px; border:1px solid #eee; text-align:center;">${r.status||'Presente'}</td>
+                         </tr>
+                       `).join('')}
+                     </tbody>
+                   </table>
+                 </div>
+               ` }} />
+            </div>
+          </div>
+          <div style={{ padding:'12px 16px', background:'#fff', borderTop:'1px solid #e5e7eb' }}>
+            <button onClick={gerarPdfPonto} style={{ width:'100%', padding:'12px', borderRadius:10, border:'none', background:'#1e3a5f', color:'#fff', fontWeight:700 }}>Imprimir / Baixar PDF</button>
+          </div>
+        </div>
+      )}
+
   )
 }

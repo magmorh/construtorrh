@@ -1218,94 +1218,83 @@ function AbaFolhaPonto({ sessao, dataAdmissao, lancamentos }: { sessao: Sessao; 
           </div>
         ) : (
           <>
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              {registros.map(reg=>{
+            {/* Tabela estilo desktop no estilo da captura */}
+            <div style={{ background:'#fff', borderRadius:12, overflow:'hidden', border:'1px solid #e2e8f0', boxShadow:'0 2px 8px rgba(0,0,0,.06)', marginBottom:14 }}>
+              <div style={{ padding:'8px 14px', fontSize:11, color:'#6b7280', fontWeight:600, borderBottom:'1px solid #e5e7eb' }}>
+                {registros.length} registro(s) encontrado(s)
+              </div>
+              {/* Header */}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr .8fr .8fr .8fr .8fr .7fr .7fr .9fr', background:'#1e3a5f', padding:'8px 6px', gap:1 }}>
+                {['DATA','ENTRADA','S.ALMOÇO','RETORNO','SAÍDA','HS TRAB.','HS EXTRA','STATUS'].map(h=>(
+                  <div key={h} style={{ fontSize:9, fontWeight:700, color:'#fff', textAlign:'center', letterSpacing:'.04em' }}>{h}</div>
+                ))}
+              </div>
+              {/* Linhas */}
+              {registros.map((reg,i)=>{
                 const statusEf = reg.status ?? (reg.hora_entrada ? 'presente' : null)
-                const badge   = badgeStatus(statusEf, reg.hora_entrada)
-                const isFalta = ['falta','falta_justificada'].includes((statusEf??'').toLowerCase())
-                const htrab   = reg.horas_trabalhadas ?? 0
-                const hext    = reg.horas_extra ?? 0
+                const isFalta  = ['falta','falta_justificada'].includes((statusEf??'').toLowerCase())
+                const htrab    = reg.horas_trabalhadas ?? 0
+                const hext     = reg.horas_extra ?? 0
+                const [yy,mm,dd] = reg.data.split('-')
                 return (
-                  <div key={reg.id} style={{ background:'#fff', borderRadius:12, border:`1px solid ${badge.border}`, overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,.04)' }}>
-                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 14px', borderBottom:isFalta?'none':`1px solid #f3f4f6`, background:badge.bg+'40' }}>
-                      <span style={{ fontSize:13, fontWeight:700, color:'#111827' }}>{badge.emoji} {fmtDiaSemana(reg.data)}</span>
-                      <span style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:20, color:badge.cor, background:badge.bg, border:`1px solid ${badge.border}` }}>{badge.texto}</span>
+                  <div key={reg.id} style={{ display:'grid', gridTemplateColumns:'1fr .8fr .8fr .8fr .8fr .7fr .7fr .9fr', padding:'7px 6px', borderBottom:'1px solid #f1f5f9', background:isFalta?'#fff1f2':i%2===0?'#fff':'#f8fafc', gap:1, alignItems:'center' }}>
+                    <div style={{ fontSize:11, color:'#111827', fontWeight:600 }}>{dd}/{mm}/{yy}</div>
+                    <div style={{ fontSize:11, color:'#374151', textAlign:'center' }}>{fmtHora(reg.hora_entrada)}</div>
+                    <div style={{ fontSize:11, color:'#374151', textAlign:'center' }}>{'12:00'}</div>
+                    <div style={{ fontSize:11, color:'#374151', textAlign:'center' }}>{'13:00'}</div>
+                    <div style={{ fontSize:11, color:'#374151', textAlign:'center' }}>{fmtHora(reg.hora_saida)}</div>
+                    <div style={{ fontSize:11, fontWeight:700, color:'#111827', textAlign:'right' }}>{htrab>0?htrab.toFixed(2)+'h':'—'}</div>
+                    <div style={{ fontSize:11, fontWeight:700, color:hext>0?'#16a34a':'#9ca3af', textAlign:'right' }}>{hext.toFixed(2)}h</div>
+                    <div style={{ textAlign:'center' }}>
+                      {isFalta
+                        ? <span style={{ fontSize:9, fontWeight:700, background:'#fee2e2', color:'#dc2626', borderRadius:20, padding:'2px 7px' }}>Falta</span>
+                        : <span style={{ fontSize:9, fontWeight:700, background:'#dcfce7', color:'#15803d', borderRadius:20, padding:'2px 7px' }}>Presente</span>
+                      }
                     </div>
-                    {isFalta && reg.observacoes && (
-                      <div style={{ padding:'6px 14px 10px', fontSize:11, color:'#6b7280', fontStyle:'italic' }}>📝 {reg.observacoes}</div>
-                    )}
-                    {!isFalta && (
-                      <div style={{ padding:'10px 14px' }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:6 }}>
-                          <span style={{ fontSize:11, color:'#6b7280', fontWeight:600, minWidth:52 }}>Entrada:</span>
-                          <span style={{ fontSize:12, fontWeight:700, color:reg.hora_entrada?'#16a34a':'#9ca3af', background:reg.hora_entrada?'#dcfce7':'#f3f4f6', padding:'2px 8px', borderRadius:7 }}>
-                            🟢 {fmtHora(reg.hora_entrada)}
-                          </span>
-                          <span style={{ color:'#d1d5db' }}>→</span>
-                          <span style={{ fontSize:11, color:'#6b7280', fontWeight:600 }}>Saída:</span>
-                          <span style={{ fontSize:12, fontWeight:700, color:reg.hora_saida?'#dc2626':'#9ca3af', background:reg.hora_saida?'#fee2e2':'#f3f4f6', padding:'2px 8px', borderRadius:7 }}>
-                            🔴 {fmtHora(reg.hora_saida)}
-                          </span>
-                        </div>
-                        <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                          {htrab>0&&<span style={{ fontSize:11, color:'#1a56a0', fontWeight:700, background:'#eff6ff', padding:'2px 8px', borderRadius:7 }}>⏱ {htrab.toFixed(1)}h trabalhadas</span>}
-                          {hext>0&&<span style={{ fontSize:11, color:'#92400e', fontWeight:700, background:'#fef3c7', padding:'2px 8px', borderRadius:7 }}>⚡ {hext.toFixed(1)}h extras</span>}
-                          {!!(reg.horas_falta&&reg.horas_falta>0)&&<span style={{ fontSize:11, color:'#dc2626', fontWeight:700, background:'#fee2e2', padding:'2px 8px', borderRadius:7 }}>-{reg.horas_falta.toFixed(1)}h falta</span>}
-                        </div>
-                        {reg.observacoes&&<div style={{ marginTop:5, fontSize:11, color:'#6b7280', fontStyle:'italic' }}>📝 {reg.observacoes}</div>}
-                      </div>
-                    )}
                   </div>
                 )
               })}
+              {/* Totais */}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr .8fr .8fr .8fr .8fr .7fr .7fr .9fr', padding:'8px 6px', background:'#1e3a5f', gap:1, alignItems:'center' }}>
+                <div style={{ fontSize:10, fontWeight:800, color:'#fff' }}>TOTAIS</div>
+                <div/><div/><div/><div/>
+                <div style={{ fontSize:11, fontWeight:800, color:'#fff', textAlign:'right' }}>{totalHoras.toFixed(2)}h</div>
+                <div style={{ fontSize:11, fontWeight:800, color:'#fff', textAlign:'right' }}>{totalExtras.toFixed(2)}h</div>
+                <div style={{ fontSize:10, fontWeight:700, color:'#fff', textAlign:'center' }}>{totalFaltas} falta{totalFaltas!==1?'s':''}</div>
+              </div>
             </div>
 
-            {/* Rodapé resumo */}
-            <div style={{ marginTop:14, background:'#1a56a0', borderRadius:12, padding:'13px 16px' }}>
-              <div style={{ fontSize:10, color:'rgba(255,255,255,.7)', fontWeight:700, textTransform:'uppercase', marginBottom:8 }}>
-                Resumo — {fmtComp(mesSel)}
-              </div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
-                <div style={{ background:'rgba(255,255,255,.12)', borderRadius:8, padding:'8px', textAlign:'center' }}>
-                  <div style={{ fontSize:10, color:'rgba(255,255,255,.65)', marginBottom:2 }}>Trabalhadas</div>
-                  <div style={{ fontSize:16, fontWeight:800, color:'#fff' }}>{totalHoras.toFixed(0)}h</div>
+            {/* Cards resumo abaixo da tabela */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:14 }}>
+              {[
+                { label:'Presenças', val:totalPresentes, cor:'#15803d', bg:'#dcfce7' },
+                { label:'Faltas',    val:totalFaltas,    cor:'#dc2626', bg:'#fee2e2' },
+                { label:'H. Extras', val:`${totalExtras.toFixed(0)}h`, cor:'#92400e', bg:'#fef3c7' },
+              ].map(s=>(
+                <div key={s.label} style={{ background:s.bg, borderRadius:10, padding:'10px 6px', textAlign:'center' }}>
+                  <div style={{ fontWeight:800, fontSize:18, color:s.cor }}>{s.val}</div>
+                  <div style={{ fontSize:10, color:s.cor, fontWeight:600 }}>{s.label}</div>
                 </div>
-                <div style={{ background:'rgba(255,255,255,.12)', borderRadius:8, padding:'8px', textAlign:'center' }}>
-                  <div style={{ fontSize:10, color:'rgba(255,255,255,.65)', marginBottom:2 }}>Extras</div>
-                  <div style={{ fontSize:16, fontWeight:800, color:totalExtras>0?'#fbbf24':'#fff' }}>{totalExtras.toFixed(0)}h</div>
-                </div>
-                <div style={{ background:'rgba(255,255,255,.12)', borderRadius:8, padding:'8px', textAlign:'center' }}>
-                  <div style={{ fontSize:10, color:'rgba(255,255,255,.65)', marginBottom:2 }}>Faltas</div>
-                  <div style={{ fontSize:16, fontWeight:800, color:totalFaltas>0?'#fca5a5':'#fff' }}>{totalFaltas}</div>
-                </div>
-              </div>
+              ))}
             </div>
 
             {/* Produções do mês */}
             {producoes.length > 0 && (
-              <div style={{ marginTop:14, background:'#fff', borderRadius:14, border:'1px solid #e5e7eb', overflow:'hidden' }}>
-                <div style={{ padding:'10px 14px', background:'#f5f3ff', borderBottom:'1px solid #e5e7eb', display:'flex', alignItems:'center', gap:7 }}>
-                  <span style={{ fontSize:15 }}>⚡</span>
-                  <span style={{ fontSize:12, fontWeight:800, color:'#7c3aed', textTransform:'uppercase', letterSpacing:'.04em' }}>
-                    Produções — {producoes.length} lançamento{producoes.length!==1?'s':''}
-                  </span>
-                  <span style={{ marginLeft:'auto', fontSize:12, fontWeight:800, color:'#7c3aed' }}>
-                    R$ {producoes.reduce((s:number,r:any)=>s+Number(r.valor_total||0),0).toFixed(2)}
-                  </span>
+              <div style={{ background:'#fff', borderRadius:12, overflow:'hidden', border:'1px solid #e2e8f0', boxShadow:'0 2px 8px rgba(0,0,0,.06)', marginBottom:14 }}>
+                <div style={{ padding:'8px 14px', fontSize:11, color:'#6b7280', fontWeight:600, borderBottom:'1px solid #e5e7eb', display:'flex', justifyContent:'space-between' }}>
+                  <span>⚡ {producoes.length} produção(ões)</span>
+                  <span style={{ fontWeight:800, color:'#7c3aed' }}>R$ {producoes.reduce((s:number,r:any)=>s+Number(r.valor_total||0),0).toFixed(2)}</span>
                 </div>
-                <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
-                  {producoes.map((r:any,i:number)=>(
-                    <div key={r.id} style={{ padding:'9px 14px', borderBottom:'1px solid #f3f4f6', background:i%2===0?'#fff':'#faf5ff', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <div>
-                        <div style={{ fontSize:12, fontWeight:700, color:'#111827' }}>{r.playbook_itens?.descricao??'Serviço'}</div>
-                        <div style={{ fontSize:11, color:'#6b7280', marginTop:1 }}>
-                          {r.data?.slice(8)}/{r.data?.slice(5,7)} · {r.quantidade} {r.playbook_itens?.unidade??''}
-                        </div>
-                      </div>
-                      <span style={{ fontSize:13, fontWeight:800, color:'#7c3aed' }}>R$ {Number(r.valor_total||0).toFixed(2)}</span>
-                    </div>
-                  ))}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr .5fr .9fr', background:'#1e3a5f', padding:'7px 10px' }}>
+                  {['SERVIÇO','QTD','TOTAL'].map(h=><div key={h} style={{ fontSize:9, fontWeight:700, color:'#fff', letterSpacing:'.04em' }}>{h}</div>)}
                 </div>
+                {producoes.map((r:any,i:number)=>(
+                  <div key={r.id} style={{ display:'grid', gridTemplateColumns:'1fr .5fr .9fr', padding:'8px 10px', borderBottom:'1px solid #f1f5f9', background:i%2===0?'#fff':'#faf5ff', alignItems:'center' }}>
+                    <div style={{ fontSize:11, fontWeight:600, color:'#111' }}>{r.playbook_itens?.descricao??'Serviço'}<br/><span style={{ fontSize:10, color:'#9ca3af' }}>{r.data?.slice(8)}/{r.data?.slice(5,7)}</span></div>
+                    <div style={{ fontSize:11, color:'#374151' }}>{r.quantidade} {r.playbook_itens?.unidade??''}</div>
+                    <div style={{ fontSize:12, fontWeight:800, color:'#7c3aed' }}>R$ {Number(r.valor_total||0).toFixed(2)}</div>
+                  </div>
+                ))}
               </div>
             )}
           </>

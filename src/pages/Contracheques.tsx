@@ -81,7 +81,7 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
   open: boolean; onClose: () => void
   colaborador: Colaborador; onSaved: () => void
 }) {
-  const [competencia, setCompetencia] = useState('')
+  const [competencia, setCompetencia] = useState(() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` })
   const [tipo, setTipo]               = useState('mensal')
   const [descricao, setDescricao]     = useState('')
   const [arquivo, setArquivo]         = useState<File | null>(null)
@@ -113,6 +113,8 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
   const [faltas, setFaltas]               = useState('')
   const [geradoDoSistema, setGeradoDoSistema] = useState(false)
   const [lancamentoId, setLancamentoId]   = useState<string | null>(null)
+  const [registrosPonto, setRegistrosPonto] = useState<any[]>([])
+  const [registrosProducao, setRegistrosProducao] = useState<any[]>([])
 
   // Auto-calcular bruto e líquido
   useEffect(() => {
@@ -227,11 +229,25 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
         setFuncao(colab?.funcao ?? colaborador.funcao ?? '')
         setDiasTrab('')
         setFaltas(sumFaltas > 0         ? String(sumFaltas)      : '')
-        setLancamentoId(lancs[0]?.id ?? null)
-        // Auto-preencher tipo e competência do lançamento
+        const primLancId = lancs[0]?.id ?? null
+        setLancamentoId(primLancId)
         const tipoPag = (lancs[0] as any)?.tipo_pagamento
         if (tipoPag) setTipo(tipoPag)
         setGeradoDoSistema(true)
+        if (primLancId) {
+          const dataIni = (lancs[0] as any).data_inicio ?? mesRef+'-01'
+          const dataFim = (lancs[0] as any).data_fim   ?? mesRef+'-31'
+          const [rpRes, rprodRes] = await Promise.all([
+            supabase.from('portal_ponto_diario')
+              .select('id,data,hora_entrada,hora_saida,horas_trabalhadas,horas_extra,status,observacoes')
+              .eq('colaborador_id', colaborador.id).gte('data',dataIni).lte('data',dataFim).order('data'),
+            supabase.from('ponto_producao')
+              .select('id,data,quantidade,valor_total,observacoes,playbook_itens(descricao,unidade)')
+              .eq('colaborador_id', colaborador.id).gte('data',dataIni).lte('data',dataFim).order('data'),
+          ])
+          setRegistrosPonto((rpRes.data as any[]) ?? [])
+          setRegistrosProducao((rprodRes.data as any[]) ?? [])
+        }
 
         const info = `✅ ${lancs.length} lançamento(s) encontrado(s).${totalPremios > 0 ? ` • ${(premios ?? []).length} prêmio(s) adicionado(s).` : ''}${totalAdiant > 0 ? ` • ${(adiantamentos ?? []).length} adiantamento(s) descontado(s).` : ''}`
         setSistemaInfo(info)
@@ -335,7 +351,7 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent style={{ maxWidth: 640, maxHeight: '94vh', overflowY: 'auto', padding: 0 }}>
+      <DialogContent style={{ maxWidth:700, height:'90vh', maxHeight:'90vh', overflowY:'hidden', padding:0, display:'flex', flexDirection:'column' }}>
 
         {/* Header estilizado */}
         <div style={{ background:'linear-gradient(135deg,#0d3f56,#1a56a0)', padding:'16px 20px', borderRadius:'8px 8px 0 0' }}>
@@ -352,7 +368,7 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
           </div>
         </div>
 
-        <div style={{ display:'flex', flexDirection:'column', gap:12, padding:'16px 20px' }}>
+        <div style={{ flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:12, padding:'16px 20px 12px' }}>
 
           {/* Competência + Tipo — destaque visual */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
@@ -543,6 +559,76 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
             </div>
           </div>
 
+          {/* Registros de Ponto Diário */}
+          {registrosPonto.length > 0 && (
+            <div style={{ borderTop:'2px solid #f1f5f9', paddingTop:10 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+                <span style={{ fontSize:13 }}>⏱</span>
+                <span style={{ fontSize:13, fontWeight:700, color:'#0d3f56' }}>REGISTROS DE PONTO ({registrosPonto.length} dias)</span>
+              </div>
+              <div style={{ maxHeight:160, overflowY:'auto', border:'1px solid #e2e8f0', borderRadius:8, fontSize:11 }}>
+                <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                  <thead><tr style={{ background:'#f8fafc' }}>
+                    {['Data','Entrada','Saída','H.Trab','H.Extra','Status'].map(h=>(
+                      <th key={h} style={{ padding:'5px 8px', textAlign:'left', fontSize:10, color:'#6b7280', fontWeight:700, borderBottom:'1px solid #e2e8f0' }}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {registrosPonto.map((r:any,i:number)=>{
+                      const dt=r.data?.slice(5).replace('-','/')
+                      const isFalta=['falta','falta_justificada'].includes(r.status??'')
+                      return (
+                        <tr key={r.id} style={{ background:isFalta?'#fff1f2':i%2===0?'#fff':'#f9fafb' }}>
+                          <td style={{ padding:'4px 8px', fontWeight:600 }}>{dt}</td>
+                          <td style={{ padding:'4px 8px', color:'#16a34a' }}>{r.hora_entrada?.slice(0,5)??'—'}</td>
+                          <td style={{ padding:'4px 8px', color:'#dc2626' }}>{r.hora_saida?.slice(0,5)??'—'}</td>
+                          <td style={{ padding:'4px 8px' }}>{r.horas_trabalhadas?`${r.horas_trabalhadas}h`:'—'}</td>
+                          <td style={{ padding:'4px 8px', color:r.horas_extra>0?'#92400e':'#9ca3af' }}>{r.horas_extra>0?`+${r.horas_extra}h`:'—'}</td>
+                          <td style={{ padding:'4px 8px' }}>
+                            <span style={{ fontSize:10, fontWeight:700, padding:'1px 5px', borderRadius:4,
+                              background:isFalta?'#fee2e2':'#dcfce7', color:isFalta?'#dc2626':'#15803d' }}>
+                              {isFalta?'Falta':'Pres.'}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Produções relacionadas */}
+          {registrosProducao.length > 0 && (
+            <div style={{ borderTop:'2px solid #f1f5f9', paddingTop:10 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+                <span style={{ fontSize:13 }}>⚡</span>
+                <span style={{ fontSize:13, fontWeight:700, color:'#7c3aed' }}>PRODUÇÕES ({registrosProducao.length} lançamentos)</span>
+              </div>
+              <div style={{ maxHeight:140, overflowY:'auto', border:'1px solid #e2e8f0', borderRadius:8, fontSize:11 }}>
+                <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                  <thead><tr style={{ background:'#f5f3ff' }}>
+                    {['Data','Serviço','Qtd','Total','Obs'].map(h=>(
+                      <th key={h} style={{ padding:'5px 8px', textAlign:'left', fontSize:10, color:'#6b7280', fontWeight:700, borderBottom:'1px solid #e2e8f0' }}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {registrosProducao.map((r:any,i:number)=>(
+                      <tr key={r.id} style={{ background:i%2===0?'#fff':'#faf5ff' }}>
+                        <td style={{ padding:'4px 8px', fontWeight:600 }}>{r.data?.slice(5).replace('-','/')}</td>
+                        <td style={{ padding:'4px 8px' }}>{(r.playbook_itens as any)?.descricao??'—'}</td>
+                        <td style={{ padding:'4px 8px' }}>{r.quantidade} {(r.playbook_itens as any)?.unidade??''}</td>
+                        <td style={{ padding:'4px 8px', fontWeight:700, color:'#7c3aed' }}>R$ {Number(r.valor_total||0).toFixed(2)}</td>
+                        <td style={{ padding:'4px 8px', color:'#9ca3af', fontStyle:'italic' }}>{r.observacoes??'—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* Descrição */}
           <div style={col}>
             <span style={lbl}>Observação</span>
@@ -570,7 +656,7 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
           </div>
         </div>
 
-        <DialogFooter style={{ gap: 8, flexWrap: 'wrap' }}>
+        <DialogFooter style={{ gap:8, flexWrap:'wrap', flexShrink:0, background:'#fff', borderTop:'1px solid #e2e8f0', padding:'12px 20px', margin:0 }}>
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
           <Button variant="outline" onClick={() => salvar(false)} disabled={saving}>
             {saving ? 'Salvando…' : 'Rascunho'}

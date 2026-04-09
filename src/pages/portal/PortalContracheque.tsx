@@ -1862,3 +1862,4 @@ export default function PortalContracheque() {
     </PortalLayout>
   )
 }
+

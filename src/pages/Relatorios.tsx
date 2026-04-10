@@ -1093,14 +1093,32 @@ export default function Relatorios() {
       // ── 29. Holerites dos Colaboradores ──────────────────────────────────────
       else if (relatAtivo === 'holerites-colaboradores') {
         const q = supabase.from('holerites')
-          .select('referencia, criado_em, salario_base, total_proventos, total_descontos, valor_liquido, status, colaboradores(nome, chapa, funcoes(nome), obras(nome))')
+          .select('referencia, criado_em, salario_base, total_proventos, total_descontos, valor_liquido, status, colaborador_id, colaboradores(nome, chapa, funcoes(nome), obras(nome))')
           .gte('criado_em', filtroDataIni + 'T00:00:00')
           .lte('criado_em', filtroDataFim + 'T23:59:59')
           .order('criado_em', { ascending: false })
         if (filtroColaborador !== 'todos') q.eq('colaborador_id', filtroColaborador)
+        // Filtro por obra via colaborador
         const { data, error } = await q
-        if (error) throw error
-        resultado = (data ?? []).map(d => {
+        if (error) {
+          // Tabela ainda não criada no banco — orientar o usuário
+          if (String(error.code) === 'PGRST205' || String(error.message).includes("holerites")) {
+            toast.error('⚠️ Tabela de holerites ainda não foi criada. Execute o SQL em supabase/migrations/holerites_e_materiais.sql no Dashboard do Supabase.')
+            setLoading(false)
+            return
+          }
+          throw error
+        }
+        resultado = (data ?? [])
+          .filter(d => {
+            if (filtroObra === 'todos') return true
+            const colab2 = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
+            const obraColab = colab2 ? (colab2.obras as Record<string, unknown> | null) : null
+            // obrasData tem id e nome — precisamos checar pelo id da obra
+            const obraObj = obrasData.find(o => o.id === filtroObra)
+            return obraColab?.nome === obraObj?.nome
+          })
+          .map(d => {
           const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
           const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
           const obra = colab ? (colab.obras as Record<string, unknown> | null) : null
@@ -1532,7 +1550,7 @@ export default function Relatorios() {
           <FilterRow>
 
             {/* Filtro: Obra */}
-            {(['headcount-obra','custo-obra','producao-obra','faltas-obra','acidentes-obra','producao-playbook','ranking-producao','evolucao-horas','painel-acidentes','resumo-folha','meta-realizado','custo-hora','playbook-atividades','historico-ponto-obra'].includes(relatAtivo)) && (
+            {(['headcount-obra','custo-obra','producao-obra','faltas-obra','acidentes-obra','producao-playbook','ranking-producao','evolucao-horas','painel-acidentes','resumo-folha','meta-realizado','custo-hora','playbook-atividades','historico-ponto-obra','holerites-colaboradores'].includes(relatAtivo)) && (
               <FieldWrap label={`Obra${isObraRequired ? ' *' : ''}`}>
                 <SearchableSelect
                   value={filtroObra || ''}

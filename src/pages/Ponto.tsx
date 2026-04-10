@@ -2899,7 +2899,7 @@ function TI({value,onChange,disabled}:{value:string;onChange:(v:string)=>void;di
       border: disabled ? 'none' : '1px solid #cbd5e1',
       borderRadius:4,
       background: disabled ? 'transparent' : '#f8fafc',
-      color: disabled ? '#fff' : '#0f172a',
+      color: disabled ? '#475569' : '#0f172a',
       fontFamily:'ui-monospace,SFMono-Regular,monospace',
       fontWeight: 600, textAlign:'center',
       cursor: disabled ? 'default' : 'text',

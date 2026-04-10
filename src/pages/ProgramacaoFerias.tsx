@@ -136,7 +136,7 @@ export default function ProgramacaoFerias() {
 
   async function aprovar(sol: Solicitacao) {
     setProcessando(sol.id)
-    await supabase.from('solicitacoes_ferias').update({ status: 'aprovada', aprovado_em: new Date().toISOString() }).eq('id', sol.id)
+    await supabase.from('solicitacoes_ferias').update({ status: 'aprovada' }).eq('id', sol.id)
     await carregarSolicitacoes()
     setProcessando(null)
   }

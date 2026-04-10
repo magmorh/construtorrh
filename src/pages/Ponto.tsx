@@ -2882,7 +2882,7 @@ export default function Ponto() {
 }
 
 // ─── Estilos ──────────────────────────────────────────────────────────────────
-const TH:React.CSSProperties={padding:'5px 3px',fontWeight:700,fontSize:10,textTransform:'uppercase',letterSpacing:'0.03em',textAlign:'center',whiteSpace:'nowrap'}
+const TH:React.CSSProperties={padding:'5px 3px',fontWeight:700,fontSize:10,textTransform:'uppercase',letterSpacing:'0.03em',textAlign:'center',whiteSpace:'nowrap',color:'#fff'}
 const TD:React.CSSProperties={padding:'2px',fontSize:11,textAlign:'center',verticalAlign:'middle'}
 const LBL:React.CSSProperties={display:'block',fontSize:12,fontWeight:600,marginBottom:4,color:'var(--muted-foreground)'}
 const SEL:React.CSSProperties={width:'100%',padding:'8px 10px',fontSize:13,border:'1px solid var(--border)',borderRadius:6,background:'var(--background)',color:'var(--foreground)'}
@@ -2899,7 +2899,7 @@ function TI({value,onChange,disabled}:{value:string;onChange:(v:string)=>void;di
       border: disabled ? 'none' : '1px solid #cbd5e1',
       borderRadius:4,
       background: disabled ? 'transparent' : '#f8fafc',
-      color: disabled ? '#475569' : '#0f172a',
+      color: disabled ? '#1e293b' : '#0f172a',
       fontFamily:'ui-monospace,SFMono-Regular,monospace',
       fontWeight: 600, textAlign:'center',
       cursor: disabled ? 'default' : 'text',

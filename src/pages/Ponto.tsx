@@ -2212,13 +2212,13 @@ export default function Ponto() {
                                 <td style={{...TDc,padding:'1px',background:'#eef1fb'}}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.he_entrada} onChange={v=>updDia(lanc.id,idx,'he_entrada',v)}/></td>
                                 <td style={{...TDc,padding:'1px',background:'#eef1fb',borderRight:'2px solid #dde1e7'}}><TI disabled={!d.presente||d.falta||d.bloqueado||lancBloq} value={d.he_saida} onChange={v=>updDia(lanc.id,idx,'he_saida',v)}/></td>
                                 {/* Cálculos */}
-                                <td style={{...TDc,textAlign:'center',fontWeight:600,fontFamily:'monospace',fontSize:11,color:calc.normais>0?'#15803d':'#9ca3af'}}>{calc.normais>0?fmtHHMM(calc.normais):'—'}</td>
-                                <td style={{...TDc,textAlign:'center',fontWeight:600,fontFamily:'monospace',fontSize:11,color:calc.extras100>0?'#dc2626':calc.extras50>0?'#1d4ed8':'#9ca3af'}}>{calc.extras100>0?fmtHHMM(calc.extras100):calc.extras50>0?fmtHHMM(calc.extras50):'—'}</td>
-                                <td style={{...TDc,textAlign:'center',fontWeight:700,fontFamily:'monospace',fontSize:11,color:calc.total>0?'#111827':'#9ca3af'}}>{calc.total>0?fmtHHMM(calc.total):'—'}</td>
+                                <td style={{...TDc,textAlign:'center',fontWeight:600,fontFamily:'monospace',fontSize:11,color:calc.normais>0?'#15803d':'#e5e7eb'}}>{calc.normais>0?fmtHHMM(calc.normais):'—'}</td>
+                                <td style={{...TDc,textAlign:'center',fontWeight:600,fontFamily:'monospace',fontSize:11,color:calc.extras100>0?'#dc2626':calc.extras50>0?'#1d4ed8':'#e5e7eb'}}>{calc.extras100>0?fmtHHMM(calc.extras100):calc.extras50>0?fmtHHMM(calc.extras50):'—'}</td>
+                                <td style={{...TDc,textAlign:'center',fontWeight:700,fontFamily:'monospace',fontSize:11,color:calc.total>0?'#111827':'#e5e7eb'}}>{calc.total>0?fmtHHMM(calc.total):'—'}</td>
                                 {/* Valor */}
                                 <td style={{...TDc,textAlign:'right',fontWeight:700,fontSize:11,color:'#5b21b6',paddingRight:6}}>
                                   {d.evento==='atestado'||d.evento==='suspensao'||d.falta
-                                    ? <span style={{color:'#9ca3af'}}>—</span>
+                                    ? <span style={{color:'#cbd5e1'}}>—</span>
                                     : d.evento==='outro_lancamento' ? null
                                     : d.presente&&calc.total>0
                                     ? (() => {
@@ -2232,7 +2232,7 @@ export default function Ponto() {
                                           {valorHoraEfetivo>0?formatCurrency(vHoras):'—'}
                                         </span>
                                       })()
-                                    : <span style={{color:'#d1d5db'}}>—</span>
+                                    : <span style={{color:'#e5e7eb'}}>—</span>
                                   }
                                 </td>
                                 {/* Obs */}
@@ -2899,7 +2899,7 @@ function TI({value,onChange,disabled}:{value:string;onChange:(v:string)=>void;di
       border: disabled ? 'none' : '1px solid #cbd5e1',
       borderRadius:4,
       background: disabled ? 'transparent' : '#f8fafc',
-      color: disabled ? '#94a3b8' : '#0f172a',
+      color: disabled ? '#fff' : '#0f172a',
       fontFamily:'ui-monospace,SFMono-Regular,monospace',
       fontWeight: 600, textAlign:'center',
       cursor: disabled ? 'default' : 'text',

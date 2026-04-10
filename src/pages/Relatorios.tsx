@@ -1092,47 +1092,32 @@ export default function Relatorios() {
 
       // ── 29. Holerites dos Colaboradores ──────────────────────────────────────
       else if (relatAtivo === 'holerites-colaboradores') {
-        const q = supabase.from('holerites')
-          .select('referencia, criado_em, salario_base, total_proventos, total_descontos, valor_liquido, status, colaborador_id, colaboradores(nome, chapa, funcoes(nome), obras(nome))')
-          .gte('criado_em', filtroDataIni + 'T00:00:00')
-          .lte('criado_em', filtroDataFim + 'T23:59:59')
-          .order('criado_em', { ascending: false })
+        // A tabela real é contracheques
+        const q = supabase.from('contracheques')
+          .select('competencia, created_at, salario_base, bruto, descontos, liquido, publicado, obra_nome, colaborador_id, funcao, colaboradores(nome, chapa)')
+          .gte('competencia', filtroDataIni)
+          .lte('competencia', filtroDataFim)
+          .order('competencia', { ascending: false })
         if (filtroColaborador !== 'todos') q.eq('colaborador_id', filtroColaborador)
-        // Filtro por obra via colaborador
-        const { data, error } = await q
-        if (error) {
-          // Tabela ainda não criada no banco — orientar o usuário
-          if (String(error.code) === 'PGRST205' || String(error.message).includes("holerites")) {
-            toast.error('⚠️ Tabela de holerites ainda não foi criada. Execute o SQL em supabase/migrations/holerites_e_materiais.sql no Dashboard do Supabase.')
-            setLoading(false)
-            return
-          }
-          throw error
+        if (filtroObra !== 'todos') {
+          const obraObj = obrasData.find(o => o.id === filtroObra)
+          if (obraObj) q.ilike('obra_nome', `%${obraObj.nome}%`)
         }
-        resultado = (data ?? [])
-          .filter(d => {
-            if (filtroObra === 'todos') return true
-            const colab2 = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
-            const obraColab = colab2 ? (colab2.obras as Record<string, unknown> | null) : null
-            // obrasData tem id e nome — precisamos checar pelo id da obra
-            const obraObj = obrasData.find(o => o.id === filtroObra)
-            return obraColab?.nome === obraObj?.nome
-          })
-          .map(d => {
+        const { data, error } = await q
+        if (error) throw error
+        resultado = (data ?? []).map(d => {
           const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
-          const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
-          const obra = colab ? (colab.obras as Record<string, unknown> | null) : null
           return {
-            referencia: d.referencia ?? '—',
+            referencia: d.competencia ? String(d.competencia).slice(0,7) : '—',
             colaborador: colab?.nome ?? '—',
             chapa: colab?.chapa ?? '—',
-            funcao: func?.nome ?? '—',
-            obra: obra?.nome ?? '—',
+            funcao: d.funcao ?? '—',
+            obra: d.obra_nome ?? '—',
             salario_base: d.salario_base ?? 0,
-            total_proventos: d.total_proventos ?? 0,
-            total_descontos: d.total_descontos ?? 0,
-            valor_liquido: d.valor_liquido ?? 0,
-            status: d.status ?? '—',
+            total_proventos: d.bruto ?? 0,
+            total_descontos: d.descontos ?? 0,
+            valor_liquido: d.liquido ?? 0,
+            status: d.publicado ? 'publicado' : 'rascunho',
           }
         }) as Record<string, unknown>[]
       }

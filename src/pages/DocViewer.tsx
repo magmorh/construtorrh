@@ -17,7 +17,7 @@ const SESSION_KEY = 'contracheque_session'
  */
 export default function DocViewer() {
   const [params]    = useSearchParams()
-  const [status, setStatus] = useState<'checking'|'loading'|'ready'|'denied'>('checking')
+  const [status, setStatus] = useState<'checking'|'loading'|'ready'|'denied'|'bucket_error'>('checking')
   const [signedUrl, setSignedUrl] = useState<string|null>(null)
   const [fileName, setFileName]  = useState<string>('')
 
@@ -59,10 +59,28 @@ export default function DocViewer() {
       setFileName(p.split('/').pop() ?? 'documento')
       setStatus('loading')
 
-      // 3 — Gerar signed URL (600 seg = 10 min)
+      // 3 — Se rawUrl disponível, tentar diretamente primeiro
+      if (rawUrl) {
+        try {
+          const testRes = await fetch(rawUrl, { method: 'HEAD' })
+          if (testRes.ok) {
+            setSignedUrl(rawUrl)
+            setStatus('ready')
+            return
+          }
+        } catch { /* continuar para signed url */ }
+      }
+
+      // 4 — Gerar signed URL (600 seg = 10 min)
       const { data, error } = await supabase.storage.from(b).createSignedUrl(p, 600)
       if (error || !data?.signedUrl) {
-        // Se erro de permissão, tentar com URL pública diretamente (bucket ainda público)
+        // Verificar se é erro de bucket inexistente
+        const errMsg = (error as any)?.message ?? ''
+        if (errMsg.toLowerCase().includes('bucket') || errMsg.includes('404')) {
+          setStatus('bucket_error')
+          return
+        }
+        // Se erro de permissão, tentar com URL pública diretamente
         const { data: pub } = supabase.storage.from(b).getPublicUrl(p)
         if (pub?.publicUrl) {
           setSignedUrl(pub.publicUrl)
@@ -83,6 +101,24 @@ export default function DocViewer() {
       <Loader2 size={32} style={{ animation:'spin 1s linear infinite' }} color="#1a56a0"/>
       <span style={{ fontSize:14, color:'#6b7280' }}>{status === 'checking' ? 'Verificando acesso…' : 'Carregando documento…'}</span>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  )
+
+  if (status === 'bucket_error') return (
+    <div style={{ minHeight:'100vh', background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:16, padding:32 }}>
+      <div style={{ width:56, height:56, borderRadius:'50%', background:'#fef3c7', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28 }}>⚠️</div>
+      <h2 style={{ fontSize:20, fontWeight:700, color:'#92400e', margin:0 }}>Storage não configurado</h2>
+      <p style={{ fontSize:14, color:'#6b7280', textAlign:'center', maxWidth:420, lineHeight:1.7, margin:0 }}>
+        O bucket de armazenamento ainda não foi criado no Supabase.<br/>
+        Execute o SQL abaixo no <strong>Supabase SQL Editor</strong>:
+      </p>
+      <a href="https://supabase.com/dashboard/project/rbhmfqngnjxdemavtvxk/sql" target="_blank" rel="noreferrer"
+        style={{ padding:'10px 24px', background:'#16a34a', color:'#fff', borderRadius:8, textDecoration:'none', fontWeight:700, fontSize:14 }}>
+        🔗 Abrir SQL Editor
+      </a>
+      <code style={{ background:'#f3f4f6', borderRadius:8, padding:'12px 16px', fontSize:11, maxWidth:500, wordBreak:'break-all', color:'#374151', lineHeight:1.6 }}>
+        INSERT INTO storage.buckets (id, name, public) VALUES ('ocorrencias-documentos', 'ocorrencias-documentos', true) ON CONFLICT DO NOTHING;
+      </code>
     </div>
   )
 

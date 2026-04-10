@@ -2888,14 +2888,14 @@ const LBL:React.CSSProperties={display:'block',fontSize:12,fontWeight:600,margin
 const SEL:React.CSSProperties={width:'100%',padding:'8px 10px',fontSize:13,border:'1px solid var(--border)',borderRadius:6,background:'var(--background)',color:'var(--foreground)'}
 
 function TI({value,onChange,disabled}:{value:string;onChange:(v:string)=>void;disabled:boolean}){
-  // Solução definitiva para input de hora:
+  // INPUT DE HORA v4 - build forzado
   // - appearance:none remove controles nativos do browser que quebram o layout
   // - Largura em px garante que o conteúdo nunca seja cortado (HH:MM = 5 chars + padding)
   // - padding horizontal fixo para alinhar o ":" verticalmente entre colunas
   return<input type="time" value={value} onChange={e=>onChange(e.target.value)} disabled={disabled}
     style={{
       display:'block', width:'100%', minWidth:72,
-      padding:'5px 6px', fontSize:12, lineHeight:'1.4',
+      padding:'5px 7px', fontSize:12, lineHeight:'1.4',
       border: disabled ? 'none' : '1px solid #cbd5e1',
       borderRadius:4,
       background: disabled ? 'transparent' : '#f8fafc',

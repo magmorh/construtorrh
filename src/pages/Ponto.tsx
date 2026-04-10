@@ -2139,22 +2139,22 @@ export default function Ponto() {
                           <col style={{width:80}}/><col style={{width:80}}/>
                         </colgroup>
                         <thead>
-                          <tr style={{background:'#1e3a5f',color:'#fff',position:'sticky',top:0,zIndex:2}}>
-                            <th style={{...TH,textAlign:'left',paddingLeft:6}}>Dia</th>
-                            <th style={TH}>Data</th>
-                            <th style={TH}>✓</th>
-                            <th style={TH}>✗</th>
-                            <th style={{...TH,borderLeft:'1px solid rgba(255,255,255,0.15)'}}>Entrada</th>
-                            <th style={TH}>S. Almoço</th>
-                            <th style={TH}>R. Almoço</th>
-                            <th style={{...TH,borderRight:'1px solid rgba(255,255,255,0.15)'}}>Saída</th>
-                            <th style={{...TH,background:'#2e4a8a',borderLeft:'1px solid rgba(255,255,255,0.15)'}}>HE Ent.</th>
-                            <th style={{...TH,background:'#2e4a8a',borderRight:'1px solid rgba(255,255,255,0.15)'}}>HE Saí.</th>
-                            <th style={{...TH,background:'#166534'}}>Norm.</th>
-                            <th style={{...TH,background:'#1e40af'}}>Ext.</th>
-                            <th style={{...TH,background:'#374151'}}>Total</th>
-                            <th style={{...TH,background:'#5b21b6'}}>Valor</th>
-                            <th style={{...TH,textAlign:'left',paddingLeft:4}}>Obs.</th>
+                          <tr style={{background:'#1e3a5f',position:'sticky',top:0,zIndex:2}}>
+                            <th style={{...TH,color:'#fff',textAlign:'left',paddingLeft:6}}>Dia</th>
+                            <th style={{...TH,color:'#fff'}}>Data</th>
+                            <th style={{...TH,color:'#fff'}}>✓</th>
+                            <th style={{...TH,color:'#fff'}}>✗</th>
+                            <th style={{...TH,color:'#fff',borderLeft:'1px solid rgba(255,255,255,0.15)'}}>Entrada</th>
+                            <th style={{...TH,color:'#fff'}}>S. Almoço</th>
+                            <th style={{...TH,color:'#fff'}}>R. Almoço</th>
+                            <th style={{...TH,color:'#fff',borderRight:'1px solid rgba(255,255,255,0.15)'}}>Saída</th>
+                            <th style={{...TH,color:'#fff',background:'#2e4a8a',borderLeft:'1px solid rgba(255,255,255,0.15)'}}>HE Ent.</th>
+                            <th style={{...TH,color:'#fff',background:'#2e4a8a',borderRight:'1px solid rgba(255,255,255,0.15)'}}>HE Saí.</th>
+                            <th style={{...TH,color:'#fff',background:'#166534'}}>Norm.</th>
+                            <th style={{...TH,color:'#fff',background:'#1e40af'}}>Ext.</th>
+                            <th style={{...TH,color:'#fff',background:'#374151'}}>Total</th>
+                            <th style={{...TH,color:'#fff',background:'#5b21b6'}}>Valor</th>
+                            <th style={{...TH,color:'#fff',textAlign:'left',paddingLeft:4}}>Obs.</th>
                           </tr>
                         </thead>
                         <tbody>

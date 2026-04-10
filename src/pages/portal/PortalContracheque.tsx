@@ -4,9 +4,10 @@ import {
   Receipt, LogOut, AlertCircle, Key, Eye, EyeOff, Loader2,
   ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   Download, Printer, Plus, Minus, Info, CalendarDays,
-  Clock, FolderOpen, FileCheck, FileX, CheckCircle2, ShieldCheck,
+  Clock, FolderOpen, FileCheck, FileX, CheckCircle2, ShieldCheck, Umbrella,
 } from 'lucide-react'
 import AbaFolhaPontoNova from './AbaFolhaPontoNova'
+import PortalFerias from './PortalFerias'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Sessao = {
@@ -1221,7 +1222,7 @@ function TelaLogin({ onLogin }: { onLogin:(s:Sessao)=>void }) {
 }
 
 // ─── Layout Principal com Bottom Nav ─────────────────────────────────────────
-type Aba = 'contracheque' | 'ponto' | 'documentos'
+type Aba = 'contracheque' | 'ponto' | 'documentos' | 'ferias'
 
 function PortalLayout({ sessao, aba, onAba, onSair, children }: {
   sessao: Sessao; aba: Aba; onAba:(a:Aba)=>void; onSair:()=>void; children: React.ReactNode
@@ -1229,9 +1230,10 @@ function PortalLayout({ sessao, aba, onAba, onSair, children }: {
   const iniciais = sessao.nome.split(' ').slice(0,2).map(s=>s.charAt(0).toUpperCase()).join('')
 
   const abas: {id:Aba;label:string;icon:React.ReactNode}[] = [
-    { id:'contracheque', label:'Contracheque', icon:<Receipt size={20}/> },
-    { id:'ponto',        label:'Folha de Ponto', icon:<Clock size={20}/> },
-    { id:'documentos',   label:'Meus Docs',   icon:<FolderOpen size={20}/> },
+    { id:'contracheque', label:'Contracheque', icon:<Receipt size={18}/> },
+    { id:'ponto',        label:'Ponto',        icon:<Clock size={18}/> },
+    { id:'documentos',   label:'Meus Docs',    icon:<FolderOpen size={18}/> },
+    { id:'ferias',       label:'Férias',       icon:<Umbrella size={18}/> },
   ]
 
   return (
@@ -1449,6 +1451,7 @@ export default function PortalContracheque() {
       )}
       {aba==='ponto' && <AbaFolhaPonto sessao={sessao} dataAdmissao={colab?.data_admissao ?? null} lancamentos={lancamentos} colab={colab} empresa={empresa}/>}
       {aba==='documentos' && <AbaMeusDocumentos sessao={sessao}/>}
+      {aba==='ferias' && <PortalFerias/>}
 
       {/* ══ MODAL ACEITE DIGITAL ══ */}
       {modalAceite && (

@@ -15,7 +15,7 @@ import {
   BarChart3, Users, Building2, Shield, AlertTriangle, DollarSign,
   Clock, TrendingUp, FileText, Award, Truck, Calculator, Package,
   Heart, Printer, Loader2, Filter, ChevronRight, Activity, Star,
-  HardHat, Wrench, Target, Calendar, Search, Download, ChevronDown,
+  HardHat, Wrench, Target, Calendar, Search, Download, ChevronDown, Receipt,
 } from 'lucide-react'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -158,6 +158,7 @@ const GRUPOS: RelatGroup[] = [
       { id: 'contratos-vencendo', label: 'Contratos Vencendo', icon: <AlertTriangle size={14}/>, desc: 'Contratos próximos do vencimento' },
       { id: 'playbook-atividades', label: 'Playbook de Atividades', icon: <Package size={14}/>, desc: 'Atividades cadastradas por obra com preço e unidade' },
       { id: 'historico-advertencias', label: 'Histórico de Advertências', icon: <FileText size={14}/>, desc: 'Advertências com filtro tipo, assinatura e período' },
+      { id: 'holerites-colaboradores', label: 'Holerites dos Colaboradores', icon: <Receipt size={14}/>, desc: 'Todos os holerites gerados por colaborador e período' },
     ]
   },
 ]
@@ -1089,6 +1090,35 @@ export default function Relatorios() {
         }) as Record<string, unknown>[]
       }
 
+      // ── 29. Holerites dos Colaboradores ──────────────────────────────────────
+      else if (relatAtivo === 'holerites-colaboradores') {
+        const q = supabase.from('holerites')
+          .select('referencia, criado_em, salario_base, total_proventos, total_descontos, valor_liquido, status, colaboradores(nome, chapa, funcoes(nome), obras(nome))')
+          .gte('criado_em', filtroDataIni + 'T00:00:00')
+          .lte('criado_em', filtroDataFim + 'T23:59:59')
+          .order('criado_em', { ascending: false })
+        if (filtroColaborador !== 'todos') q.eq('colaborador_id', filtroColaborador)
+        const { data, error } = await q
+        if (error) throw error
+        resultado = (data ?? []).map(d => {
+          const colab = (d as Record<string, unknown>).colaboradores as Record<string, unknown> | null
+          const func = colab ? (colab.funcoes as Record<string, unknown> | null) : null
+          const obra = colab ? (colab.obras as Record<string, unknown> | null) : null
+          return {
+            referencia: d.referencia ?? '—',
+            colaborador: colab?.nome ?? '—',
+            chapa: colab?.chapa ?? '—',
+            funcao: func?.nome ?? '—',
+            obra: obra?.nome ?? '—',
+            salario_base: d.salario_base ?? 0,
+            total_proventos: d.total_proventos ?? 0,
+            total_descontos: d.total_descontos ?? 0,
+            valor_liquido: d.valor_liquido ?? 0,
+            status: d.status ?? '—',
+          }
+        }) as Record<string, unknown>[]
+      }
+
       setDados(resultado)
       setGerado(true)
       if (resultado.length === 0) toast.info('Nenhum dado encontrado para os filtros selecionados.')
@@ -1516,7 +1546,7 @@ export default function Relatorios() {
             )}
 
             {/* Filtro: Colaborador */}
-            {(isColabRequired || ['provisoes','adiantamentos-aberto','painel-atestados','historico-advertencias'].includes(relatAtivo)) && (
+            {(isColabRequired || ['provisoes','adiantamentos-aberto','painel-atestados','historico-advertencias','holerites-colaboradores'].includes(relatAtivo)) && (
               <FieldWrap label={`Colaborador ${isColabRequired ? '*' : ''}`}>
                 <SearchableSelect
                   value={filtroColaborador || ''}
@@ -2634,6 +2664,83 @@ export default function Relatorios() {
                   </table>
                 </div>
               )}
+
+              {/* ── Tabela: Holerites dos Colaboradores ── */}
+              {relatAtivo === 'holerites-colaboradores' && (() => {
+                const totalBruto   = dados.reduce((s,r) => s + Number(r.total_proventos), 0)
+                const totalDesc    = dados.reduce((s,r) => s + Number(r.total_descontos), 0)
+                const totalLiq     = dados.reduce((s,r) => s + Number(r.valor_liquido), 0)
+                return (
+                  <div>
+                    {/* Cards de totais */}
+                    <div className="flex gap-3 px-4 py-3 border-b border-slate-100 flex-wrap">
+                      <div className="flex-1 min-w-[110px] text-center p-3 bg-blue-50 rounded-lg">
+                        <div className="text-2xl font-black text-blue-700">{dados.length}</div>
+                        <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide">Holerites</div>
+                      </div>
+                      <div className="flex-1 min-w-[110px] text-center p-3 bg-green-50 rounded-lg">
+                        <div className="text-2xl font-black text-green-700">{fmtBRL(totalBruto)}</div>
+                        <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide">Total Proventos</div>
+                      </div>
+                      <div className="flex-1 min-w-[110px] text-center p-3 bg-red-50 rounded-lg">
+                        <div className="text-2xl font-black text-red-600">{fmtBRL(totalDesc)}</div>
+                        <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide">Total Descontos</div>
+                      </div>
+                      <div className="flex-1 min-w-[110px] text-center p-3 bg-emerald-50 rounded-lg">
+                        <div className="text-2xl font-black text-emerald-700">{fmtBRL(totalLiq)}</div>
+                        <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide">Total Líquido</div>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead><tr className="bg-[#1e3a5f] text-white text-xs">
+                          <th className="px-4 py-3 text-left">Ref.</th>
+                          <th className="px-4 py-3 text-left">Colaborador</th>
+                          <th className="px-4 py-3 text-center">Chapa</th>
+                          <th className="px-4 py-3 text-left">Função</th>
+                          <th className="px-4 py-3 text-left">Obra</th>
+                          <th className="px-4 py-3 text-right">Sal. Base</th>
+                          <th className="px-4 py-3 text-right">Proventos</th>
+                          <th className="px-4 py-3 text-right">Descontos</th>
+                          <th className="px-4 py-3 text-right">Líquido</th>
+                          <th className="px-4 py-3 text-center">Status</th>
+                        </tr></thead>
+                        <tbody>
+                          {dados.map((r, i) => (
+                            <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                              <td className="px-4 py-2.5 whitespace-nowrap font-mono text-xs text-slate-600">{String(r.referencia)}</td>
+                              <td className="px-4 py-2.5 font-medium">{String(r.colaborador)}</td>
+                              <td className="px-4 py-2.5 text-center text-slate-500 text-xs">{String(r.chapa)}</td>
+                              <td className="px-4 py-2.5 text-slate-600 text-xs">{String(r.funcao)}</td>
+                              <td className="px-4 py-2.5 text-slate-600 text-xs">{String(r.obra)}</td>
+                              <td className="px-4 py-2.5 text-right text-slate-700">{fmtBRL(Number(r.salario_base))}</td>
+                              <td className="px-4 py-2.5 text-right text-green-700 font-semibold">{fmtBRL(Number(r.total_proventos))}</td>
+                              <td className="px-4 py-2.5 text-right text-red-600 font-semibold">{fmtBRL(Number(r.total_descontos))}</td>
+                              <td className="px-4 py-2.5 text-right text-emerald-700 font-bold">{fmtBRL(Number(r.valor_liquido))}</td>
+                              <td className="px-4 py-2.5 text-center">
+                                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                  String(r.status) === 'publicado' ? 'bg-green-100 text-green-700' :
+                                  String(r.status) === 'rascunho'  ? 'bg-yellow-100 text-yellow-700' :
+                                  'bg-slate-100 text-slate-500'
+                                }`}>{String(r.status)}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-[#1e3a5f] text-white font-bold text-sm">
+                            <td colSpan={6} className="px-4 py-3 text-right">TOTAIS</td>
+                            <td className="px-4 py-3 text-right">{fmtBRL(totalBruto)}</td>
+                            <td className="px-4 py-3 text-right">{fmtBRL(totalDesc)}</td>
+                            <td className="px-4 py-3 text-right">{fmtBRL(totalLiq)}</td>
+                            <td></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* ── Tabela: Coeficiente de Produção ── */}
               {relatAtivo === 'coeficiente-producao' && (() => {

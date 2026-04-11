@@ -2770,8 +2770,59 @@ export default function Relatorios() {
                 const totalBruto   = dados.reduce((s,r) => s + Number(r.total_proventos), 0)
                 const totalDesc    = dados.reduce((s,r) => s + Number(r.total_descontos), 0)
                 const totalLiq     = dados.reduce((s,r) => s + Number(r.valor_liquido), 0)
+
+                function abrirLote() {
+                  if (!dados.length) { toast.warning('Gere o relatório primeiro.'); return }
+                  const meses = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+                  const blocos = dados.map(r => gerarHtmlHolerite(r)).join(
+                    '<div style="page-break-after:always;height:0;overflow:hidden"></div>'
+                  )
+                  const win = window.open('', '_blank', 'width=900,height=720')
+                  if (!win) { toast.warning('Permita pop-ups para este site'); return }
+                  win.document.write(`<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8">
+<title>Lote de Holerites – ${dados.length} colaborador(es)</title>
+<style>
+  body{margin:0;padding:0;font-family:Arial,sans-serif}
+  .capa{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#1e3a5f;color:#fff;text-align:center;page-break-after:always}
+  .capa h1{font-size:32px;font-weight:900;margin-bottom:8px}
+  .capa p{font-size:16px;opacity:.8}
+  .btn-bar{display:flex;gap:12px;justify-content:center;margin:24px 0}
+  .btn{padding:12px 28px;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer}
+  .btn-primary{background:#fff;color:#1e3a5f}
+  .btn-sec{background:rgba(255,255,255,.15);color:#fff;border:2px solid rgba(255,255,255,.4)}
+  @media print{.capa{display:none!important}.btn-bar{display:none!important}}
+</style></head><body>
+<div class="capa">
+  <div style="font-size:48px;margin-bottom:16px">📋</div>
+  <h1>Lote de Holerites</h1>
+  <p>${dados.length} colaborador(es) &nbsp;·&nbsp; Gerado em ${new Date().toLocaleDateString('pt-BR')}</p>
+  <div class="btn-bar">
+    <button class="btn btn-primary" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+    <button class="btn btn-sec" onclick="window.close()">✕ Fechar</button>
+  </div>
+</div>
+${blocos}
+<script>window.onload=()=>setTimeout(()=>window.print(),500)<\/script>
+</body></html>`)
+                  win.document.close()
+                  toast.success(`🗂️ Lote com ${dados.length} holerite(s) gerado!`)
+                }
+
                 return (
                   <div>
+                    {/* Barra "Gerar Lote" */}
+                    <div className="flex items-center justify-between px-4 py-3 bg-[#f8fafc] border-b border-slate-200">
+                      <div className="text-sm font-semibold text-slate-600">
+                        📋 <span className="text-[#1e3a5f]">{dados.length}</span> holerite(s) encontrado(s)
+                      </div>
+                      <button
+                        onClick={abrirLote}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-[#1e3a5f] hover:bg-[#162d4a] text-white text-sm font-bold rounded-lg shadow transition"
+                      >
+                        <Printer size={15}/> 🗂️ Gerar Lote PDF ({dados.length})
+                      </button>
+                    </div>
                     {/* Cards de totais */}
                     <div className="flex gap-3 px-4 py-3 border-b border-slate-100 flex-wrap">
                       <div className="flex-1 min-w-[110px] text-center p-3 bg-blue-50 rounded-lg">

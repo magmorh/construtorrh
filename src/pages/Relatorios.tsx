@@ -1100,7 +1100,7 @@ export default function Relatorios() {
           .order('competencia', { ascending: false })
         if (filtroColaborador !== 'todos') q.eq('colaborador_id', filtroColaborador)
         if (filtroObra !== 'todos') {
-          const obraObj = obrasData.find(o => o.id === filtroObra)
+          const obraObj = obras.find(o => o.id === filtroObra)
           if (obraObj) q.ilike('obra_nome', `%${obraObj.nome}%`)
         }
         const { data, error } = await q

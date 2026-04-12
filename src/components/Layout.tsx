@@ -11,7 +11,7 @@ import {
   Calculator, Bus, BarChart3, Settings, LogOut, Menu,
   HardHat, ChevronRight, UserCog,
   ClipboardList, Lock, CalendarDays, Briefcase, Wallet,
-  Smartphone, Inbox, Scale, MessageSquare,
+  Smartphone, Inbox, Scale,
   Search, Bell, ChevronDown,
   LayoutGrid, FolderKanban, HeartPulse, Banknote, Gavel, Cog,
   BookOpen, CreditCard, Layers, ClipboardCheck, ShoppingBasket, FolderOpen, ScrollText, Receipt, KeyRound, Umbrella,
@@ -25,7 +25,6 @@ const SIDEBAR_W  = 74   // um pouco mais largo para labels legíveis
 const PAGE_TITLES: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   '/':                  { label: 'Dashboard',          icon: LayoutDashboard, color: '#6366f1' },
   '/solicitacoes':      { label: 'Solicitações',        icon: Inbox,           color: '#ef4444' },
-  '/mensagens':         { label: 'Mensagens',           icon: MessageSquare,   color: '#7c3aed' },
   '/colaboradores':     { label: 'Colaboradores',       icon: Users,           color: '#0ea5e9' },
   '/obras':             { label: 'Obras',               icon: Building2,       color: '#14b8a6' },
   '/playbooks':         { label: 'Playbooks',           icon: ClipboardList,   color: '#8b5cf6' },
@@ -72,7 +71,6 @@ const NAV_GROUPS = [
     icon:  LayoutGrid,
     items: [
       { to: '/solicitacoes', label: 'Solicitações', icon: Inbox,         color: '#f87171', badge: 'sol' as const },
-      { to: '/mensagens',    label: 'Mensagens',    icon: MessageSquare, color: '#a78bfa', badge: 'msg' as const },
     ],
   },
   {
@@ -191,7 +189,6 @@ export function Layout({ children }: LayoutProps) {
 
   const [solicitacoesPendentes, setSolicitacoesPendentes] = useState(0)
   const [fechamentosPendentes,  setFechamentosPendentes]  = useState(0)
-  const [mensagensNaoLidas,     setMensagensNaoLidas]     = useState(0)
 
   const fetchFechamentos = useCallback(async () => {
     const { count } = await supabase.from('ponto_lancamentos')
@@ -209,11 +206,7 @@ export function Layout({ children }: LayoutProps) {
     setSolicitacoesPendentes((cad.count??0)+(ocor.count??0)+(epi.count??0)+(doc.count??0))
   }, [])
 
-  const fetchMensagens = useCallback(async () => {
-    const { count } = await supabase.from('portal_mensagens')
-      .select('id',{count:'exact',head:true}).eq('remetente','obra').eq('lida',false)
-    setMensagensNaoLidas(count ?? 0)
-  }, [])
+
 
   useEffect(() => { fetchFechamentos();  const t = setInterval(fetchFechamentos,  60_000); return () => clearInterval(t) }, [fetchFechamentos])
   useEffect(() => { fetchSolicitacoes(); const t = setInterval(fetchSolicitacoes, 60_000); return () => clearInterval(t) }, [fetchSolicitacoes])
@@ -260,7 +253,7 @@ export function Layout({ children }: LayoutProps) {
   const pathKey  = '/' + location.pathname.split('/').filter(Boolean)[0]
   const pageMeta = PAGE_TITLES[location.pathname] ?? PAGE_TITLES[pathKey] ?? { label: 'ConstrutorRH', icon: HardHat, color: '#6366f1' }
   const PageIcon = pageMeta.icon
-  const totalNotif = solicitacoesPendentes + fechamentosPendentes + mensagensNaoLidas
+  const totalNotif = solicitacoesPendentes + fechamentosPendentes
 
   const activeGroupId = NAV_GROUPS.find(g => g.items.some(i => {
     if (i.to === '/') return location.pathname === '/'
@@ -269,7 +262,6 @@ export function Layout({ children }: LayoutProps) {
 
   function getBadgeCount(badge?: string) {
     if (badge === 'sol')  return solicitacoesPendentes
-    if (badge === 'msg')  return mensagensNaoLidas
     if (badge === 'fech') return fechamentosPendentes
     return 0
   }
@@ -279,7 +271,7 @@ export function Layout({ children }: LayoutProps) {
     return '#f87171'
   }
   function getGroupBadge(groupId: string) {
-    if (groupId === 'principal')  return solicitacoesPendentes + mensagensNaoLidas
+    if (groupId === 'principal')  return solicitacoesPendentes
     if (groupId === 'financeiro') return fechamentosPendentes
     return 0
   }
@@ -656,21 +648,7 @@ export function Layout({ children }: LayoutProps) {
                         </div>
                       </button>
                     )}
-                    {mensagensNaoLidas > 0 && (
-                      <button onClick={() => { navigate('/mensagens'); setShowNotif(false) }}
-                        style={{ width:'100%', textAlign:'left', padding:'10px 16px', border:'none', background:'transparent', cursor:'pointer', display:'flex', alignItems:'center', gap:10 }}
-                        onMouseEnter={e => (e.currentTarget.style.background='#fdfbff')}
-                        onMouseLeave={e => (e.currentTarget.style.background='transparent')}
-                      >
-                        <div style={{ width:32, height:32, borderRadius:8, background:'#f5f3ff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                          <MessageSquare size={14} color="#7c3aed"/>
-                        </div>
-                        <div>
-                          <div style={{ fontSize:12, fontWeight:700, color:'#1e293b' }}>{mensagensNaoLidas} mensagem(ns)</div>
-                          <div style={{ fontSize:11, color:'#94a3b8' }}>Do portal da obra</div>
-                        </div>
-                      </button>
-                    )}
+
                   </div>
                 )}
               </div>

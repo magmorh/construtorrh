@@ -46,12 +46,10 @@ const PortalEpis         = React.lazy(() => import('@/pages/portal/PortalEpis'))
 const PortalDocumentos   = React.lazy(() => import('@/pages/portal/PortalDocumentos'))
 const PortalFerias       = React.lazy(() => import('@/pages/portal/PortalFerias'))
 const PortalPlaybook     = React.lazy(() => import('@/pages/portal/PortalPlaybook'))
-const PortalMensagens    = React.lazy(() => import('@/pages/portal/PortalMensagens'))
 const PortalProjetos     = React.lazy(() => import('@/pages/portal/PortalProjetos'))
 const PortalLancamentos  = React.lazy(() => import('@/pages/portal/PortalLancamentos'))
 const PortalClima        = React.lazy(() => import('@/pages/portal/PortalClima'))
 const DocViewer          = React.lazy(() => import('@/pages/DocViewer'))
-const MensagensAdmin     = React.lazy(() => import('@/pages/MensagensAdmin'))
 const CestaBasica        = React.lazy(() => import('@/pages/CestaBasica'))
 const Contracheques      = React.lazy(() => import('@/pages/Contracheques'))
 const AcessoColaboradores = React.lazy(() => import('@/pages/AcessoColaboradores'))
@@ -149,7 +147,6 @@ export default function App() {
               <Route path="/portal/documentos"    element={<PortalDocumentos />} />
               <Route path="/portal/ferias"        element={<PortalFerias />} />
               <Route path="/portal/playbook"      element={<PortalPlaybook />} />
-              <Route path="/portal/mensagens"     element={<PortalMensagens />} />
               <Route path="/portal/projetos"      element={<PortalProjetos />} />
               <Route path="/portal/lancamentos"   element={<PortalLancamentos />} />
               <Route path="/portal/clima"          element={<PortalClima />} />
@@ -427,17 +424,6 @@ export default function App() {
                   </PrivateRoute>
                 }
               />
-              <Route
-                path="/mensagens"
-                element={
-                  <PrivateRoute>
-                    <Layout>
-                      <MensagensAdmin />
-                    </Layout>
-                  </PrivateRoute>
-                }
-              />
-
               <Route
                 path="/contracheques"
                 element={

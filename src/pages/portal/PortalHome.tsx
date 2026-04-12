@@ -5,7 +5,7 @@ import { getPortalSession, refreshPortalSession } from '@/hooks/usePortalAuth'
 import PortalLayout from './PortalLayout'
 import {
   ClipboardList, AlertTriangle, UserPlus, ShieldCheck,
-  HardHat, BookOpen, FolderOpen, FileImage, MessageSquare,
+  HardHat, BookOpen, FolderOpen, FileImage,
   Building2, Clock,
 } from 'lucide-react'
 
@@ -108,11 +108,6 @@ export default function PortalHome() {
       icon: <FolderOpen size={24} />, label: 'Projetos',
       sub: 'Arquivos da obra', to: '/portal/projetos',
       cor: '#475569', bg: '#f8fafc', border: '#cbd5e1',
-    },
-    {
-      icon: <MessageSquare size={24} />, label: 'Mensagens',
-      sub: 'Avisos do RH', to: '/portal/mensagens',
-      cor: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe',
     },
     {
       icon: <Clock size={24} />, label: 'Lançamentos',

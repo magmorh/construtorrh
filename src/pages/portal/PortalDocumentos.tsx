@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { getPortalSession } from '@/hooks/usePortalAuth'
 import PortalLayout from './PortalLayout'
+import ColabSearchSelect from '@/components/ColabSearchSelect'
 import { Camera, Upload, FileText, CheckCircle2, Loader2, Trash2, Download, Image as ImgIcon } from 'lucide-react'
 
 interface DocRow { id: string; tipo: string; descricao?: string; arquivo_url?: string; arquivo_nome?: string; arquivo_tipo?: string; status: string; criado_em: string }
@@ -274,10 +275,14 @@ export default function PortalDocumentos() {
           {/* Colaborador */}
           <div>
             <label style={{ fontSize:11, fontWeight:700, color:'#374151', display:'block', marginBottom:4, textTransform:'uppercase' }}>Colaborador (opcional)</label>
-            <select value={colabId} onChange={e => setColabId(e.target.value)} style={S}>
-              <option value="">Geral / Obra</option>
-              {colabs.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-            </select>
+            <ColabSearchSelect
+              colabs={colabs}
+              value={colabId}
+              onChange={setColabId}
+              label="Colaborador (opcional)"
+              opcional
+              opcionalLabel="Geral / Obra"
+            />
           </div>
 
           {/* Descrição */}

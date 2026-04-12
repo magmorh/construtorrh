@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { getPortalSession } from '@/hooks/usePortalAuth'
 import PortalLayout from './PortalLayout'
+import ColabSearchSelect from '@/components/ColabSearchSelect'
 import { AlertTriangle, Loader2, CheckCircle2, Trash2, Camera, Upload, FileText } from 'lucide-react'
 
 interface Obra        { id: string; nome: string }
@@ -66,6 +67,7 @@ export default function PortalOcorrencias() {
 
   // ── Campos comuns ──────────────────────────────────────────────────────────
   const [colabId, setColabId]       = useState('')
+  const [colabBusca, setColabBusca] = useState('')
   const [dataOcor, setDataOcor]     = useState(new Date().toISOString().slice(0,10))
   const [descricao, setDescricao]   = useState('')
   const [gravidade, setGravidade]   = useState('leve')
@@ -419,11 +421,14 @@ export default function PortalOcorrencias() {
           {/* Colaborador */}
           <div>
             {LBL('Colaborador a ser desligado *')}
-            <select value={colabId} onChange={e => { setColabId(e.target.value); setErroMsg('') }} style={SEL(!colabId)}>
-              <option value="">Selecione…</option>
-              {colabs.map(c => <option key={c.id} value={c.id}>{c.nome}{c.chapa ? ` (${c.chapa})` : ''}</option>)}
-            </select>
-            {!colabId && <p style={{ fontSize:11, color:'#dc2626', marginTop:4, fontWeight:600 }}>⚠️ Selecione o colaborador</p>}
+            <ColabSearchSelect
+              colabs={colabs}
+              value={colabId}
+              onChange={id => { setColabId(id); setErroMsg('') }}
+              label="Colaborador a ser desligado *"
+              required
+              erro={!colabId ? 'Selecione o colaborador' : undefined}
+            />
           </div>
 
           {/* Motivo */}
@@ -491,10 +496,13 @@ export default function PortalOcorrencias() {
           {/* Colaborador */}
           <div>
             {LBL('Colaborador *')}
-            <select value={colabId} onChange={e => { setColabId(e.target.value); setErroMsg('') }} style={SEL(!colabId)}>
-              <option value="">Selecione…</option>
-              {colabs.map(c => <option key={c.id} value={c.id}>{c.nome}{c.chapa ? ` (${c.chapa})` : ''}</option>)}
-            </select>
+            <ColabSearchSelect
+              colabs={colabs}
+              value={colabId}
+              onChange={id => { setColabId(id); setErroMsg('') }}
+              label="Colaborador *"
+              required
+            />
             {!colabId && (
               <p style={{ fontSize:11, color:'#dc2626', marginTop:4, fontWeight:600 }}>⚠️ Selecione um colaborador</p>
             )}

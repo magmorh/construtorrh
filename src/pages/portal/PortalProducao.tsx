@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { getPortalSession } from '@/hooks/usePortalAuth'
 import PortalLayout from './PortalLayout'
+import ColabSearchSelect from '@/components/ColabSearchSelect'
 import { HardHat, Upload, Camera, CheckCircle2, Loader2, Trash2, Download, Image as ImgIcon, FileText } from 'lucide-react'
 
 interface Obra       { id: string; nome: string }
@@ -269,11 +270,14 @@ export default function PortalProducao() {
           {/* Colaborador */}
           <div>
             <label style={{ fontSize:12, fontWeight:700, color:'#374151', display:'block', marginBottom:6, textTransform:'uppercase', letterSpacing:'0.05em' }}>Colaborador (opcional)</label>
-            <select value={colabId} onChange={e => setColabId(e.target.value)}
-              style={{ width:'100%', height:44, border:'1px solid #e5e7eb', borderRadius:8, padding:'0 12px', fontSize:13, background:'#fff', boxSizing:'border-box' }}>
-              <option value="">— Geral / toda a equipe —</option>
-              {colabs.map(c => <option key={c.id} value={c.id}>{c.nome} {c.chapa?`(${c.chapa})`:''}</option>)}
-            </select>
+            <ColabSearchSelect
+              colabs={colabs}
+              value={colabId}
+              onChange={setColabId}
+              label="Colaborador (opcional)"
+              opcional
+              opcionalLabel="— Geral / toda a equipe —"
+            />
           </div>
 
           {/* Data */}

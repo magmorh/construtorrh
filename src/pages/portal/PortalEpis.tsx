@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { getPortalSession } from '@/hooks/usePortalAuth'
 import PortalLayout from './PortalLayout'
+import ColabSearchSelect from '@/components/ColabSearchSelect'
 import { ShieldCheck, Plus, Trash2, CheckCircle2, Loader2, Clock, Check, X, AlertTriangle } from 'lucide-react'
 
 interface EpiItem { id: string; nome: string; quantidade: string; obs: string }
@@ -145,10 +146,14 @@ export default function PortalEpis() {
             <label style={{ fontSize:11, fontWeight:700, color:'#374151', display:'block', marginBottom:4, textTransform:'uppercase' }}>
               Colaborador (opcional)
             </label>
-            <select value={colabId} onChange={e => setColabId(e.target.value)} style={S}>
-              <option value="">Para toda a equipe / obra</option>
-              {colabs.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-            </select>
+            <ColabSearchSelect
+              colabs={colabs}
+              value={colabId}
+              onChange={setColabId}
+              label="Colaborador (opcional)"
+              opcional
+              opcionalLabel="Para toda a equipe / obra"
+            />
           </div>
 
           <div>

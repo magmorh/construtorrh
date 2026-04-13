@@ -49,6 +49,7 @@ const PortalPlaybook     = React.lazy(() => import('@/pages/portal/PortalPlayboo
 const PortalProjetos     = React.lazy(() => import('@/pages/portal/PortalProjetos'))
 const PortalLancamentos  = React.lazy(() => import('@/pages/portal/PortalLancamentos'))
 const PortalClima        = React.lazy(() => import('@/pages/portal/PortalClima'))
+const PortalEquipamentos = React.lazy(() => import('@/pages/portal/PortalEquipamentos'))
 const DocViewer          = React.lazy(() => import('@/pages/DocViewer'))
 const CestaBasica        = React.lazy(() => import('@/pages/CestaBasica'))
 const Contracheques      = React.lazy(() => import('@/pages/Contracheques'))
@@ -63,6 +64,7 @@ const GestorAtestados    = React.lazy(() => import('@/pages/gestor/GestorAtestad
 const GestorAcidentes    = React.lazy(() => import('@/pages/gestor/GestorAcidentes'))
 const GestorMeteorologia = React.lazy(() => import('@/pages/gestor/GestorMeteorologia'))
 const GestorRelatorios   = React.lazy(() => import('@/pages/gestor/GestorRelatorios'))
+const GestorEquipamentos = React.lazy(() => import('@/pages/gestor/GestorEquipamentos'))
 const GestorLogin        = React.lazy(() => import('@/pages/gestor/GestorLogin'))
 const GestorAdmin        = React.lazy(() => import('@/pages/gestor/GestorAdmin'))
 
@@ -150,6 +152,7 @@ export default function App() {
               <Route path="/portal/projetos"      element={<PortalProjetos />} />
               <Route path="/portal/lancamentos"   element={<PortalLancamentos />} />
               <Route path="/portal/clima"          element={<PortalClima />} />
+              <Route path="/portal/equipamentos"   element={<PortalEquipamentos />} />
 
               {/* Login do Gestor — público */}
               <Route path="/gestor-login" element={<GestorLogin />} />
@@ -162,6 +165,7 @@ export default function App() {
               <Route path="/gestor/acidentes" element={<GestorAcidentes />} />
               <Route path="/gestor/meteorologia" element={<GestorMeteorologia />} />
               <Route path="/gestor/relatorios" element={<GestorRelatorios />} />
+              <Route path="/gestor/equipamentos" element={<GestorEquipamentos />} />
               {/* Admin: gerenciar gestores — só master */}
               <Route path="/gestor-admin" element={<PrivateRoute><Layout><GestorAdmin /></Layout></PrivateRoute>} />
 

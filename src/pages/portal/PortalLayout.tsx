@@ -4,7 +4,7 @@ import {
   ClipboardList, AlertTriangle, Home, LogOut,
   HardHat, ShieldCheck, FileImage,
   BookOpen, FolderOpen,
-  WifiOff, Building2, Clock, Menu, X, UserPlus, CloudRain, Umbrella,
+  WifiOff, Building2, Clock, Menu, X, UserPlus, CloudRain, Umbrella, Wrench,
 } from 'lucide-react'
 import { clearPortalSession, getPortalSession } from '@/hooks/usePortalAuth'
 
@@ -22,6 +22,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/portal/playbook':    'Playbook',
   '/portal/projetos':    'Projetos',
   '/portal/clima':       'Clima / Chuva',
+  '/portal/equipamentos': 'Equipamentos',
 }
 
 // ── Menu de navegação ────────────────────────────────────────────────────────
@@ -36,7 +37,8 @@ const navItems = [
   { to: '/portal/ferias',       icon: Umbrella,      label: 'Férias',     color: '#0369a1', bg: '#e0f2fe' },
   { to: '/portal/playbook',     icon: BookOpen,      label: 'Playbook',   color: '#34d399', bg: '#f0fdf4' },
   { to: '/portal/projetos',     icon: FolderOpen,    label: 'Projetos',   color: '#94a3b8', bg: '#f8fafc' },
-  { to: '/portal/clima',        icon: CloudRain,     label: 'Clima',      color: '#0ea5e9', bg: '#f0f9ff' },
+  { to: '/portal/clima',        icon: CloudRain, label: 'Clima',       color: '#0ea5e9', bg: '#f0f9ff' },
+  { to: '/portal/equipamentos',  icon: Wrench,    label: 'Equipamentos',color: '#b45309', bg: '#fffbeb' },
 ]
 
 // ── Relógio isolado — só ele re-renderiza a cada 30s ─────────────────────────

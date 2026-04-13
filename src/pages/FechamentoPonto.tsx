@@ -1288,8 +1288,6 @@ export default function FechamentoPonto() {
                         <TableHead className="text-center" style={{ fontSize: 11 }}>Dias</TableHead>
                         <TableHead style={{ fontSize: 11, color: '#7c3aed', fontWeight: 700, minWidth: 260 }}>💵 Composição do Salário</TableHead>
                         <TableHead className="text-center" style={{ fontSize: 11, color: '#dc2626' }}>Faltas</TableHead>
-                        <TableHead className="text-right" style={{ fontSize: 11, color: '#dc2626', whiteSpace: 'nowrap' }} title="VT reduzido por faltas (desconta do benefício VT, não do salário)">VT Falta</TableHead>
-                        <TableHead className="text-right" style={{ fontSize: 11, color: '#0369a1', whiteSpace: 'nowrap' }}>+Sáb/Dom</TableHead>
                         <TableHead className="text-right" style={{ fontSize: 11, color: '#b45309', whiteSpace: 'nowrap' }}>−VT 6%</TableHead>
                         <TableHead className="text-right" style={{ fontSize: 11, color: '#dc2626' }}>− INSS</TableHead>
                         <TableHead className="text-right" style={{ fontSize: 11, color: '#dc2626' }}>− IR</TableHead>
@@ -1397,31 +1395,6 @@ export default function FechamentoPonto() {
                             <TableCell className="text-center" style={{ color: lanc.faltas > 0 ? '#dc2626' : 'var(--muted-foreground)', fontSize: 12 }}>
                               {lanc.faltas > 0 ? lanc.faltas : '—'}
                             </TableCell>
-                            {/* ══ VT Falta ══ */}
-                            <TableCell className="text-right">
-                              {lanc.vt_desconto_faltas > 0
-                                ? <span style={{ color: '#dc2626', fontSize: 11, fontWeight: 700, cursor: 'help' }}
-                                    title={`${lanc.faltas} falta${lanc.faltas !== 1 ? 's' : ''} × R$ ${lanc.valor_vt_dia.toFixed(2)}/dia = R$ ${lanc.vt_desconto_faltas.toFixed(2)} descontado do VT (não do salário)`}
-                                  >
-                                    −{formatCurrency(lanc.vt_desconto_faltas)}
-                                    <div style={{ fontSize: 9, color: '#fca5a5', fontWeight: 400 }}>{lanc.faltas} falta{lanc.faltas !== 1 ? 's' : ''} no VT</div>
-                                  </span>
-                                : <span style={{ color: '#94a3b8' }}>—</span>
-                              }
-                            </TableCell>
-
-                            {/* ══ +Sáb/Dom ══ */}
-                            <TableCell className="text-right" style={{ fontSize: 12 }}>
-                              {lanc.vt_adicional_sabdom > 0
-                                ? <span style={{ color: '#16a34a', fontWeight: 700, cursor: 'help' }}
-                                    title={`${lanc.vt_sabs_dom_trab} sáb/dom × R$ ${lanc.valor_vt_dia.toFixed(2)}/dia = +R$ ${lanc.vt_adicional_sabdom.toFixed(2)} no VT`}>
-                                    +{formatCurrency(lanc.vt_adicional_sabdom)}
-                                    <div style={{ fontSize: 9, color: '#86efac', fontWeight: 400 }}>{lanc.vt_sabs_dom_trab} sáb/dom</div>
-                                  </span>
-                                : <span style={{ color: 'var(--muted-foreground)', fontSize: 11 }}>—</span>
-                              }
-                            </TableCell>
-
                             {/* ══ −VT 6% (CLT) ══ */}
                             <TableCell className="text-right" style={{ fontSize: 12 }}>
                               {(lanc.desconto_vt_6pct ?? 0) > 0
@@ -1789,42 +1762,9 @@ export default function FechamentoPonto() {
                     <span style={{ fontSize:11, color:'#92400e' }}>(descontado no bruto)</span>
                   </div>
                 )}
-                {/* VT — apenas ajustes que impactam o salário: falta e sáb/dom */}
-                {/* VT BASE é pago via cartão/benefício separado — não aparece aqui */}
-                {((modalLiberar.vt_desconto_faltas ?? 0) > 0 || (modalLiberar.vt_adicional_sabdom ?? 0) > 0 || (modalLiberar.desconto_vt_6pct ?? 0) > 0) && (
+                {/* VT 6% — único ajuste de VT que impacta o salário (obrigação legal CLT) */}
+                {(modalLiberar.desconto_vt_6pct ?? 0) > 0 && (
                   <>
-                    {/* INFO: VT pago separado */}
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                      padding:'7px 14px', background:'#f8fafc', borderBottom:'1px solid #e2e8f0' }}>
-                      <span style={{ fontSize:11, color:'#64748b', fontStyle:'italic' }}>
-                        🚌 Vale Transporte — pago via cartão/benefício (fora da folha)
-                      </span>
-                    </div>
-
-                    {/* VT falta: informativo — reduz VT do cartão, NÃO desconta do salário */}
-                    {(modalLiberar.vt_desconto_faltas ?? 0) > 0 && (
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                        padding:'8px 14px', background:'#fffbeb', borderBottom:'1px solid #fde68a' }}>
-                        <span style={{ fontSize:12, color:'#374151' }}>
-                          🚌 VT reduzido por faltas
-                          <span style={{ fontSize:10, color:'#b45309', marginLeft:4 }}>({modalLiberar.faltas} falta{modalLiberar.faltas !== 1 ? 's' : ''} — desconta do VT, não do salário)</span>
-                        </span>
-                        <span style={{ fontSize:12, fontWeight:600, color:'#dc2626' }}>− {formatCurrency(modalLiberar.vt_desconto_faltas)}</span>
-                      </div>
-                    )}
-
-                    {/* adicional sáb/dom */}
-                    {(modalLiberar.vt_adicional_sabdom ?? 0) > 0 && (
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                        padding:'8px 14px', background:'#eff6ff', borderBottom:'1px solid #bfdbfe' }}>
-                        <span style={{ fontSize:12, color:'#374151' }}>
-                          🚌 + Sáb/Dom trabalhados 
-                          <span style={{ fontSize:11, color:'#0369a1' }}>({modalLiberar.vt_sabs_dom_trab} dia{modalLiberar.vt_sabs_dom_trab !== 1 ? 's' : ''})</span>
-                        </span>
-                        <span style={{ fontSize:12, fontWeight:600, color:'#0369a1' }}>+ {formatCurrency(modalLiberar.vt_adicional_sabdom)}</span>
-                      </div>
-                    )}
-
                     {/* desconto 6% colaborador */}
                     {(modalLiberar.desconto_vt_6pct ?? 0) > 0 && (
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',

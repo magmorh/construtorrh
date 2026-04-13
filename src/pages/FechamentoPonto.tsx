@@ -211,7 +211,7 @@ export default function FechamentoPonto() {
         snap_faltas, snap_vt_diario, snap_desconto_vt, snap_desconto_adiant,
         snap_inss, snap_ir, snap_liquido, snap_fechado_em,
         colaboradores(nome, chapa, tipo_contrato, funcao_id, vale_transporte, vt_dados, data_admissao, funcoes(nome)),
-        obras(nome, considera_sabado_util)
+        obras(nome, considera_sabado_util, desconta_vt)
       `)
       .in('status', ['em_fechamento', 'aguardando_aprovacao', 'aprovado', 'liberado', 'pago', 'rascunho', 'recusado'])
       .eq('mes_referencia', mr)
@@ -601,8 +601,13 @@ export default function FechamentoPonto() {
       // ── Base de desconto: CLT = horas+DSR / Autônomo = total recebido ───────
       const baseDesconto = tipo === 'clt' ? (valorHoras + dsr) : valorTotal
 
-      // 6% do salário bruto (baseDesconto) — SOMENTE CLT e se descontar_6pct=true no VT do mês
-      const descontoVT6pct = (tipo === 'clt' && setDescontoVT6.has(l.colaborador_id)) ? Math.min(baseDesconto * 0.06, vtBruto) : 0
+      // 6% SOMENTE: CLT + descontar_6pct=true no VT do mês + obra com desconta_vt=true
+      // Regra: o flag desconta_vt da OBRA é a fonte primária de verdade.
+      // Se a obra não tem desconta_vt marcado, o 6% NUNCA é aplicado mesmo se o VT tiver descontar_6pct.
+      const obraDescontaVT = !!(l.obras?.desconta_vt ?? false)
+      const descontoVT6pct = (tipo === 'clt' && obraDescontaVT && setDescontoVT6.has(l.colaborador_id))
+        ? Math.min(baseDesconto * 0.06, vtBruto)
+        : 0
       const descontoVT     = vtDescontoFaltas + descontoVT6pct
       const inss = tipo === 'clt'
         ? calcINSS(baseDesconto, tabelaInss.length ? tabelaInss : undefined)

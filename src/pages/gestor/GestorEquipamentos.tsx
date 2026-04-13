@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import GestorLayout from './GestorLayout'
-import { Loader2, Wrench } from 'lucide-react'
+import { fetchEmpresaData, CABECALHO_CSS, gerarCabecalhoHTML } from '@/lib/relatorioHeader'
+import { Loader2, FileDown } from 'lucide-react'
 import { toast } from 'sonner'
 
 type Tipo   = 'locado' | 'proprio'
@@ -54,6 +55,69 @@ export default function GestorEquipamentos() {
     toast.success('Status atualizado!'); fetchData()
   }
 
+  async function gerarPDF(obraId?: string) {
+    const alvo = obraId ? rows.filter(r => r.obra_id === obraId) : rows
+    if (alvo.length === 0) { toast.error('Nenhum item para exportar'); return }
+    const emp = await fetchEmpresaData()
+    const obraNome = obraId ? (obras.find(o => o.id === obraId)?.nome ?? 'Obra') : 'Todas as Obras'
+    const hoje = new Date().toLocaleDateString('pt-BR')
+    const STATUS_LABEL: Record<string, string> = { ativo:'Ativo', devolvido:'Devolvido', baixa:'Baixa', defeito:'Defeito' }
+    const STATUS_COR:   Record<string, string> = { ativo:'#16a34a', devolvido:'#0369a1', baixa:'#7c3aed', defeito:'#dc2626' }
+
+    // Se 'todas as obras', agrupa por obra para o PDF
+    const obrasAlvo = obraId
+      ? [{ id: obraId, nome: obraNome }]
+      : [...new Map(alvo.map(r => [r.obra_id, { id: r.obra_id, nome: r.obra_nome }])).values()]
+
+    const secaoObra = (oId: string, oNome: string) => {
+      const itensObra = alvo.filter(r => r.obra_id === oId)
+      const locados  = itensObra.filter(r => r.tipo === 'locado')
+      const proprios = itensObra.filter(r => r.tipo === 'proprio')
+      const block = (itens: Equip[], tipo: string) => {
+        if (itens.length === 0) return ''
+        const hBg  = tipo === 'locado' ? '#1d4ed8' : '#15803d'
+        const hBg2 = tipo === 'locado' ? '#eff6ff'  : '#f0fdf4'
+        const hTit = tipo === 'locado' ? '🚛 EQUIPAMENTOS LOCADOS' : '🔧 FERRAMENTAS PRÓPRIAS'
+        const h4   = tipo === 'locado' ? 'Prev. Devolução' : 'Observações'
+        const header = `<tr style="background:${hBg};color:#fff"><th colspan="6">${hTit}</th></tr>
+          <tr style="background:${hBg2}"><th>Item</th><th>Qtd</th><th>Fornecedor</th><th>Data Início</th><th>${h4}</th><th>Status</th></tr>`
+        const linhas = itens.map(r => {
+          const venc = tipo==='locado' && r.data_prevista && r.status==='ativo' && new Date(r.data_prevista) < new Date()
+          const cor  = venc ? '#dc2626' : STATUS_COR[r.status] ?? '#374151'
+          return `<tr>
+            <td><strong>${r.nome}</strong>${r.descricao?`<br><small style="color:#6b7280">${r.descricao}</small>`:''}</td>
+            <td style="text-align:center">${r.quantidade}</td>
+            <td>${r.fornecedor??'—'}</td>
+            <td>${r.data_inicio?new Date(r.data_inicio+'T12:00').toLocaleDateString('pt-BR'):'—'}</td>
+            <td style="color:${venc?'#dc2626':'inherit'};font-weight:${venc?700:400}">${tipo==='locado'?(r.data_prevista?new Date(r.data_prevista+'T12:00').toLocaleDateString('pt-BR'):'—'):(r.observacoes??'—')}${venc?' ⏰':''}</td>
+            <td><span style="color:${cor};font-weight:700">${STATUS_LABEL[r.status]??r.status}</span></td>
+          </tr>`
+        }).join('')
+        return `${header}${linhas}`
+      }
+      return `<tr style="background:#0f172a;color:#fff"><td colspan="6" style="padding:8px 10px;font-size:12px;font-weight:800">🏗️ ${oNome}</td></tr>${block(locados,'locado')}${block(proprios,'proprio')}`
+    }
+
+    const corpoTabela = obrasAlvo.map(o => secaoObra(o.id, o.nome)).join('')
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+    <title>Equipamentos — ${obraNome}</title>
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:24px;color:#111;font-size:12px}
+    ${CABECALHO_CSS}
+    table{width:100%;border-collapse:collapse;margin-bottom:20px}
+    th,td{padding:6px 9px;border:1px solid #e2e8f0;text-align:left;font-size:11px}
+    th{font-weight:700;font-size:10px;text-transform:uppercase}
+    tr:nth-child(even) td{background:#f8fafc}
+    .rodape{margin-top:24px;padding-top:10px;border-top:1px solid #e2e8f0;font-size:10px;color:#9ca3af;text-align:right}
+    @media print{body{padding:14px}}</style></head><body>
+    ${gerarCabecalhoHTML(emp,{titulo:'Listagem de Equipamentos & Ferramentas',subtitulo:'Obras: '+obraNome+' · Emitido em: '+hoje})}
+    <table>${corpoTabela}</table>
+    <div class="rodape">Total: ${alvo.length} item(s) · Locados: ${alvo.filter(r=>r.tipo==='locado').length} · Próprios: ${alvo.filter(r=>r.tipo==='proprio').length} · Ativos: ${alvo.filter(r=>r.status==='ativo').length}</div>
+    <script>window.onload=()=>{window.print()}<\/script></body></html>`
+    const win = window.open('','_blank','width=920,height=700')
+    if (win) { win.document.write(html); win.document.close() }
+  }
+
   // Filtros
   const rowsFiltrados = useMemo(() => {
     let r = rows
@@ -83,11 +147,17 @@ export default function GestorEquipamentos() {
   return (
     <GestorLayout>
       {/* Header */}
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, margin: '0 0 4px', color: '#0f172a' }}>
-          🔧 Equipamentos & Ferramentas
-        </h1>
-        <p style={{ color: '#64748b', fontSize: 13, margin: 0 }}>Equipamentos locados e ferramentas por obra</p>
+      <div style={{ marginBottom: 20, display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexWrap:'wrap', gap:10 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, margin: '0 0 4px', color: '#0f172a' }}>🔧 Equipamentos & Ferramentas</h1>
+          <p style={{ color: '#64748b', fontSize: 13, margin: 0 }}>Equipamentos locados e ferramentas por obra</p>
+        </div>
+        {rows.length > 0 && (
+          <button onClick={() => gerarPDF(obraFiltro !== 'todas' ? obraFiltro : undefined)}
+            style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 16px', borderRadius:9, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', fontSize:13, fontWeight:700, color:'#374151' }}>
+            <FileDown size={15}/> Gerar PDF {obraFiltro !== 'todas' ? '(Obra)' : '(Todas as Obras)'}
+          </button>
+        )}
       </div>
 
       {/* KPIs */}
@@ -144,7 +214,7 @@ export default function GestorEquipamentos() {
                   <span style={{ fontSize:20 }}>🏗️</span>
                   <span style={{ fontWeight:800, fontSize:15, color:'#fff' }}>{grupo.nome}</span>
                 </div>
-                <div style={{ display:'flex', gap:8 }}>
+                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                   {grupo.locados.length > 0 && (
                     <span style={{ background:'rgba(255,255,255,0.2)', color:'#fff', borderRadius:12, padding:'2px 10px', fontSize:11, fontWeight:700 }}>
                       🚛 {grupo.locados.length} locado{grupo.locados.length>1?'s':''}
@@ -155,6 +225,10 @@ export default function GestorEquipamentos() {
                       🔧 {grupo.proprios.length} própri{grupo.proprios.length>1?'os':'o'}
                     </span>
                   )}
+                  <button onClick={() => gerarPDF(grupo.id)}
+                    style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 10px', borderRadius:7, border:'1px solid rgba(255,255,255,0.4)', background:'rgba(255,255,255,0.15)', color:'#fff', fontWeight:700, fontSize:11, cursor:'pointer' }}>
+                    <FileDown size={12}/> PDF
+                  </button>
                 </div>
               </div>
 

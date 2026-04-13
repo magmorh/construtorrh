@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { getPortalSession } from '@/hooks/usePortalAuth'
 import PortalLayout from './PortalLayout'
-import { Plus, Trash2, Loader2, Wrench, ChevronDown, ChevronRight } from 'lucide-react'
+import { fetchEmpresaData, CABECALHO_CSS, gerarCabecalhoHTML } from '@/lib/relatorioHeader'
+import { Plus, Trash2, Loader2, Wrench, FileDown } from 'lucide-react'
 import { toast } from 'sonner'
 
 type Tipo   = 'locado' | 'proprio'
@@ -136,6 +137,59 @@ export default function PortalEquipamentos() {
     setEditId(r.id); setAba('novo')
   }
 
+  // ── Gerar PDF ──────────────────────────────────────────────────────────────
+  async function gerarPDF() {
+    if (rows.length === 0) { toast.error('Nenhum item para exportar'); return }
+    const emp = await fetchEmpresaData()
+    const obraNome = obrasData.find(o => o.id === obraId)?.nome ?? 'Obra'
+    const hoje = new Date().toLocaleDateString('pt-BR')
+    const STATUS_LABEL: Record<string, string> = { ativo:'Ativo', devolvido:'Devolvido', baixa:'Baixa', defeito:'Defeito' }
+    const STATUS_COR:   Record<string, string> = { ativo:'#16a34a', devolvido:'#0369a1', baixa:'#7c3aed', defeito:'#dc2626' }
+
+    const tabelaLinhas = (itens: Equip[], tipo: string) => {
+      if (itens.length === 0) return ''
+      const header = tipo === 'locado'
+        ? `<tr style="background:#1d4ed8;color:#fff"><th colspan="6">${tipo==='locado'?'🚛 EQUIPAMENTOS LOCADOS':'🔧 FERRAMENTAS PRÓPRIAS'}</th></tr>
+           <tr style="background:#eff6ff"><th>Item</th><th>Qtd</th><th>Fornecedor</th><th>Início</th><th>Prev. Devolução</th><th>Status</th></tr>`
+        : `<tr style="background:#15803d;color:#fff"><th colspan="6">🔧 FERRAMENTAS PRÓPRIAS</th></tr>
+           <tr style="background:#f0fdf4"><th>Item</th><th>Qtd</th><th>Fornecedor</th><th>Data Compra</th><th>Observações</th><th>Status</th></tr>`
+      const linhas = itens.map(r => {
+        const venc = tipo==='locado' && r.data_prevista && r.status==='ativo' && new Date(r.data_prevista) < new Date()
+        const cor = venc ? '#dc2626' : STATUS_COR[r.status] ?? '#374151'
+        return `<tr>
+          <td><strong>${r.nome}</strong>${r.descricao?`<br><small style="color:#6b7280">${r.descricao}</small>`:''}</td>
+          <td style="text-align:center">${r.quantidade}</td>
+          <td>${r.fornecedor??'—'}</td>
+          <td>${r.data_inicio?new Date(r.data_inicio+'T12:00').toLocaleDateString('pt-BR'):'—'}</td>
+          <td style="color:${venc?'#dc2626':'inherit'};font-weight:${venc?700:400}">${
+            tipo==='locado'
+              ? (r.data_prevista?new Date(r.data_prevista+'T12:00').toLocaleDateString('pt-BR'):'—')
+              : (r.observacoes??'—')
+          }${venc?' ⏰':''}</td>
+          <td><span style="color:${cor};font-weight:700;white-space:nowrap">${STATUS_LABEL[r.status]??r.status}</span></td>
+        </tr>`
+      }).join('')
+      return `${header}${linhas}`
+    }
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+    <title>Equipamentos — ${obraNome}</title>
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:24px;color:#111;font-size:12px}
+    ${CABECALHO_CSS}
+    table{width:100%;border-collapse:collapse;margin-bottom:20px}
+    th,td{padding:6px 9px;border:1px solid #e2e8f0;text-align:left;font-size:11px}
+    th{font-weight:700;font-size:10px;text-transform:uppercase}
+    tr:nth-child(even) td{background:#f8fafc}
+    .rodape{margin-top:28px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#9ca3af;text-align:right}
+    @media print{body{padding:14px}}</style></head><body>
+    ${gerarCabecalhoHTML(emp,{titulo:'Listagem de Equipamentos & Ferramentas',subtitulo:'Obra: '+obraNome+' · Emitido em: '+hoje})}
+    <table>${tabelaLinhas(rows.filter(r=>r.tipo==='locado'),'locado')}${tabelaLinhas(rows.filter(r=>r.tipo==='proprio'),'proprio')}</table>
+    <div class="rodape">Total: ${rows.length} item(s) · Locados: ${rows.filter(r=>r.tipo==='locado').length} · Próprios: ${rows.filter(r=>r.tipo==='proprio').length} · Ativos: ${rows.filter(r=>r.status==='ativo').length}</div>
+    <script>window.onload=()=>{window.print()}<\/script></body></html>`
+    const win = window.open('','_blank','width=900,height=700')
+    if (win) { win.document.write(html); win.document.close() }
+  }
+
   const rowsFiltrados = useMemo(() =>
     tipoFiltro === 'todos' ? rows : rows.filter(r => r.tipo === tipoFiltro),
   [rows, tipoFiltro])
@@ -155,9 +209,16 @@ export default function PortalEquipamentos() {
   return (
     <PortalLayout>
       {/* Header */}
-      <div style={{ padding: '16px 16px 8px' }}>
-        <div style={{ fontWeight: 800, fontSize: 17, color: '#1e3a5f' }}>🔧 Equipamentos & Ferramentas</div>
-        <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>Locados e ferramentas da obra</div>
+      <div style={{ padding: '16px 16px 8px', display:'flex', alignItems:'flex-start', justifyContent:'space-between' }}>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 17, color: '#1e3a5f' }}>🔧 Equipamentos & Ferramentas</div>
+          <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>Locados e ferramentas da obra</div>
+        </div>
+        {rows.length > 0 && (
+          <button onClick={gerarPDF} style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', borderRadius:9, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', fontSize:12, fontWeight:700, color:'#374151', flexShrink:0, marginTop:2 }}>
+            <FileDown size={14}/> Gerar PDF
+          </button>
+        )}
       </div>
 
       {/* Seletor de obra — sempre visível */}

@@ -20,10 +20,20 @@ import {
 } from '@/components/ui/select'
 import {
   Building2, Plus, Search, Pencil, Trash2, MapPin, Clock, AlertTriangle,
-  Calendar, Users, X, ChevronRight, ExternalLink,
+  Calendar, Users, X, ChevronRight, ExternalLink, FileDown, Loader2,
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { traduzirErro } from '@/lib/erros'
+
+// ─── Tipo colaborador para o modal ────────────────────────────────────────────
+interface ColabModal {
+  id: string
+  nome: string
+  chapa: string | null
+  funcao: string
+  status: string
+  tipo_contrato: string | null
+}
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 type ObraWithCount = Obra & { colaboradores_count?: number; has_horarios?: boolean }
@@ -103,6 +113,101 @@ export default function Obras() {
 
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // ── Modal de colaboradores ────────────────────────────────────────────────
+  const [colabModalOpen, setColabModalOpen] = useState(false)
+  const [colabModalObra, setColabModalObra] = useState<ObraWithCount | null>(null)
+  const [colabList,       setColabList]      = useState<ColabModal[]>([])
+  const [colabLoading,    setColabLoading]   = useState(false)
+
+  const openColabModal = useCallback(async (obra: ObraWithCount) => {
+    setColabModalObra(obra)
+    setColabModalOpen(true)
+    setColabLoading(true)
+    setColabList([])
+    const { data, error } = await supabase
+      .from('colaboradores')
+      .select('id, nome, chapa, status, tipo_contrato, funcoes(nome)')
+      .eq('obra_id', obra.id)
+      .order('nome')
+    if (error) {
+      toast.error('Erro ao buscar colaboradores: ' + error.message)
+    } else {
+      setColabList(
+        (data ?? []).map((c: any) => ({
+          id: c.id,
+          nome: c.nome,
+          chapa: c.chapa,
+          funcao: c.funcoes?.nome ?? '—',
+          status: c.status ?? 'ativo',
+          tipo_contrato: c.tipo_contrato,
+        }))
+      )
+    }
+    setColabLoading(false)
+  }, [])
+
+  const handlePrintColabs = useCallback(() => {
+    if (!colabModalObra) return
+    const now = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    const rows = colabList.map((c, i) => `
+      <tr style="background:${i % 2 === 0 ? '#f8fafc' : '#fff'}">
+        <td style="padding:7px 10px;border-bottom:1px solid #e2e8f0;font-size:13px">${c.nome}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #e2e8f0;font-size:13px;font-family:monospace;text-align:center">${c.chapa ?? '—'}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #e2e8f0;font-size:13px">${c.funcao}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #e2e8f0;font-size:13px;text-align:center">
+          <span style="padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;background:${c.status === 'ativo' ? '#dcfce7' : '#fee2e2'};color:${c.status === 'ativo' ? '#15803d' : '#dc2626'}">
+            ${c.status === 'ativo' ? 'Ativo' : c.status === 'ferias' ? 'Férias' : c.status === 'afastado' ? 'Afastado' : c.status}
+          </span>
+        </td>
+        <td style="padding:7px 10px;border-bottom:1px solid #e2e8f0;font-size:12px;text-align:center;color:#6b7280">
+          ${c.tipo_contrato === 'clt' ? 'CLT' : c.tipo_contrato === 'autonomo' ? 'Autônomo' : (c.tipo_contrato ?? '—').toUpperCase()}
+        </td>
+      </tr>
+    `).join('')
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Colaboradores — ${colabModalObra.nome}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:system-ui,sans-serif;padding:24px 28px;color:#1e293b}
+    h1{font-size:18px;font-weight:800;color:#0f172a;margin-bottom:4px}
+    .sub{font-size:12px;color:#64748b;margin-bottom:20px}
+    table{width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}
+    th{padding:8px 10px;background:#f1f5f9;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;text-align:left;color:#475569;border-bottom:2px solid #e2e8f0}
+    .footer{margin-top:16px;font-size:10px;color:#94a3b8;text-align:right}
+    @media print{body{padding:12px 16px}}
+  </style>
+</head>
+<body>
+  <h1>🏗️ ${colabModalObra.nome}${colabModalObra.codigo ? ` — #${colabModalObra.codigo}` : ''}</h1>
+  <div class="sub">Lista de colaboradores alocados · Gerado em ${now} · Total: ${colabList.length}</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th style="text-align:center">Chapa</th>
+        <th>Função</th>
+        <th style="text-align:center">Status</th>
+        <th style="text-align:center">Contrato</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="footer">ConstrutorRH · ${now}</div>
+  <script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script>
+</body>
+</html>`
+
+    const popup = window.open('', '_blank', 'width=860,height=640')
+    if (popup) {
+      popup.document.write(html)
+      popup.document.close()
+    }
+  }, [colabList, colabModalObra])
 
   // ── fetch ─────────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -358,10 +463,29 @@ export default function Obras() {
                     ) : <span style={{ color: 'var(--muted-foreground)' }}>—</span>}
                   </TableCell>
                   <TableCell style={{ textAlign: 'center' }}>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <Users size={13} style={{ color: 'var(--muted-foreground)' }} />
-                      <span style={{ fontWeight: 600, fontSize: 14 }}>{o.colaboradores_count ?? 0}</span>
-                    </div>
+                    {(o.colaboradores_count ?? 0) > 0 ? (
+                      <button
+                        onClick={() => openColabModal(o)}
+                        title={`Ver ${o.colaboradores_count} colaborador(es)`}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                          padding: '3px 10px', borderRadius: 20,
+                          background: '#eff6ff', border: '1px solid #bfdbfe',
+                          color: '#1d4ed8', fontWeight: 700, fontSize: 14,
+                          cursor: 'pointer', transition: 'all 0.15s',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#dbeafe' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#eff6ff' }}
+                      >
+                        <Users size={12} />
+                        {o.colaboradores_count}
+                      </button>
+                    ) : (
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#94a3b8', fontSize: 13 }}>
+                        <Users size={13} style={{ color: 'var(--muted-foreground)' }} />
+                        <span style={{ fontWeight: 600 }}>0</span>
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell style={{ textAlign: 'center' }}><BadgeStatus status={o.status} /></TableCell>
                   <TableCell>
@@ -541,6 +665,100 @@ export default function Obras() {
               </DialogFooter>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal colaboradores da obra ─────────────────────────────────────── */}
+      <Dialog open={colabModalOpen} onOpenChange={setColabModalOpen}>
+        <DialogContent style={{ maxWidth: 680 }}>
+          <DialogHeader>
+            <DialogTitle style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Users size={18} color="#2563eb" />
+              Colaboradores — {colabModalObra?.nome}
+              {colabModalObra?.codigo && (
+                <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#64748b', background: '#f1f5f9', borderRadius: 4, padding: '2px 6px' }}>
+                  #{colabModalObra.codigo}
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+
+          {colabLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 0', gap: 10 }}>
+              <Loader2 size={20} color="#2563eb" style={{ animation: 'spin 1s linear infinite' }} />
+              <span style={{ fontSize: 13, color: '#64748b' }}>Carregando colaboradores…</span>
+              <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+            </div>
+          ) : colabList.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8', fontSize: 13 }}>
+              Nenhum colaborador alocado nesta obra.
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>
+                {colabList.length} colaborador{colabList.length !== 1 ? 'es' : ''} alocado{colabList.length !== 1 ? 's' : ''}
+              </div>
+              <div style={{ overflowY: 'auto', maxHeight: 380, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                      {['Nome', 'Chapa', 'Função', 'Status', 'Contrato'].map((h, i) => (
+                        <th key={i} style={{
+                          padding: '8px 10px', fontWeight: 700, fontSize: 11,
+                          textTransform: 'uppercase', letterSpacing: '0.04em',
+                          textAlign: i >= 1 ? 'center' : 'left',
+                          color: '#475569', borderBottom: '2px solid #e2e8f0',
+                        }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {colabList.map((c, i) => {
+                      const statusCor: Record<string, { bg: string; text: string; label: string }> = {
+                        ativo:     { bg: '#dcfce7', text: '#15803d', label: 'Ativo'     },
+                        ferias:    { bg: '#fef9c3', text: '#854d0e', label: 'Férias'    },
+                        afastado:  { bg: '#fee2e2', text: '#dc2626', label: 'Afastado'  },
+                        inativo:   { bg: '#f1f5f9', text: '#64748b', label: 'Inativo'   },
+                      }
+                      const sc = statusCor[c.status] ?? { bg: '#f1f5f9', text: '#64748b', label: c.status }
+                      return (
+                        <tr key={c.id} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                          <td style={{ padding: '8px 10px', fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{c.nome}</td>
+                          <td style={{ padding: '8px 10px', fontSize: 12, textAlign: 'center', fontFamily: 'monospace', color: '#475569' }}>{c.chapa ?? '—'}</td>
+                          <td style={{ padding: '8px 10px', fontSize: 12, color: '#374151' }}>{c.funcao}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                            <span style={{
+                              padding: '2px 9px', borderRadius: 12, fontSize: 11, fontWeight: 700,
+                              background: sc.bg, color: sc.text,
+                            }}>
+                              {sc.label}
+                            </span>
+                          </td>
+                          <td style={{ padding: '8px 10px', fontSize: 11, textAlign: 'center', color: '#6b7280' }}>
+                            {c.tipo_contrato === 'clt' ? 'CLT'
+                              : c.tipo_contrato === 'autonomo' ? 'Autônomo'
+                              : (c.tipo_contrato ?? '—').toUpperCase()}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          <DialogFooter style={{ marginTop: 12, gap: 8 }}>
+            <Button variant="outline" onClick={() => setColabModalOpen(false)}>Fechar</Button>
+            {!colabLoading && colabList.length > 0 && (
+              <Button onClick={handlePrintColabs} style={{ gap: 7, background: '#2563eb', color: '#fff' }}>
+                <FileDown size={15} />
+                Gerar PDF / Imprimir
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

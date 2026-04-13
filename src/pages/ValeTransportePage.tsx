@@ -880,7 +880,7 @@ export default function ValeTransportePage() {
             title="Cria VT do mês inteiro para todos colaboradores sem VT na lista atual">
             <Plus size={14} /> Lançar em Lote
           </Button>
-          <Button variant="outline" className="gap-2" onClick={() => { setObraLote(obraFiltro); setSelecionados(new Set()); setModalLote(true) }}>
+          <Button variant="outline" className="gap-2" onClick={() => { setObraLote(obraFiltro === 'todas' ? '' : obraFiltro); setSelecionados(new Set()); setModalLote(true) }}>
             <Building2 size={15} /> Fechar em Lote
           </Button>
           <Button variant="outline" className="gap-2" onClick={() => setShowRelatorio(true)}>
@@ -1067,9 +1067,9 @@ export default function ValeTransportePage() {
                           <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700 }}>Período</th>
                           <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700 }}>Tipo</th>
                           <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Dias</th>
-                          <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Valor Bruto</th>
+                          <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Bruto</th>
                           <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Desc. 6%</th>
-                          <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Empresa</th>
+                          <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Líquido</th>
                           <th style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 700 }}>Status</th>
                           <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Ações</th>
                         </tr>
@@ -1092,11 +1092,22 @@ export default function ValeTransportePage() {
                               </td>
                               <td style={{ padding: '10px 14px', textAlign: 'right' }}>{r.dias_trabalhados}</td>
                               <td style={{ padding: '10px 14px', textAlign: 'right' }}>{formatCurrency(r.valor)}</td>
-                              <td style={{ padding: '10px 14px', textAlign: 'right', color: r.descontar_6pct ? '#dc2626' : 'var(--muted-foreground)' }}>
-                                {r.descontar_6pct ? '−' + formatCurrency(r.desconto_colaborador) : <span style={{ fontSize: 10 }}>isento</span>}
+                              <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                                {r.descontar_6pct
+                                  ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                                      <span style={{ fontSize: 10, fontWeight: 700, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 4, padding: '1px 5px' }}>⚡ Ativo</span>
+                                      <span style={{ color: '#dc2626', fontWeight: 700 }}>− {formatCurrency(r.desconto_colaborador)}</span>
+                                    </div>
+                                  )
+                                  : <span style={{ fontSize: 10, color: 'var(--muted-foreground)', background: 'var(--muted)', borderRadius: 4, padding: '2px 6px' }}>isento</span>
+                                }
                               </td>
-                              <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#1d4ed8' }}>
-                                {formatCurrency(r.valor_empresa)}
+                              <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, color: '#1d4ed8' }}>
+                                <div>{formatCurrency(r.valor_empresa)}</div>
+                                {r.descontar_6pct && (
+                                  <div style={{ fontSize: 10, color: 'var(--muted-foreground)', fontWeight: 400 }}>empresa paga</div>
+                                )}
                               </td>
                               <td style={{ padding: '10px 14px', textAlign: 'center' }}>
                                 {(r.status as string | undefined) === 'pago'
@@ -1139,8 +1150,13 @@ export default function ValeTransportePage() {
                       </tbody>
                       <tfoot>
                         <tr style={{ background: 'var(--muted)', borderTop: '2px solid var(--border)', fontWeight: 700 }}>
-                          <td colSpan={5} style={{ padding: '9px 14px', fontSize: 12 }}>Total empresa — {vtDoColab.length} lançamento(s)</td>
-                          <td style={{ padding: '9px 14px', textAlign: 'right', color: '#1d4ed8' }}>{formatCurrency(totalPagoMes)}</td>
+                          <td colSpan={4} style={{ padding: '9px 14px', fontSize: 12 }}>Total empresa — {vtDoColab.length} lançamento(s)</td>
+                          <td style={{ padding: '9px 14px', textAlign: 'right', fontSize: 11, color: '#dc2626' }}>
+                            {vtDoColab.reduce((s,r)=>s+(r.desconto_colaborador??0),0) > 0
+                              ? '− '+formatCurrency(vtDoColab.reduce((s,r)=>s+(r.desconto_colaborador??0),0))
+                              : <span style={{color:'var(--muted-foreground)'}}>—</span>}
+                          </td>
+                          <td style={{ padding: '9px 14px', textAlign: 'right', color: '#1d4ed8', fontWeight: 800 }}>{formatCurrency(totalPagoMes)}</td>
                           <td />
                         </tr>
                       </tfoot>
@@ -1482,6 +1498,10 @@ export default function ValeTransportePage() {
 
       {/* ── Modal fechamento em lote ── */}
       {modalLote && (() => {
+        // Sem obra selecionada = tela de seleção de obra
+        const obraFechSel = obras.find(o => o.id === obraLote)
+        const semObraSel  = !obraFechSel   // 'todas' ou vazio
+
         // Agrupar VTs por colaborador para exibição em linhas
         const colabsNoLote = Array.from(
           new Map(vtsPendentesLote.map(r => {
@@ -1493,8 +1513,6 @@ export default function ValeTransportePage() {
         const vtsPorColab = (colabId: string) =>
           vtsPendentesLote.filter(r => r.colaborador_id === colabId)
 
-        const obraFiltrada = obras.find(o => o.id === obraLote)
-
         return (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
             <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 820, maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }}>
@@ -1505,73 +1523,97 @@ export default function ValeTransportePage() {
                   <Building2 size={20} style={{ color: '#7c3aed' }} />
                   <div>
                     <div style={{ fontWeight: 800, fontSize: 17 }}>Fechar VT em Lote — {fmtMes(competencia)}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>Configure globalmente e selecione os lançamentos a enviar para pagamento</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
+                      {semObraSel
+                        ? 'Selecione uma obra para ver os lançamentos pendentes'
+                        : `Obra: ${obraFechSel?.nome} — selecione os lançamentos a enviar para pagamento`}
+                    </div>
                   </div>
                 </div>
-                
+                <button onClick={() => setModalLote(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted-foreground)' }}>
+                  <X size={18} />
+                </button>
               </div>
 
               {/* ── Configurações Globais ── */}
               <div style={{ padding: '14px 24px', borderBottom: '1px solid var(--border)', background: 'var(--muted)' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted-foreground)', marginBottom: 10 }}>
-                  ⚙️ Configurações Gerais — aplicadas a todos os selecionados
+                  ⚙️ Configurações do lote
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'center' }}>
-
-                  {/* Filtro obra */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
+                  {/* Seleção de obra — obrigatória */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Label style={{ fontSize: 12, whiteSpace: 'nowrap', fontWeight: 600 }}>Obra:</Label>
+                    <Label style={{ fontSize: 12, whiteSpace: 'nowrap', fontWeight: 700, color: semObraSel ? '#dc2626' : 'var(--foreground)' }}>
+                      {semObraSel ? '⚠ Obra: *' : 'Obra:'}
+                    </Label>
                     <Select value={obraLote} onValueChange={v => { setObraLote(v); setSelecionados(new Set()) }}>
-                      <SelectTrigger style={{ width: 200, height: 32, fontSize: 12 }}><SelectValue /></SelectTrigger>
+                      <SelectTrigger style={{ width: 220, height: 34, fontSize: 12, borderColor: semObraSel ? '#fca5a5' : undefined, background: semObraSel ? '#fef2f2' : undefined }}>
+                        <SelectValue placeholder="Selecione uma obra..." />
+                      </SelectTrigger>
                       <SelectContent position="popper" style={{ zIndex: 9999 }}>
-                        <SelectItem value="todas">Todas as obras</SelectItem>
                         {obras.map(o => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                    {semObraSel && <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600 }}>← Selecione para continuar</span>}
                   </div>
 
-                  {/* Período */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Label style={{ fontSize: 12, fontWeight: 600 }}>Período:</Label>
-                    <span style={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontWeight: 600 }}>
-                      {fmtData(primeiroDia(competencia))} → {fmtData(ultimoDia(competencia))}
-                    </span>
-                  </div>
-
-                  {/* Contar sábado */}
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, userSelect: 'none' }}>
-                    <input type="checkbox" checked={loteContarSabado} onChange={e => setLoteContarSabado(e.target.checked)}
-                      style={{ width: 14, height: 14, accentColor: '#7c3aed' }} />
-                    Contar sábado
-                  </label>
-
-                  {/* Info desconto 6% — automático por obra */}
-                  {(() => {
-                    if (obraLote === 'todas') return (
-                      <span style={{ fontSize: 11, color: '#92400e', fontWeight: 600, background: '#fefce8', border: '1px solid #fde68a', borderRadius: 5, padding: '3px 8px' }}>
-                        💰 Desc. 6%: por obra (auto)
+                  {!semObraSel && (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Label style={{ fontSize: 12, fontWeight: 600 }}>Período:</Label>
+                        <span style={{ fontSize: 12, background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontWeight: 600 }}>
+                          {fmtData(primeiroDia(competencia))} → {fmtData(ultimoDia(competencia))}
+                        </span>
+                      </div>
+                      {obraFechSel?.desconta_vt
+                        ? <span style={{ fontSize: 11, color: '#92400e', fontWeight: 700, background: '#fefce8', border: '1px solid #fde68a', borderRadius: 5, padding: '3px 8px' }}>⚡ Desc. 6% CLT ativo</span>
+                        : <span style={{ fontSize: 11, color: '#15803d', fontWeight: 700, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 5, padding: '3px 8px' }}>✓ Sem desconto de 6%</span>
+                      }
+                      {obraFechSel?.considera_sabado_util
+                        ? <span style={{ fontSize: 11, color: '#1d4ed8', fontWeight: 700, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 5, padding: '3px 8px' }}>📅 Sáb. incluso no VT</span>
+                        : <span style={{ fontSize: 11, color: '#b45309', fontWeight: 700, background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 5, padding: '3px 8px' }}>📅 Sáb. pago separado</span>
+                      }
+                      <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted-foreground)' }}>
+                        {vtsPendentesLote.length} lançamento(s) · <strong>{selecionados.size}</strong> selecionado(s)
                       </span>
-                    )
-                    const obraFech = obras.find(o => o.id === obraLote)
-                    return obraFech?.desconta_vt
-                      ? <span style={{ fontSize: 11, color: '#92400e', fontWeight: 600, background: '#fefce8', border: '1px solid #fde68a', borderRadius: 5, padding: '3px 8px' }}>💰 Esta obra aplica desc. 6% (CLT)</span>
-                      : <span style={{ fontSize: 11, color: '#15803d', fontWeight: 600, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 5, padding: '3px 8px' }}>✓ Sem desconto de 6%</span>
-                  })()}
-
-                  <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted-foreground)' }}>
-                    {vtsPendentesLote.length} lançamento(s) · <strong>{selecionados.size}</strong> selecionado(s)
-                  </span>
+                    </>
+                  )}
                 </div>
-                {obraFiltrada && (
-                  <div style={{ marginTop: 8, fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>
-                    📍 Obra: {obraFiltrada.nome}
-                  </div>
-                )}
               </div>
 
               {/* ── Tabela por colaborador ── */}
               <div style={{ flex: 1, overflowY: 'auto' }}>
-                {vtsPendentesLote.length === 0 ? (
+                {semObraSel ? (
+                  /* Tela de seleção de obra */
+                  <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted-foreground)' }}>
+                    <Building2 size={40} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
+                    <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Selecione uma obra para continuar</div>
+                    <div style={{ fontSize: 13, maxWidth: 420, margin: '0 auto' }}>
+                      O fechamento em lote é feito por obra para garantir que as regras de sábado e desconto de 6% sejam aplicadas corretamente.
+                    </div>
+                    <div style={{ marginTop: 24, display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'center' }}>
+                      {obras.map(o => {
+                        const pendentes = vtRows.filter(r => {
+                          const c = colaboradores.find(x => x.id === r.colaborador_id)
+                          return c?.obra_id === o.id && r.competencia === competencia && (r.status as string) === 'pendente'
+                        }).length
+                        if (pendentes === 0) return null
+                        return (
+                          <button key={o.id}
+                            onClick={() => { setObraLote(o.id); setSelecionados(new Set()) }}
+                            style={{ padding: '12px 18px', background: 'var(--card)', border: '2px solid var(--border)', borderRadius: 10, cursor: 'pointer', textAlign: 'left', minWidth: 180, transition: 'border-color 0.15s' }}>
+                            <div style={{ fontWeight: 700, fontSize: 13 }}>📍 {o.nome}</div>
+                            <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 4 }}>{pendentes} VT(s) pendente(s)</div>
+                            <div style={{ marginTop: 6, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {o.desconta_vt && <span style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>⚡ 6% CLT</span>}
+                              {!o.considera_sabado_util && <span style={{ fontSize: 9, background: '#fff7ed', color: '#b45309', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>📅 Sáb sep.</span>}
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : vtsPendentesLote.length === 0 ? (
                   <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted-foreground)', fontSize: 14 }}>
                     ✓ Nenhum VT pendente {obraLote !== 'todas' ? 'nesta obra' : ''} em {fmtMes(competencia)}
                   </div>
@@ -1699,14 +1741,19 @@ export default function ValeTransportePage() {
 
               {/* ── Footer ── */}
               <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
-                  {loteContarSabado && <span style={{ marginRight: 12 }}>📅 Contando sábado</span>}
-                  <span style={{ color: '#92400e' }}>💰 Desconto de 6% definido por obra de cada colaborador (CLT)</span>
+                <div style={{ fontSize: 12 }}>
+                  {semObraSel
+                    ? <span style={{ color: '#dc2626', fontWeight: 600 }}>⚠ Selecione uma obra para habilitar o fechamento</span>
+                    : <>
+                        {obraFechSel?.desconta_vt && <span style={{ color: '#92400e', marginRight: 12 }}>⚡ Desc. 6% CLT ativo nesta obra</span>}
+                        {!obraFechSel?.considera_sabado_util && <span style={{ color: '#b45309' }}>📅 Sáb. pago separado nesta obra</span>}
+                      </>
+                  }
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <Button variant="outline" onClick={() => setModalLote(false)} disabled={savingLote}>Cancelar</Button>
                   <Button
-                    disabled={selecionados.size === 0 || savingLote}
+                    disabled={selecionados.size === 0 || savingLote || semObraSel}
                     onClick={handlePagarLote}
                     style={{ background: '#15803d', color: '#fff', gap: 6 }}
                   >

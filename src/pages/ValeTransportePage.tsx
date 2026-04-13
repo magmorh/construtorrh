@@ -1154,53 +1154,90 @@ export default function ValeTransportePage() {
       </div>
 
       {/* ══ MODAL ══ */}
-      {modalOpen && colabSel && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--background)', borderRadius: 14, width: 500, maxHeight: '92vh', overflowY: 'auto', padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+      {modalOpen && colabSel && (() => {
+        const obraModal   = obras.find(o => o.id === colabSel.obra_id)
+        const sabUtil     = obraModal?.considera_sabado_util ?? false
+        const sabExt      = parseInt(form.num_sabados_extras || '0')
+        const numFaltas   = parseInt(form.num_faltas || '0')
+        const ehCLT       = (colabSel.tipo_contrato ?? 'clt').toLowerCase() === 'clt'
+        const obraDesc    = obraModal?.desconta_vt ?? false
+        const desc6val    = parseFloat(form.desconto_colaborador || '0')
+        const empresaVal  = parseFloat(form.valor_empresa || '0')
+        // Total dos dias = dias efetivos + faltas (sem os sábados extras, eles são adicionados depois)
+        const diasBase    = parseInt(form.dias_trabalhados || '0') + numFaltas - sabExt
+        const vtDiarioUse = vtDiario > 0 ? vtDiario : (vtDiarioSnap ?? 0)
+        const totalDiasVal = form._valorTotalDias ?? ((vtDiarioUse * diasBase) || 0)
 
-            {/* Título */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+        return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'var(--background)', borderRadius: 14, width: 580, maxWidth: '96vw', maxHeight: '94vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column' }}>
+
+            {/* ── Cabeçalho ── */}
+            <div style={{ padding: '20px 24px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
               <div>
-                <h3 style={{ fontWeight: 800, fontSize: 16, margin: 0 }}>{editando ? 'Editar VT' : 'Novo Lançamento de VT'}</h3>
-                <p style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 4 }}>
-                  {colabSel.chapa} — <strong>{colabSel.nome}</strong> · {fmtMes(form.competencia)}
+                <h3 style={{ fontWeight: 800, fontSize: 17, margin: 0 }}>
+                  {editando ? '✏️ Editar VT' : '🚌 Novo Lançamento de VT'}
+                </h3>
+                <p style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 3, margin: '3px 0 0' }}>
+                  {colabSel.chapa} — <strong>{colabSel.nome}</strong>
+                  <span style={{ marginLeft: 8, background: 'var(--muted)', borderRadius: 4, padding: '1px 6px', fontSize: 11 }}>{fmtMes(form.competencia)}</span>
+                  {ehCLT
+                    ? <span style={{ marginLeft: 6, background: '#dbeafe', color: '#1d4ed8', borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>CLT</span>
+                    : <span style={{ marginLeft: 6, background: '#f0fdf4', color: '#15803d', borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>Autônomo</span>
+                  }
                 </p>
               </div>
-              <button onClick={() => setModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted-foreground)', padding: 4 }}>
+              <button onClick={() => setModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted-foreground)', padding: 4, marginTop: 2 }}>
                 <X size={18} />
               </button>
             </div>
 
-            {/* Info VT do colaborador */}
+            {/* ── Barra VT base ── */}
             {vtDiario > 0 && (
-              <div style={{ background: 'var(--muted)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+              <div style={{ padding: '10px 24px', background: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 12, alignItems: 'center' }}>
                 <span>🚌 <strong>{(colabSel.vt_dados as any)?.modalidade ?? '—'}</strong></span>
-                <span>R$ <strong>{vtDiario.toFixed(2)}</strong>/dia</span>
-                <span>Mês estimado: <strong>{formatCurrency(vtMensal)}</strong></span>
+                <span style={{ color: 'var(--muted-foreground)' }}>Valor/dia: <strong style={{ color: 'var(--foreground)' }}>{formatCurrency(vtDiario)}</strong></span>
+                <span style={{ color: 'var(--muted-foreground)' }}>Mês estimado: <strong style={{ color: 'var(--foreground)' }}>{formatCurrency(vtMensal)}</strong></span>
+                {vtDiarioSnap != null && (
+                  <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: 4, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>
+                    🔒 Taxa travada: {formatCurrency(vtDiarioSnap)}/dia
+                  </span>
+                )}
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            {/* ── Corpo ── */}
+            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto' }}>
 
-              {/* Período */}
-              <div>
-                <Label className="text-xs">📅 Período de *</Label>
-                <input type="date" value={form.data_inicio} onChange={e => setField('data_inicio', e.target.value)}
-                  min={primeiroDia(competencia)} max={ultimoDia(competencia)}
-                  style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', marginTop: 4, boxSizing: 'border-box' }} />
-              </div>
-              <div>
-                <Label className="text-xs">📅 até *</Label>
-                <input type="date" value={form.data_fim} onChange={e => setField('data_fim', e.target.value)}
-                  min={primeiroDia(competencia)} max={ultimoDia(competencia)}
-                  style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', marginTop: 4, boxSizing: 'border-box' }} />
+              {/* Período + Tipo */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Período — de *</Label>
+                  <input type="date" value={form.data_inicio} onChange={e => setField('data_inicio', e.target.value)}
+                    min={primeiroDia(competencia)} max={ultimoDia(competencia)}
+                    style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', marginTop: 4, boxSizing: 'border-box' }} />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">até *</Label>
+                  <input type="date" value={form.data_fim} onChange={e => setField('data_fim', e.target.value)}
+                    min={primeiroDia(competencia)} max={ultimoDia(competencia)}
+                    style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--background)', color: 'var(--foreground)', marginTop: 4, boxSizing: 'border-box' }} />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Tipo</Label>
+                  <Select value={form.tipo} onValueChange={v => setField('tipo', v)}>
+                    <SelectTrigger className="mt-1 h-9 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent position="popper" style={{ zIndex: 9999 }}>
+                      {TIPO_OPTIONS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              {/* Tick sábado + dias calculados */}
-              <div className="col-span-2">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--muted)', borderRadius: 8, padding: '10px 14px', border: '1px solid var(--border)' }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+              {/* Toggle sábado */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--muted)', borderRadius: 8, padding: '10px 14px', border: '1px solid var(--border)' }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
                     Contar sábado como dia trabalhado
                     {sabadoDaObra && !editando && (
                       <span style={{ fontSize: 9, fontWeight: 700, color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 4, padding: '1px 5px' }}>
@@ -1208,262 +1245,202 @@ export default function ValeTransportePage() {
                       </span>
                     )}
                   </div>
-                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>
-                      {form.contar_sabado ? 'Contando Seg → Sáb' : 'Contando apenas Seg → Sex'}
-                      {' · '}
-                      <strong style={{ color: 'var(--foreground)' }}>{form.dias_trabalhados} dia(s)</strong> no período
-                      {' · '}
-                      {obras.find(o => o.id === colabSel?.obra_id)?.considera_sabado_util
-                        ? <span style={{ color:'#15803d', fontWeight:600 }}>Sáb. já incluso no VT mensal</span>
-                        : <span style={{ color:'#b45309', fontWeight:600 }}>Sáb. pago separado</span>
-                      }
-                    </div>
+                  <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>
+                    {form.contar_sabado ? 'Contando Seg → Sáb' : 'Contando apenas Seg → Sex'}
+                    {' · '}
+                    <strong style={{ color: 'var(--foreground)' }}>{form.dias_trabalhados}</strong> dia(s) no período
+                    {' · '}
+                    {sabUtil
+                      ? <span style={{ color:'#15803d', fontWeight:600 }}>Sáb. já incluso no VT mensal</span>
+                      : <span style={{ color:'#b45309', fontWeight:600 }}>Sáb. pago separado</span>
+                    }
                   </div>
-                  {sabadoDaObra && !editando ? (
-                    <div title="Definido pela obra — não editável"
-                      style={{ cursor: 'not-allowed', opacity: 0.7, color: '#1d4ed8' }}>
-                      <ToggleRight size={30} />
-                    </div>
-                  ) : (
-                  <button
-                    onClick={() => setField('contar_sabado', !form.contar_sabado)}
+                </div>
+                {sabadoDaObra && !editando ? (
+                  <div title="Definido pela obra — não editável" style={{ cursor: 'not-allowed', opacity: 0.7, color: '#1d4ed8' }}>
+                    <ToggleRight size={30} />
+                  </div>
+                ) : (
+                  <button onClick={() => setField('contar_sabado', !form.contar_sabado)}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: form.contar_sabado ? '#1d4ed8' : 'var(--muted-foreground)' }}>
                     {form.contar_sabado ? <ToggleRight size={30} /> : <ToggleLeft size={30} />}
                   </button>
+                )}
+              </div>
+
+              {/* Ajustes: faltas + sábados extras */}
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '12px 14px' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#713f12', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Ajustes do período
+                  {numFaltas > 0 && !editando && (
+                    <span style={{ fontSize: 10, fontWeight: 600, color: '#15803d', background: '#dcfce7', border: '1px solid #86efac', borderRadius: 4, padding: '1px 6px' }}>
+                      🔍 {numFaltas} falta(s) detectada(s) no ponto
+                    </span>
                   )}
                 </div>
-              </div>
-
-              {/* Tipo — puxado do cadastro */}
-              <div>
-                <Label className="text-xs">Tipo</Label>
-                <Select value={form.tipo} onValueChange={v => setField('tipo', v)}>
-                  <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
-                  <SelectContent position="popper" style={{ zIndex: 9999 }}>
-                    {TIPO_OPTIONS.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Dias trabalhados — somente leitura */}
-              <div>
-                <Label className="text-xs" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  Dias trabalhados
-                  <span style={{ fontSize: 9, background: 'var(--muted)', color: 'var(--muted-foreground)', borderRadius: 3, padding: '1px 4px', fontWeight: 600 }}>AUTO</span>
-                </Label>
-                <div style={{ marginTop: 4, height: 36, display: 'flex', alignItems: 'center', padding: '0 12px', background: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 14, fontWeight: 700, color: 'var(--foreground)' }}>
-                  {form.dias_trabalhados || '0'}
-                </div>
-              </div>
-
-              {/* Valor VT — somente leitura (base do colaborador) */}
-              <div className="col-span-2">
-                <Label className="text-xs" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  Valor do VT (R$)
-                  <span style={{ fontSize: 9, background: vtDiarioSnap != null ? '#fef3c7' : 'var(--muted)', color: vtDiarioSnap != null ? '#92400e' : 'var(--muted-foreground)', borderRadius: 3, padding: '1px 4px', fontWeight: 600 }}>
-                    {vtDiarioSnap != null ? `🔒 TAXA TRAVADA: R$ ${vtDiarioSnap.toFixed(4)}/dia` : 'AUTO — base do colaborador'}
-                  </span>
-                </Label>
-                <div style={{ marginTop: 4, height: 36, display: 'flex', alignItems: 'center', padding: '0 12px', background: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 14, fontWeight: 700, color: 'var(--foreground)' }}>
-                  {parseFloat(form.valor) > 0 ? formatCurrency(parseFloat(form.valor)) : <span style={{ color: 'var(--muted-foreground)', fontWeight: 400 }}>Sem VT configurado no cadastro</span>}
-                </div>
-              </div>
-
-              {/* Faltas e Sábados extras — ajuste fino do VT */}
-              <div className="col-span-2">
-                <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 8, padding: '10px 14px' }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#713f12', marginBottom: 8 }}>
-                    ⚠ Ajuste por falta / sábado trabalhado
-                    {parseInt(form.num_faltas) > 0 && !editando && (
-                      <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 600, color: '#15803d', background: '#dcfce7', border: '1px solid #86efac', borderRadius: 4, padding: '1px 6px' }}>
-                        🔍 {form.num_faltas} falta(s) detectada(s) no ponto
-                      </span>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  {/* Faltas */}
+                  <div>
+                    <Label className="text-xs" style={{ color: '#713f12' }}>
+                      Faltas — descontar dias do VT
+                    </Label>
+                    {faltasAutoDetectadas > 0 ? (
+                      <div style={{ marginTop: 4, height: 36, display: 'flex', alignItems: 'center', paddingLeft: 12,
+                        background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6,
+                        fontWeight: 700, color: '#15803d', fontSize: 14, cursor: 'not-allowed', userSelect: 'none' }}>
+                        {form.num_faltas}
+                        <span style={{ marginLeft: 6, fontSize: 10, color: '#16a34a', fontWeight: 400 }}>🔒 auto</span>
+                      </div>
+                    ) : (
+                      <Input type="number" min={0} max={30} value={form.num_faltas}
+                        onChange={e => setField('num_faltas', e.target.value)}
+                        className="mt-1 h-9 text-sm" placeholder="0" />
                     )}
+                    <p style={{ fontSize: 10, color: faltasAutoDetectadas > 0 ? '#16a34a' : '#92400e', marginTop: 3 }}>
+                      {faltasAutoDetectadas > 0 ? 'Detectado automaticamente no ponto' : 'Cada falta = 1 dia a menos de VT'}
+                    </p>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div>
-                      <Label className="text-xs" style={{ color: '#713f12' }}>Faltas (descontar dias)</Label>
-                      {faltasAutoDetectadas > 0 ? (
-                        <div className="mt-1 h-8" style={{
-                          display: 'flex', alignItems: 'center', paddingLeft: 10,
-                          background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6,
-                          fontWeight: 700, color: '#15803d', fontSize: 13,
-                          cursor: 'not-allowed', userSelect: 'none',
-                        }}>
-                          {form.num_faltas}
-                        </div>
-                      ) : (
-                        <Input
-                          type="number" min={0} max={30}
-                          value={form.num_faltas}
-                          onChange={e => setField('num_faltas', e.target.value)}
-                          className="mt-1 h-8 text-sm"
-                          placeholder="0"
-                        />
-                      )}
-                      <div style={{ fontSize: 10, color: faltasAutoDetectadas > 0 ? '#15803d' : '#92400e', marginTop: 3 }}>
-                        {faltasAutoDetectadas > 0 ? '🔒 Detectado automaticamente no ponto' : 'Cada falta desconta 1 dia de VT'}
-                      </div>
-                    </div>
-                    <div>
-                      <Label className="text-xs" style={{ color: '#713f12' }}>Sáb. trabalhados extras</Label>
-                      <Input type="number" min={0} max={5} value={form.num_sabados_extras}
-                        onChange={e => setField('num_sabados_extras', e.target.value)}
-                        className="mt-1 h-8 text-sm"
-                        placeholder="0"
-                      />
-                      <div style={{ fontSize: 10, color: '#92400e', marginTop: 3 }}>
-                        {obras.find(o => o.id === colabSel?.obra_id)?.considera_sabado_util
-                          ? '✓ Obra considera sáb. útil — sáb já contado no período'
-                          : 'Obra não conta sáb. — adicione sábados trabalhados aqui'}
-                      </div>
-                    </div>
+                  {/* Sábados extras */}
+                  <div>
+                    <Label className="text-xs" style={{ color: '#713f12' }}>
+                      {sabUtil ? 'Sáb. já incluso — campo inativo' : 'Sáb. extras trabalhados'}
+                    </Label>
+                    <Input type="number" min={0} max={5} value={form.num_sabados_extras}
+                      onChange={e => setField('num_sabados_extras', e.target.value)}
+                      disabled={sabUtil}
+                      className="mt-1 h-9 text-sm" placeholder="0" />
+                    <p style={{ fontSize: 10, color: sabUtil ? '#15803d' : '#92400e', marginTop: 3 }}>
+                      {sabUtil ? '✓ Sáb. já é dia útil nesta obra' : 'Obra não conta sáb. no base — adicione aqui'}
+                    </p>
                   </div>
                 </div>
               </div>
 
-              {/* Desconto 6% — automático por obra, somente CLT */}
-              <div className="col-span-2">
-                {(() => {
-                  const ehCLT = (colabSel?.tipo_contrato ?? 'clt').toLowerCase() === 'clt'
-                  const obraCol = obras.find(o => o.id === colabSel?.obra_id)
-                  const obraDesc = obraCol?.desconta_vt ?? false
-                  if (!ehCLT) return (
-                    <div style={{ display:'flex', alignItems:'center', gap:8, background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:8, padding:'10px 14px' }}>
-                      <span style={{ fontSize:18 }}>✅</span>
-                      <div>
-                        <div style={{ fontSize:13, fontWeight:600, color:'#15803d' }}>Autônomo / PJ — sem desconto de 6%</div>
-                        <div style={{ fontSize:11, color:'#16a34a', marginTop:2 }}>Desconto de 6% se aplica apenas a colaboradores CLT.</div>
-                      </div>
-                    </div>
-                  )
-                  return obraDesc ? (
-                    <div style={{ display:'flex', alignItems:'center', gap:8, background:'#fef3c7', border:'1px solid #fde68a', borderRadius:8, padding:'10px 14px' }}>
-                      <span style={{ fontSize:18 }}>⚠️</span>
-                      <div>
-                        <div style={{ fontSize:13, fontWeight:600, color:'#92400e' }}>Desconto de 6% — CLT (definido pela obra)</div>
-                        <div style={{ fontSize:11, color:'#b45309', marginTop:2 }}>
-                          Desconto: {formatCurrency(parseFloat(form.desconto_colaborador)||0)} | Empresa paga: {formatCurrency(parseFloat(form.valor_empresa)||0)}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ display:'flex', alignItems:'center', gap:8, background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:8, padding:'10px 14px' }}>
-                      <span style={{ fontSize:18 }}>✅</span>
-                      <div>
-                        <div style={{ fontSize:13, fontWeight:600, color:'#15803d' }}>Sem desconto de 6% — esta obra não aplica desconto</div>
-                        <div style={{ fontSize:11, color:'#16a34a', marginTop:2 }}>Empresa arca com 100% do VT. Para ativar, habilite na obra.</div>
-                      </div>
-                    </div>
-                  )
-                })()}
-              </div>
-
-              {/* ── Resumo financeiro detalhado do VT ── */}
-              <div className="col-span-2">
-                <Label className="text-xs" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {/* ── Resumo do VT — tabela de breakdown ── */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--foreground)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                   Resumo do VT
-                  <span style={{ fontSize: 9, background: '#dbeafe', color: '#1d4ed8', borderRadius: 3, padding: '1px 4px', fontWeight: 600 }}>AUTO</span>
-                </Label>
-
-                {/* Grade de breakdown */}
-                <div style={{ marginTop: 6, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
-
-                  {/* Linha 1: Total dos dias */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 14px', borderBottom: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: 12, color: '#374151' }}>
-                      <span style={{ fontWeight: 600 }}>📅 Total dos dias</span>
-                      <span style={{ color: '#6b7280', marginLeft: 6, fontSize: 11 }}>
-                        ({parseInt(form.dias_trabalhados) + parseInt(form.num_faltas||'0')} dias × {formatCurrency(vtDiario)}/dia)
-                      </span>
-                    </div>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: '#1d4ed8' }}>
-                      {formatCurrency((form._valorTotalDias ?? parseFloat(form.valor)) || 0)}
-                    </span>
-                  </div>
-
-                  {/* Linha 2: Desconto por faltas — só exibe se tiver faltas */}
-                  {parseInt(form.num_faltas||'0') > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 14px', borderBottom: '1px solid #e2e8f0', background: '#fff7ed' }}>
-                      <div style={{ fontSize: 12, color: '#92400e' }}>
-                        <span style={{ fontWeight: 600 }}>⛔ Desconto por faltas</span>
-                        <span style={{ color: '#b45309', marginLeft: 6, fontSize: 11 }}>
-                          ({form.num_faltas} falta{parseInt(form.num_faltas)!==1?'s':''} × {formatCurrency(vtDiario)}/dia)
-                        </span>
-                      </div>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: '#dc2626' }}>
-                        − {formatCurrency(form._valorDescFalta ?? 0)}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Linha 3: Adicional sábados — só exibe quando sáb NÃO é dia útil e há sábados extras */}
-                  {(() => {
-                    const obraCol = obras.find(o => o.id === colabSel?.obra_id)
-                    const sabUtil = obraCol?.considera_sabado_util ?? false
-                    const sabExt  = parseInt(form.num_sabados_extras||'0')
-                    if (sabUtil || sabExt === 0) return null
-                    return (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 14px', borderBottom: '1px solid #e2e8f0', background: '#f0fdf4' }}>
-                        <div style={{ fontSize: 12, color: '#14532d' }}>
-                          <span style={{ fontWeight: 600 }}>➕ Sáb/Dom trabalhados</span>
-                          <span style={{ color: '#16a34a', marginLeft: 6, fontSize: 11 }}>
-                            ({sabExt} sáb × {formatCurrency(vtDiario)}/dia — obra não conta sáb. no período base)
-                          </span>
-                        </div>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: '#15803d' }}>
-                          + {formatCurrency(form._valorSabExtra ?? 0)}
-                        </span>
-                      </div>
-                    )
-                  })()}
-
-                  {/* Linha 4: Desconto 6% — só exibe se aplicável */}
-                  {parseFloat(form.desconto_colaborador||'0') > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 14px', borderBottom: '1px solid #e2e8f0', background: '#fef3c7' }}>
-                      <div style={{ fontSize: 12, color: '#713f12' }}>
-                        <span style={{ fontWeight: 600 }}>📉 Desconto 6% (CLT)</span>
-                        <span style={{ color: '#92400e', marginLeft: 6, fontSize: 11 }}>colaborador participa do custeio</span>
-                      </div>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: '#b45309' }}>
-                        − {formatCurrency(parseFloat(form.desconto_colaborador)||0)}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Linha final: VT Líquido (empresa paga) */}
-                  <div style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '11px 14px',
-                    background: parseFloat(form.valor_empresa||'0') > 0 ? '#eff6ff' : '#f1f5f9',
-                  }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
-                      💰 VT Líquido — Empresa paga
-                    </div>
-                    <span style={{
-                      fontSize: 18, fontWeight: 900,
-                      color: parseFloat(form.valor_empresa||'0') > 0 ? '#1d4ed8' : '#94a3b8',
-                    }}>
-                      {formatCurrency(parseFloat(form.valor_empresa)||0)}
-                    </span>
-                  </div>
+                  <span style={{ fontSize: 9, background: '#dbeafe', color: '#1d4ed8', borderRadius: 3, padding: '1px 5px', fontWeight: 700 }}>AUTO</span>
                 </div>
+
+                <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+
+                  {/* Linha: Dias trabalhados */}
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--border)', gap: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--foreground)' }}>📅 Dias trabalhados</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 1 }}>
+                        {diasBase} dia{diasBase !== 1 ? 's' : ''} úteis × {formatCurrency(vtDiarioUse)}/dia
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#1d4ed8', minWidth: 90, textAlign: 'right' }}>
+                      {formatCurrency(totalDiasVal)}
+                    </div>
+                  </div>
+
+                  {/* Linha: Sáb/Dom — só quando sáb NÃO é dia útil e há sábados extras */}
+                  {!sabUtil && sabExt > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--border)', background: '#f0fdf4', gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#15803d' }}>➕ Sáb/Dom trabalhados</div>
+                        <div style={{ fontSize: 11, color: '#16a34a', marginTop: 1 }}>
+                          {sabExt} sáb × {formatCurrency(vtDiarioUse)}/dia — adicionados ao VT
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#15803d', minWidth: 90, textAlign: 'right' }}>
+                        + {formatCurrency(form._valorSabExtra ?? 0)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Linha: Desconto faltas — só quando há faltas */}
+                  {numFaltas > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--border)', background: '#fff7ed', gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>⛔ Desconto por faltas</div>
+                        <div style={{ fontSize: 11, color: '#b45309', marginTop: 1 }}>
+                          {numFaltas} falta{numFaltas !== 1 ? 's' : ''} × {formatCurrency(vtDiarioUse)}/dia
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#dc2626', minWidth: 90, textAlign: 'right' }}>
+                        − {formatCurrency(form._valorDescFalta ?? 0)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Linha: Desconto 6% — só quando aplicável */}
+                  {desc6val > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--border)', background: '#fef9c3', gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#713f12' }}>📉 Desconto 6% — CLT</div>
+                        <div style={{ fontSize: 11, color: '#92400e', marginTop: 1 }}>
+                          Colaborador participa do custeio do VT (definido pela obra)
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#b45309', minWidth: 90, textAlign: 'right' }}>
+                        − {formatCurrency(desc6val)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Linha do VT Líquido ── */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center', padding: '13px 14px', gap: 8,
+                    background: empresaVal > 0 ? '#eff6ff' : '#f1f5f9',
+                  }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: '#1e293b' }}>💰 VT Líquido — Empresa paga</div>
+                      <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>
+                        {numFaltas === 0 && !sabUtil && sabExt === 0 && desc6val === 0
+                          ? 'Sem descontos ou adicionais'
+                          : [
+                              numFaltas > 0 && `${numFaltas} falta${numFaltas!==1?'s':''}`,
+                              !sabUtil && sabExt > 0 && `+${sabExt} sáb`,
+                              desc6val > 0 && 'desc. 6%',
+                            ].filter(Boolean).join(' · ')
+                        }
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: empresaVal > 0 ? '#1d4ed8' : '#94a3b8', minWidth: 100, textAlign: 'right' }}>
+                      {formatCurrency(empresaVal)}
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Badge info desconto 6% */}
+                {ehCLT && !obraDesc && (
+                  <p style={{ fontSize: 11, color: '#15803d', marginTop: 6 }}>
+                    ✓ Sem desconto de 6% — esta obra não aplica desconto no VT
+                  </p>
+                )}
+                {!ehCLT && (
+                  <p style={{ fontSize: 11, color: '#15803d', marginTop: 6 }}>
+                    ✓ Autônomo/PJ — desconto de 6% não se aplica
+                  </p>
+                )}
               </div>
 
               {/* Observações */}
-              <div className="col-span-2">
-                <Label className="text-xs">Observações</Label>
+              <div>
+                <Label className="text-xs text-muted-foreground">Observações</Label>
                 <Textarea value={form.observacoes} onChange={e => setField('observacoes', e.target.value)} className="mt-1" rows={2} />
               </div>
+
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+            {/* ── Rodapé / Botões ── */}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 10, flexShrink: 0 }}>
               <Button variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
-              <Button onClick={handleSave} disabled={saving}>{saving ? 'Salvando…' : editando ? 'Salvar alterações' : 'Lançar VT'}</Button>
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? 'Salvando…' : editando ? 'Salvar alterações' : 'Lançar VT'}
+              </Button>
             </div>
+
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* Confirmar exclusão */}
       <AlertDialog open={!!deleteId} onOpenChange={o => !o && setDeleteId(null)}>

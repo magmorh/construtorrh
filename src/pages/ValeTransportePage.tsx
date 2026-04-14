@@ -564,6 +564,13 @@ export default function ValeTransportePage() {
     const erroSobreposicao = validarSobreposicao(form.data_inicio, form.data_fim, editando?.id)
     if (erroSobreposicao) return toast.error(erroSobreposicao)
     setSaving(true)
+    // valor_diario = taxa diária (usada para calcular desconto_falta na exibição)
+    // dias_uteis   = dias úteis totais do período (antes de descontar faltas)
+    const vtDiarioSave = vtDiarioSnap != null ? vtDiarioSnap
+      : (colabSel ? vtDiarioColab(colabSel.vt_dados as any) : 0)
+    const diasTrabalhados = parseInt(form.dias_trabalhados) || 0
+    const numFaltasSave   = parseInt(form.num_faltas) || 0
+    const diasUteisSave   = diasTrabalhados + numFaltasSave  // total sem desconto de falta
     const payload = {
       colaborador_id: colabSel.id,
       competencia:    form.competencia,
@@ -571,7 +578,9 @@ export default function ValeTransportePage() {
       data_fim:       form.data_fim    || null,
       tipo: (form.tipo as ValeTransporte['tipo']) || null,
       valor: parseFloat(form.valor) || null,
-      dias_trabalhados: parseInt(form.dias_trabalhados) || 0,
+      dias_trabalhados: diasTrabalhados,
+      dias_uteis:       diasUteisSave,           // total do período (para calcular desc falta)
+      valor_diario:     vtDiarioSave || null,     // taxa diária (para recalcular desc falta)
       desconto_colaborador: parseFloat(form.desconto_colaborador) || null,
       valor_empresa: parseFloat(form.valor_empresa) || null,
       descontar_6pct: form.descontar_6pct,
@@ -1068,6 +1077,7 @@ export default function ValeTransportePage() {
                           <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700 }}>Tipo</th>
                           <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Dias</th>
                           <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Bruto</th>
+                          <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Desc. Falta</th>
                           <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Desc. 6%</th>
                           <th style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700 }}>Líquido</th>
                           <th style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 700 }}>Status</th>
@@ -1077,6 +1087,11 @@ export default function ValeTransportePage() {
                       <tbody>
                         {vtDoColab.map((r, i) => {
                           const eMesCompleto = r.data_inicio === primeiroDia(r.competencia) && r.data_fim === ultimoDia(r.competencia)
+                          // Desconto por falta = diferença entre dias_uteis (total) e dias_trabalhados (efetivos) × valor_diario
+                          const diasUteis   = (r as any).dias_uteis   ?? r.dias_trabalhados ?? 0
+                          const vtDiarioRow = (r as any).valor_diario ?? ((r.dias_trabalhados && r.valor) ? (r.valor / r.dias_trabalhados) : 0)
+                          const diasFaltaRow = Math.max(0, diasUteis - (r.dias_trabalhados ?? 0))
+                          const descFaltaRow = +(diasFaltaRow * vtDiarioRow).toFixed(2)
                           return (
                             <tr key={r.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'var(--card)' : 'transparent' }}>
                               <td style={{ padding: '10px 14px' }}>
@@ -1092,12 +1107,26 @@ export default function ValeTransportePage() {
                               </td>
                               <td style={{ padding: '10px 14px', textAlign: 'right' }}>{r.dias_trabalhados}</td>
                               <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                                <div style={{ fontWeight: 700 }}>{formatCurrency(r.valor)}</div>
-                                {r.dias_trabalhados && r.valor
+                                <div style={{ fontWeight: 700 }}>{formatCurrency((r.valor ?? 0) + descFaltaRow)}</div>
+                                {diasUteis > 0 && vtDiarioRow > 0
                                   ? <div style={{ fontSize: 10, color: 'var(--muted-foreground)', marginTop: 1 }}>
-                                      {r.dias_trabalhados}d × {formatCurrency((r.valor ?? 0) / (r.dias_trabalhados ?? 1))}/d
+                                      {diasUteis}d × {formatCurrency(vtDiarioRow)}/d
                                     </div>
                                   : null}
+                              </td>
+                              {/* Desc. Falta */}
+                              <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                                {descFaltaRow > 0
+                                  ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                                      <span style={{ fontSize: 10, fontWeight: 700, background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 4, padding: '1px 5px' }}>
+                                        {diasFaltaRow} falta{diasFaltaRow !== 1 ? 's' : ''}
+                                      </span>
+                                      <span style={{ color: '#dc2626', fontWeight: 700 }}>− {formatCurrency(descFaltaRow)}</span>
+                                    </div>
+                                  )
+                                  : <span style={{ fontSize: 10, color: 'var(--muted-foreground)', background: 'var(--muted)', borderRadius: 4, padding: '2px 6px' }}>—</span>
+                                }
                               </td>
                               <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                                 {r.descontar_6pct
@@ -1158,6 +1187,18 @@ export default function ValeTransportePage() {
                       <tfoot>
                         <tr style={{ background: 'var(--muted)', borderTop: '2px solid var(--border)', fontWeight: 700 }}>
                           <td colSpan={4} style={{ padding: '9px 14px', fontSize: 12 }}>Total empresa — {vtDoColab.length} lançamento(s)</td>
+                          <td style={{ padding: '9px 14px', textAlign: 'right', fontSize: 11, color: '#dc2626' }}>
+                            {(() => {
+                              const totalFalta = vtDoColab.reduce((s, r) => {
+                                const du = (r as any).dias_uteis ?? r.dias_trabalhados ?? 0
+                                const vd = (r as any).valor_diario ?? ((r.dias_trabalhados && r.valor) ? r.valor/r.dias_trabalhados : 0)
+                                return s + Math.max(0, du - (r.dias_trabalhados??0)) * vd
+                              }, 0)
+                              return totalFalta > 0
+                                ? <span style={{color:'#dc2626', fontWeight:700}}>− {formatCurrency(totalFalta)}</span>
+                                : <span style={{color:'var(--muted-foreground)'}}>—</span>
+                            })()}
+                          </td>
                           <td style={{ padding: '9px 14px', textAlign: 'right', fontSize: 11, color: '#dc2626' }}>
                             {vtDoColab.reduce((s,r)=>s+(r.desconto_colaborador??0),0) > 0
                               ? '− '+formatCurrency(vtDoColab.reduce((s,r)=>s+(r.desconto_colaborador??0),0))

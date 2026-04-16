@@ -177,11 +177,14 @@
 
   html {
     @apply scroll-smooth antialiased;
+    overscroll-behavior-y: none;   /* bloqueia pull-to-refresh no mobile */
   }
 
   body {
     @apply bg-background text-foreground font-sans min-h-screen;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    overscroll-behavior-y: none;   /* bloqueia pull-to-refresh no mobile */
+    -webkit-overflow-scrolling: touch; /* scroll suave iOS */
   }
 
   h1, h2, h3, h4, h5, h6 {

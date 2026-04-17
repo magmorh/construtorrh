@@ -221,7 +221,8 @@ export default function EncargosPage() {
           valorDSR      = l.snap_valor_dsr      ?? 0
           valorProducao = l.snap_valor_producao  ?? 0
           valorPremio   = l.snap_valor_premio    ?? 0
-          salarioBruto  = l.snap_valor_total     ?? 0
+          // Base de encargos = horas + DSR apenas (prêmio/bônus é isento de encargos trabalhistas)
+          salarioBruto  = valorHoras + valorDSR
           descontoVT    = l.snap_desconto_vt     ?? 0
           descontoAD    = l.snap_desconto_adiant ?? 0
           inss          = l.snap_inss            ?? 0
@@ -237,6 +238,7 @@ export default function EncargosPage() {
 
           valorHoras    = pt.normais * vh + pt.extras * vh * heCoef50
           valorDSR      = duDias > 0 ? (valorHoras / duDias) * domFer : 0
+          // Base encargos = horas + DSR (prêmio isento)
           salarioBruto  = valorHoras + valorDSR
           // Usa tabelas salvas no banco (não defaults hardcoded)
           inss          = calcINSS(salarioBruto, tabelaInss)
@@ -487,10 +489,10 @@ export default function EncargosPage() {
                       { label: '🏛️ - INSS ¹',    tip: 'INSS retido do funcionário' },
                       { label: '📋 - IR ¹',      tip: 'IR retido do funcionário' },
                       { label: '✅ Líquido',     tip: 'Valor a pagar' },
-                      { label: 'FGTS ²',         tip: `${(fgtsAliq*100).toFixed(1)}% sobre bruto` },
+                      { label: 'FGTS ²',         tip: `${(fgtsAliq*100).toFixed(1)}% sobre horas+DSR` },
                       { label: 'INSS Pat. ²',    tip: `${(inssPatronalAliq*100).toFixed(1)}% sobre bruto` },
-                      { label: 'RAT ²',          tip: `${(ratAliq*100).toFixed(1)}% sobre bruto` },
-                      ...(terceirosAliq > 0 ? [{ label: 'Terceiros-S ²', tip: `${(terceirosAliq*100).toFixed(1)}% sobre bruto (Sistema S)` }] : []),
+                      { label: 'RAT ²',          tip: `${(ratAliq*100).toFixed(1)}% sobre horas+DSR` },
+                      ...(terceirosAliq > 0 ? [{ label: 'Terceiros-S ²', tip: `${(terceirosAliq*100).toFixed(1)}% sobre horas+DSR (Sistema S)` }] : []),
                       { label: 'Total Emp. ²',   tip: 'FGTS + INSS Pat. + RAT' + (terceirosAliq > 0 ? ' + Terceiros-S' : '') },
                     ].map(h => (
                       <TableHead

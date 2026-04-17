@@ -147,6 +147,11 @@ export default function FechamentoPonto() {
   const [espelhoPorLanc, setEspelhoPorLanc] = useState<Record<string, DiaPonto[]>>({})
   const [modalEspelhoLancId, setModalEspelhoLancId] = useState<string | null>(null)
   const [loadingEspelho, setLoadingEspelho] = useState(false)
+  // ── Modal Aprovar Todos ──────────────────────────────────────────────────────
+  const [modalAprovarTodos, setModalAprovarTodos] = useState(false)
+  const [selecionadosAT, setSelecionadosAT]       = useState<Set<string>>(new Set())
+  const [savingAT, setSavingAT]                   = useState(false)
+  const [progressoAT, setProgressoAT]             = useState('')
 
   const mesRef = `${ano}-${String(mes).padStart(2, '0')}`
 
@@ -977,6 +982,52 @@ export default function FechamentoPonto() {
     fetchLancamentos(mesRef)
   }
 
+  // ── Abrir modal Aprovar Todos ────────────────────────────────────────────
+  function abrirModalAprovarTodos() {
+    const emFech = lancamentos.filter(l =>
+      ['em_fechamento', 'rascunho'].includes(l.status) &&
+      (filtroObraFech === 'todos' || l.obra_id === filtroObraFech) &&
+      (filtroFuncaoFech === 'todos' || l.funcao_id === filtroFuncaoFech)
+    )
+    setSelecionadosAT(new Set(emFech.map(l => l.id)))
+    setProgressoAT('')
+    setModalAprovarTodos(true)
+  }
+  // ── Confirmar aprovação em lote ──────────────────────────────────────────
+  async function confirmarAprovarTodos() {
+    const ids = Array.from(selecionadosAT)
+    if (!ids.length) return
+    setSavingAT(true)
+    let ok = 0; let erros = 0
+    for (let i = 0; i < ids.length; i++) {
+      const lanc = lancamentos.find(l => l.id === ids[i])
+      if (!lanc) continue
+      setProgressoAT(`Aprovando ${i + 1}/${ids.length}: ${lanc.colaborador_nome.split(' ')[0]}…`)
+      const { data: adData } = await supabase.from('adiantamentos').select('id,valor,desconto_parcelas,desconto_parcela_atual').eq('colaborador_id', lanc.colaborador_id).in('status', ['aprovado', 'pendente', 'pago']).is('descontado_em', null).or(`desconto_a_partir.is.null,desconto_a_partir.lte.${mesRef}`)
+      const ads = adData ?? []
+      const descontoAD = ads.reduce((s: number, a: any) => { const p = a.desconto_parcelas ?? 1; return s + (p > 1 ? a.valor / p : a.valor) }, 0)
+      const liquidoFinal = lanc.valor_total - (lanc.desconto_vt_6pct ?? 0) - lanc.inss - lanc.ir - descontoAD
+      const { error } = await supabase.from('ponto_lancamentos').update({
+        status: 'liberado', tipo_pagamento: lanc.tipo_pagamento ?? 'mensal',
+        snap_valor_hora: lanc.vh_usado, snap_horas_normais: lanc.horas_normais, snap_horas_extras: lanc.horas_extras,
+        snap_valor_horas: lanc.valor_horas, snap_valor_producao: lanc.valor_producao, snap_valor_dsr: lanc.valor_dsr,
+        snap_valor_premio: lanc.valor_premio, snap_valor_total: lanc.valor_total, snap_faltas: lanc.faltas,
+        snap_vt_diario: lanc.vt_diario_usado, snap_desconto_vt: lanc.desconto_vt, snap_desconto_adiant: descontoAD,
+        snap_inss: lanc.inss, snap_ir: lanc.ir, snap_liquido: liquidoFinal,
+        snap_fechado_em: new Date().toISOString(), snap_fechado_por: user?.email ?? 'sistema',
+      }).eq('id', lanc.id)
+      if (error) { erros++; continue }
+      ok++
+      for (const a of ads as any[]) {
+        const parcelas = a.desconto_parcelas ?? 1; const feitas = (a.desconto_parcela_atual ?? 0) + 1
+        await supabase.from('adiantamentos').update({ status: feitas >= parcelas ? 'pago' : a.status, desconto_parcela_atual: feitas, descontado_em: feitas >= parcelas ? mesRef : null }).eq('id', a.id)
+      }
+    }
+    setSavingAT(false); setModalAprovarTodos(false); setSelecionadosAT(new Set()); setProgressoAT('')
+    if (erros > 0) toast.error(`${erros} erro(s). ${ok} aprovado(s).`)
+    else toast.success(`✅ ${ok} lançamento(s) aprovados e liberados para pagamento!`)
+    fetchLancamentos(mesRef)
+  }
   // ── Liberar para pagamento (aprovado → liberado) — legado p/ status 'aprovado' existente ──
   async function liberarParaPagamento(id: string) {
     const lanc = lancamentos.find(l => l.id === id)
@@ -1125,6 +1176,12 @@ export default function FechamentoPonto() {
           <button onClick={()=>{setFiltroObraFech('todos');setFiltroFuncaoFech('todos')}}
             className="h-9 px-3 text-sm border border-input rounded-md bg-background text-muted-foreground hover:bg-muted">
             ✕ Limpar
+          </button>
+        )}
+        {abaFechamento === 'fechamento' && lancamentos.filter(l => ['em_fechamento','rascunho'].includes(l.status)).length > 0 && (
+          <button onClick={abrirModalAprovarTodos} style={{ height:36, padding:'0 16px', borderRadius:8, border:'none', background:'linear-gradient(135deg,#15803d,#16a34a)', color:'#fff', fontWeight:800, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', gap:6, boxShadow:'0 2px 8px rgba(21,128,61,0.35)', marginLeft:'auto' }}>
+            <CheckCircle2 size={15}/>
+            Aprovar Todos ({lancamentos.filter(l=>['em_fechamento','rascunho'].includes(l.status)&&(filtroObraFech==='todos'||l.obra_id===filtroObraFech)&&(filtroFuncaoFech==='todos'||l.funcao_id===filtroFuncaoFech)).length})
           </button>
         )}
       </div>
@@ -1912,6 +1969,104 @@ export default function FechamentoPonto() {
            MODAL ESPELHO DE PONTO
            Exibe o calendário diário do lançamento selecionado
       ══════════════════════════════════════════════════════════════════════ */}
+      {/* ══ MODAL APROVAR TODOS ══════════════════════════════════════════════ */}
+      {modalAprovarTodos && (() => {
+        const emFech = lancamentos.filter(l => ['em_fechamento','rascunho'].includes(l.status) && (filtroObraFech==='todos'||l.obra_id===filtroObraFech) && (filtroFuncaoFech==='todos'||l.funcao_id===filtroFuncaoFech))
+        const todosSel = emFech.length > 0 && emFech.every(l => selecionadosAT.has(l.id))
+        const totalLiq = emFech.filter(l=>selecionadosAT.has(l.id)).reduce((s,l)=>s+l.liquido,0)
+        const totalBruto = emFech.filter(l=>selecionadosAT.has(l.id)).reduce((s,l)=>s+l.valor_total,0)
+        return (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.60)', zIndex:90, display:'flex', alignItems:'center', justifyContent:'center', padding:'12px 8px' }}>
+            <div style={{ background:'var(--background)', borderRadius:16, width:'100%', maxWidth:'calc(100vw - 220px)', maxHeight:'94vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 80px rgba(0,0,0,0.40)', overflow:'hidden' }}>
+              {/* Header */}
+              <div style={{ background:'linear-gradient(135deg,#15803d,#059669)', padding:'18px 24px', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+                <div>
+                  <div style={{ color:'#fff', fontWeight:900, fontSize:18, display:'flex', alignItems:'center', gap:8 }}><CheckCircle2 size={20} color="#fff"/>Aprovar Todos os Lançamentos</div>
+                  <div style={{ color:'#bbf7d0', fontSize:12, marginTop:3 }}>Selecione os colaboradores e confirme a liberação em lote</div>
+                </div>
+                <button onClick={()=>!savingAT&&setModalAprovarTodos(false)} style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:8, width:32, height:32, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:18, fontWeight:900 }}>✕</button>
+              </div>
+              {/* Resumo */}
+              <div style={{ background:'#f0fdf4', borderBottom:'1px solid #bbf7d0', padding:'12px 24px', display:'flex', gap:20, alignItems:'center', flexShrink:0, flexWrap:'wrap' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}><span style={{ fontSize:12, color:'#374151' }}>Selecionados:</span><span style={{ fontSize:15, fontWeight:800, color:'#15803d' }}>{selecionadosAT.size}</span></div>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}><span style={{ fontSize:12, color:'#374151' }}>Bruto:</span><span style={{ fontSize:15, fontWeight:800, color:'#1d4ed8' }}>{formatCurrency(totalBruto)}</span></div>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}><span style={{ fontSize:12, color:'#374151' }}>Líquido total:</span><span style={{ fontSize:16, fontWeight:900, color:'#15803d' }}>{formatCurrency(totalLiq)}</span></div>
+                {progressoAT && <div style={{ marginLeft:'auto', fontSize:12, color:'#059669', fontWeight:600 }}>{progressoAT}</div>}
+              </div>
+              {/* Tabela */}
+              <div style={{ overflowY:'auto', flex:1 }}>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                  <thead>
+                    <tr style={{ background:'#1e3a5f', position:'sticky', top:0, zIndex:2 }}>
+                      <th style={{ padding:'10px 16px', width:44 }}>
+                        <div onClick={()=>{ todosSel?setSelecionadosAT(new Set()):setSelecionadosAT(new Set(emFech.map(l=>l.id))) }} style={{ width:20, height:20, borderRadius:5, cursor:'pointer', border:`2px solid ${todosSel?'#4ade80':'rgba(255,255,255,0.5)'}`, background:todosSel?'#16a34a':'transparent', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          {todosSel&&<span style={{ color:'#fff', fontSize:12, fontWeight:900 }}>✓</span>}
+                        </div>
+                      </th>
+                      {['COLABORADOR','OBRA','PERÍODO','DIAS','H.NORM','H.EXT','BRUTO','INSS','IR','AD','LÍQUIDO'].map(h=>(
+                        <th key={h} style={{ padding:'10px 10px', textAlign:h==='COLABORADOR'||h==='OBRA'?'left':'right', color:'#93c5fd', fontWeight:700, fontSize:11, letterSpacing:'0.04em' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {emFech.map((lanc,idx)=>{
+                      const sel=selecionadosAT.has(lanc.id)
+                      return (
+                        <tr key={lanc.id} onClick={()=>setSelecionadosAT(prev=>{const n=new Set(prev);sel?n.delete(lanc.id):n.add(lanc.id);return n})}
+                          style={{ background:sel?'#f0fdf4':idx%2===0?'#fff':'#f8fafc', cursor:'pointer', borderBottom:'1px solid #e5e7eb', outline:sel?'2px solid #86efac':'none', outlineOffset:-2 }}>
+                          <td style={{ padding:'10px 16px' }}>
+                            <div style={{ width:20, height:20, borderRadius:5, border:`2px solid ${sel?'#16a34a':'#d1d5db'}`, background:sel?'#16a34a':'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                              {sel&&<span style={{ color:'#fff', fontSize:12, fontWeight:900 }}>✓</span>}
+                            </div>
+                          </td>
+                          <td style={{ padding:'10px 10px' }}>
+                            <div style={{ fontWeight:700, color:'#1e293b' }}>{lanc.colaborador_nome}</div>
+                            <div style={{ fontSize:10, color:'#94a3b8', marginTop:1 }}>{lanc.colaborador_chapa&&<span style={{ fontWeight:600, color:'#1d4ed8', marginRight:4 }}>#{lanc.colaborador_chapa}</span>}{lanc.funcao_nome} · {lanc.tipo_contrato.toUpperCase()}</div>
+                          </td>
+                          <td style={{ padding:'10px 10px', color:'#374151', fontSize:12 }}>{lanc.obra_nome}</td>
+                          <td style={{ padding:'10px 10px', textAlign:'right', color:'#374151', fontSize:11, whiteSpace:'nowrap' }}>{lanc.data_inicio.slice(8)}/{lanc.data_inicio.slice(5,7)}→{lanc.data_fim.slice(8)}/{lanc.data_fim.slice(5,7)}</td>
+                          <td style={{ padding:'10px 10px', textAlign:'right', fontWeight:700, color:'#374151' }}>{Math.ceil((new Date(lanc.data_fim).getTime()-new Date(lanc.data_inicio).getTime())/86400000)+1}</td>
+                          <td style={{ padding:'10px 10px', textAlign:'right', color:'#1d4ed8', fontWeight:600, fontSize:12 }}>{fmtHHMM(lanc.horas_normais)}</td>
+                          <td style={{ padding:'10px 10px', textAlign:'right', color:'#7c3aed', fontWeight:600, fontSize:12 }}>{lanc.horas_extras>0?fmtHHMM(lanc.horas_extras):'—'}</td>
+                          <td style={{ padding:'10px 10px', textAlign:'right', fontWeight:700, color:'#111' }}>{formatCurrency(lanc.valor_total)}</td>
+                          <td style={{ padding:'10px 10px', textAlign:'right', color:lanc.inss>0?'#dc2626':'#9ca3af', fontSize:12 }}>{lanc.inss>0?`−${formatCurrency(lanc.inss)}`:'—'}</td>
+                          <td style={{ padding:'10px 10px', textAlign:'right', color:lanc.ir>0?'#dc2626':'#9ca3af', fontSize:12 }}>{lanc.ir>0?`−${formatCurrency(lanc.ir)}`:'—'}</td>
+                          <td style={{ padding:'10px 10px', textAlign:'right', color:lanc.desconto_adiant>0?'#b45309':'#9ca3af', fontSize:12 }}>{lanc.desconto_adiant>0?`−${formatCurrency(lanc.desconto_adiant)}`:'—'}</td>
+                          <td style={{ padding:'10px 10px', textAlign:'right', fontWeight:900, fontSize:14, color:sel?'#15803d':'#1e293b' }}>{formatCurrency(lanc.liquido)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  {selecionadosAT.size>0&&(
+                    <tfoot>
+                      <tr style={{ background:'#1e3a5f', borderTop:'2px solid #1e3a5f' }}>
+                        <td colSpan={7} style={{ padding:'10px 16px', color:'#93c5fd', fontWeight:700, fontSize:12 }}>TOTAIS — {selecionadosAT.size} lançamento(s)</td>
+                        <td style={{ padding:'10px 10px', textAlign:'right', fontWeight:800, color:'#fff', fontSize:13 }}>{formatCurrency(emFech.filter(l=>selecionadosAT.has(l.id)).reduce((s,l)=>s+l.valor_total,0))}</td>
+                        <td style={{ padding:'10px 10px', textAlign:'right', color:'#fca5a5', fontSize:12, fontWeight:600 }}>−{formatCurrency(emFech.filter(l=>selecionadosAT.has(l.id)).reduce((s,l)=>s+l.inss,0))}</td>
+                        <td style={{ padding:'10px 10px', textAlign:'right', color:'#fca5a5', fontSize:12, fontWeight:600 }}>−{formatCurrency(emFech.filter(l=>selecionadosAT.has(l.id)).reduce((s,l)=>s+l.ir,0))}</td>
+                        <td style={{ padding:'10px 10px', textAlign:'right', color:'#fde68a', fontSize:12, fontWeight:600 }}>{emFech.filter(l=>selecionadosAT.has(l.id)).reduce((s,l)=>s+l.desconto_adiant,0)>0?`−${formatCurrency(emFech.filter(l=>selecionadosAT.has(l.id)).reduce((s,l)=>s+l.desconto_adiant,0))}`:'—'}</td>
+                        <td style={{ padding:'10px 10px', textAlign:'right', fontWeight:900, color:'#4ade80', fontSize:15 }}>{formatCurrency(totalLiq)}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+              {/* Footer */}
+              <div style={{ padding:'16px 24px', borderTop:'1px solid #e5e7eb', background:'#f8fafc', display:'flex', gap:12, justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+                <div style={{ fontSize:12, color:'#6b7280' }}>{selecionadosAT.size===0?'⚠️ Nenhum selecionado':`${selecionadosAT.size} de ${emFech.length} · Líquido: ${formatCurrency(totalLiq)}`}</div>
+                <div style={{ display:'flex', gap:10 }}>
+                  <button onClick={()=>!savingAT&&setModalAprovarTodos(false)} style={{ height:42, padding:'0 20px', borderRadius:10, border:'2px solid #d1d5db', background:'#fff', color:'#374151', fontWeight:700, fontSize:13, cursor:'pointer' }}>Cancelar</button>
+                  <button onClick={confirmarAprovarTodos} disabled={savingAT||selecionadosAT.size===0} style={{ height:42, padding:'0 24px', borderRadius:10, border:'none', background:savingAT||selecionadosAT.size===0?'#94a3b8':'linear-gradient(135deg,#15803d,#16a34a)', color:'#fff', fontWeight:800, fontSize:14, cursor:savingAT||selecionadosAT.size===0?'not-allowed':'pointer', display:'flex', alignItems:'center', gap:8, boxShadow:savingAT||selecionadosAT.size===0?'none':'0 2px 12px rgba(21,128,61,0.4)' }}>
+                    <CheckCircle2 size={16}/>
+                    {savingAT?progressoAT||'Aprovando…':`✅ Aprovar e Liberar ${selecionadosAT.size} lançamento(s)`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {modalEspelhoLancId && (() => {
         const lanc   = lancamentos.find(l => l.id === modalEspelhoLancId)
         const dias   = espelhoPorLanc[modalEspelhoLancId] ?? []

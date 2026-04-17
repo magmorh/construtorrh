@@ -252,8 +252,18 @@ export default function Playbooks() {
     const res = existing
       ? await supabase.from('playbook_precos').update({ preco_unitario: valor, preco_maximo: precoMax }).eq('id', existing.id)
       : await supabase.from('playbook_precos').insert(payload)
+    if (res.error) { setSavingPreco(null); toast.error(traduzirErro(res.error.message)); return }
+    // Sincroniza playbook_itens (FK de ponto_producao aponta para esta tabela)
+    const atv = atividades.find(a => a.id === ativId)
+    if (atv) {
+      const { data: itemExist } = await supabase.from('playbook_itens').select('id').eq('obra_id', obraSel.id).eq('descricao', atv.descricao).maybeSingle()
+      if (itemExist) {
+        await supabase.from('playbook_itens').update({ preco_unitario: valor, unidade: atv.unidade, categoria: atv.categoria, ativo: true }).eq('id', itemExist.id)
+      } else {
+        await supabase.from('playbook_itens').insert({ obra_id: obraSel.id, descricao: atv.descricao, unidade: atv.unidade, categoria: atv.categoria, preco_unitario: valor, ativo: true })
+      }
+    }
     setSavingPreco(null)
-    if (res.error) { toast.error(traduzirErro(res.error.message)); return }
     toast.success('Preço salvo!')
     setEditandoPreco(null); setValorTemp(''); setValorMaxTemp(''); fetchData()
   }
@@ -273,6 +283,16 @@ export default function Playbooks() {
       atividade_id: ativId, obra_id: obraSel.id, preco_unitario: 0, ativo: true,
     }))
     const { error } = await supabase.from('playbook_precos').insert(inserts)
+    if (!error) {
+      for (const ativId of Array.from(ativSelecionadas)) {
+        const atv = atividades.find(a => a.id === ativId)
+        if (!atv) continue
+        const { data: itemExist } = await supabase.from('playbook_itens').select('id').eq('obra_id', obraSel.id).eq('descricao', atv.descricao).maybeSingle()
+        if (!itemExist) {
+          await supabase.from('playbook_itens').insert({ obra_id: obraSel.id, descricao: atv.descricao, unidade: atv.unidade, categoria: atv.categoria, preco_unitario: 0, ativo: true })
+        }
+      }
+    }
     setAdicionando(false)
     if (error) { toast.error(traduzirErro(error.message)); return }
     toast.success(`${inserts.length} atividade(s) adicionada(s)! Defina os preços na tabela.`)

@@ -839,7 +839,13 @@ export default function Ponto() {
   // ── Fetch playbooks de múltiplas obras ───────────────────────────────────
   const fetchPlaybooks = useCallback(async(obraIds:string[])=>{
     if(!obraIds.length)return{}
-    const{data}=await supabase.from('playbook_itens').select('*').in('obra_id',obraIds).eq('ativo',true)
+    const { data } = await supabase
+      .from('playbook_itens')
+      .select('id,obra_id,descricao,unidade,categoria,preco_unitario')
+      .in('obra_id', obraIds)
+      .eq('ativo', true)
+      .order('categoria')
+      .order('descricao')
     const mapa:Record<string,PlaybookItem[]>={}
     ;(data??[]).forEach((p:any)=>{
       if(!mapa[p.obra_id])mapa[p.obra_id]=[]

@@ -6,7 +6,7 @@ import PortalLayout from './PortalLayout'
 import {
   ClipboardList, AlertTriangle, UserPlus, ShieldCheck,
   HardHat, BookOpen, FolderOpen, FileImage,
-  Building2, Clock,
+  Building2, Clock, Bus,
 } from 'lucide-react'
 
 interface ObraInfo { id: string; nome: string; codigo?: string }
@@ -70,6 +70,7 @@ export default function PortalHome() {
     { icon: <BookOpen size={24} />,      label: 'Playbook',       sub: 'Serviços e preços',  to: '/portal/playbook',     cor: '#059669', bg: '#f0fdf4', border: '#a7f3d0' },
     { icon: <FolderOpen size={24} />,    label: 'Projetos',       sub: 'Arquivos da obra',   to: '/portal/projetos',     cor: '#475569', bg: '#f8fafc', border: '#cbd5e1' },
     { icon: <Clock size={24} />,         label: 'Lançamentos',    sub: 'Ponto mensal',       to: '/portal/lancamentos',  cor: '#ea580c', bg: '#fff7ed', border: '#fed7aa' },
+    { icon: <Bus size={24} />,           label: 'Vale Transporte', sub: 'Histórico e recibos', to: '/portal/vale-transporte', cor: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
   ]
 
   return (

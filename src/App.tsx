@@ -54,7 +54,8 @@ const DocViewer          = React.lazy(() => import('@/pages/DocViewer'))
 const CestaBasica        = React.lazy(() => import('@/pages/CestaBasica'))
 const Contracheques      = React.lazy(() => import('@/pages/Contracheques'))
 const AcessoColaboradores = React.lazy(() => import('@/pages/AcessoColaboradores'))
-const PortalContracheque = React.lazy(() => import('@/pages/portal/PortalContracheque'))
+const PortalContracheque    = React.lazy(() => import('@/pages/portal/PortalContracheque'))
+const PortalValeTransporte = React.lazy(() => import('@/pages/portal/PortalValeTransporte'))
 const Perfil             = React.lazy(() => import('@/pages/Perfil'))
 
 // Portal do Gestor
@@ -155,6 +156,7 @@ export default function App() {
               <Route path="/portal/lancamentos"   element={<PortalLancamentos />} />
               <Route path="/portal/clima"          element={<PortalClima />} />
               <Route path="/portal/equipamentos"   element={<PortalEquipamentos />} />
+              <Route path="/portal/vale-transporte" element={<PortalValeTransporte />} />
 
               {/* Login do Gestor — público */}
               <Route path="/gestor-login" element={<GestorLogin />} />

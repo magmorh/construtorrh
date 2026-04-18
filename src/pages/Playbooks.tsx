@@ -171,7 +171,7 @@ export default function Playbooks() {
         supabase.from('obras').select('id, nome, codigo, status').order('nome'),
         supabase.from('portal_ponto_diario').select('playbook_item_id').not('playbook_item_id', 'is', null),
         supabase.from('portal_producao').select('playbook_item_id').not('playbook_item_id', 'is', null),
-        supabase.from('colaboradores').select('id, nome, chapa, funcao').in('status', ['ativo', 'Ativo']).order('nome'),
+        supabase.from('colaboradores').select('id, nome, chapa, funcao').order('nome'),
       ])
 
       if (eAtiv) console.warn('[Playbooks] playbook_atividades:', eAtiv.message)

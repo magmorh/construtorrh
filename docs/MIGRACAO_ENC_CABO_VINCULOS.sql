@@ -90,3 +90,17 @@ ALTER TABLE playbook_precos
   ADD COLUMN IF NOT EXISTS cabo_id UUID REFERENCES colaboradores(id) ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS idx_playbook_precos_cabo ON playbook_precos (cabo_id);
+
+-- ============================================================
+-- Migração v3: Coluna retrabalhos em ponto_producao
+-- Controla fator de premiação por linha de produção:
+--   0 = sem retrabalho → 100%
+--   1 = 1 retrabalho   → 50%
+--   2+ = perde         → 0%
+-- ============================================================
+ALTER TABLE ponto_producao
+  ADD COLUMN IF NOT EXISTS retrabalhos INTEGER NOT NULL DEFAULT 0
+  CHECK (retrabalhos >= 0);
+
+COMMENT ON COLUMN ponto_producao.retrabalhos IS
+  '0=sem retrabalho (100%), 1=1 retrabalho (50%), 2+=perde a premiação (0%)';

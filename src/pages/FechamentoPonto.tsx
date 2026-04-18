@@ -530,7 +530,7 @@ export default function FechamentoPonto() {
           + e100 * vh * heCoef100   // Dom/Feriado usam heCoef100 (ex: 2.00 = 100%)
         // DSR com regra de perda por falta semanal
         const datasComFaltaLanc = (horasAgg as any).datasComFalta ?? new Set<string>()
-        const dsrRes = calcDSRComFaltas(valorHoras, dataInicioEfetivo, l.data_fim, datasComFaltaLanc)
+        const dsrRes = calcDSRComFaltas(valorHoras, dataInicioEfetivo, l.data_fim, datasComFaltaLanc, feriadosSet)
         dsr = dsrRes.dsr
         const salario = valorHoras + dsr
         // ═ REGRA PRODUÇÃO CLT ═

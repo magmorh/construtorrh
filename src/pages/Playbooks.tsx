@@ -65,7 +65,7 @@ interface ObraVinculo {
   colaborador_id: string
   funcao: 'encarregado' | 'cabo'
   ativo: boolean
-  colaboradores?: { nome: string; chapa: string | null; funcao: string | null }
+  colaboradores?: { nome: string; chapa: string | null }
 }
 
 interface Obra {
@@ -172,7 +172,7 @@ export default function Playbooks() {
         supabase.from('obras').select('id, nome, codigo, status').order('nome'),
         supabase.from('portal_ponto_diario').select('playbook_item_id').not('playbook_item_id', 'is', null),
         supabase.from('portal_producao').select('playbook_item_id').not('playbook_item_id', 'is', null),
-        supabase.from('colaboradores').select('id, nome, chapa, funcao').order('nome').limit(2000),
+        supabase.from('colaboradores').select('id, nome, chapa').order('nome').limit(2000),
       ])
 
       if (eAtiv) console.warn('[Playbooks] playbook_atividades:', eAtiv.message)
@@ -204,7 +204,7 @@ export default function Playbooks() {
       let vinculosRaw: any[] | null = null
       const { data: vinculosData, error: eVinc } = await supabase
         .from('obra_vinculos_equipe')
-        .select('id, obra_id, colaborador_id, funcao, ativo, colaboradores(nome, chapa, funcao)')
+        .select('id, obra_id, colaborador_id, funcao, ativo, colaboradores(nome, chapa)')
         .eq('ativo', true)
       if (!eVinc) vinculosRaw = vinculosData
       else console.info('[Playbooks] obra_vinculos_equipe não existe ainda — execute a migração SQL')
@@ -213,7 +213,7 @@ export default function Playbooks() {
       setAtividades((ativRaw ?? []) as Atividade[])
       setObras((obrasRaw ?? []) as Obra[])
       setPrecos((precosRaw ?? []) as AtividadePreco[])
-      setEncarregados((encRaw ?? []).map((c: any) => ({ id: c.id, nome: c.nome, chapa: c.chapa ?? null, funcao: c.funcao ?? null })))
+      setEncarregados((encRaw ?? []).map((c: any) => ({ id: c.id, nome: c.nome, chapa: c.chapa ?? null })))
       setVinculos((vinculosRaw ?? []) as ObraVinculo[])
 
       // ── Contar usos de cada atividade ────────────────────────────────────────

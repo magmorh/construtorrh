@@ -40,6 +40,8 @@ type FormData = {
   decimo_terceiro: string
   aviso_previo: string
   multa_fgts: string
+  dec_aviso: string
+  fer_aviso: string
   total_provisao: string
   observacoes: string
 }
@@ -54,6 +56,8 @@ const EMPTY_FORM: FormData = {
   decimo_terceiro: '',
   aviso_previo: '',
   multa_fgts: '',
+  dec_aviso: '',
+  fer_aviso: '',
   total_provisao: '',
   observacoes: '',
 }
@@ -65,13 +69,17 @@ function calcProvisoes(salario: number) {
   const decimo = salario * 0.0833     // 8,33% (13º — 1/12)
   const aviso  = salario * 0.0833     // 8,33% (aviso prévio — 1/12)
   const multa  = salario * 0.032      // 3,2% (multa FGTS 40% × 8%)
+  const decAv  = salario * 0.0069     // 0,69% (13° sobre aviso prévio)
+  const ferAv  = salario * 0.0093     // 0,93% (férias+1/3 sobre aviso prévio)
   return {
     fgts_mensal: fgts,
     ferias_provisionadas: ferias,
     decimo_terceiro: decimo,
     aviso_previo: aviso,
     multa_fgts: multa,
-    total_provisao: fgts + ferias + decimo + aviso + multa,
+    dec_aviso: decAv,
+    fer_aviso: ferAv,
+    total_provisao: fgts + ferias + decimo + aviso + multa + decAv + ferAv,
   }
 }
 
@@ -132,6 +140,8 @@ export default function Provisoes() {
   const totDecimo  = filtered.reduce((s, r) => s + (r.decimo_terceiro ?? 0), 0)
   const totAviso   = filtered.reduce((s, r) => s + ((r as any).aviso_previo ?? 0), 0)
   const totMulta   = filtered.reduce((s, r) => s + ((r as any).multa_fgts ?? 0), 0)
+  const totDecAv   = filtered.reduce((s, r) => s + ((r as any).dec_aviso ?? 0), 0)
+  const totFerAv   = filtered.reduce((s, r) => s + ((r as any).fer_aviso ?? 0), 0)
   const totTotal   = filtered.reduce((s, r) => s + (r.total_provisao ?? 0), 0)
 
   // ─── modal helpers ─────────────────────────────────────────────────────────
@@ -153,6 +163,8 @@ export default function Provisoes() {
       decimo_terceiro: String(row.decimo_terceiro ?? ''),
       aviso_previo: String((row as any).aviso_previo ?? ''),
       multa_fgts: String((row as any).multa_fgts ?? ''),
+      dec_aviso: String((row as any).dec_aviso ?? ''),
+      fer_aviso: String((row as any).fer_aviso ?? ''),
       total_provisao: String(row.total_provisao ?? ''),
       observacoes: row.observacoes ?? '',
     })
@@ -173,17 +185,21 @@ export default function Provisoes() {
           decimo_terceiro: calc.decimo_terceiro.toFixed(2),
           aviso_previo: calc.aviso_previo.toFixed(2),
           multa_fgts: calc.multa_fgts.toFixed(2),
+          dec_aviso: calc.dec_aviso.toFixed(2),
+          fer_aviso: calc.fer_aviso.toFixed(2),
           total_provisao: calc.total_provisao.toFixed(2),
         }
       }
       // Recalcula total ao mudar qualquer campo calculado
-      if (['fgts_mensal', 'ferias_provisionadas', 'decimo_terceiro', 'aviso_previo', 'multa_fgts'].includes(key)) {
+      if (['fgts_mensal', 'ferias_provisionadas', 'decimo_terceiro', 'aviso_previo', 'multa_fgts', 'dec_aviso', 'fer_aviso'].includes(key)) {
         const fgts   = parseFloat(key === 'fgts_mensal'           ? value : next.fgts_mensal)           || 0
         const ferias = parseFloat(key === 'ferias_provisionadas'  ? value : next.ferias_provisionadas)  || 0
         const decimo = parseFloat(key === 'decimo_terceiro'       ? value : next.decimo_terceiro)       || 0
         const aviso  = parseFloat(key === 'aviso_previo'          ? value : next.aviso_previo)          || 0
         const multa  = parseFloat(key === 'multa_fgts'            ? value : next.multa_fgts)            || 0
-        return { ...next, total_provisao: (fgts + ferias + decimo + aviso + multa).toFixed(2) }
+        const decAv  = parseFloat(key === 'dec_aviso'             ? value : next.dec_aviso)             || 0
+        const ferAv  = parseFloat(key === 'fer_aviso'             ? value : next.fer_aviso)             || 0
+        return { ...next, total_provisao: (fgts + ferias + decimo + aviso + multa + decAv + ferAv).toFixed(2) }
       }
       return next
     })
@@ -205,6 +221,8 @@ export default function Provisoes() {
       decimo_terceiro: parseFloat(form.decimo_terceiro) || null,
       aviso_previo: parseFloat(form.aviso_previo) || null,
       multa_fgts: parseFloat(form.multa_fgts) || null,
+      dec_aviso: parseFloat(form.dec_aviso) || null,
+      fer_aviso: parseFloat(form.fer_aviso) || null,
       total_provisao: parseFloat(form.total_provisao) || null,
       observacoes: form.observacoes || null,
     }
@@ -292,6 +310,8 @@ export default function Provisoes() {
                 <TableHead className="text-right">13º</TableHead>
                 <TableHead className="text-right">Aviso Prev.</TableHead>
                 <TableHead className="text-right">Multa 40%</TableHead>
+                <TableHead className="text-right">13°s/Av</TableHead>
+                <TableHead className="text-right">Fér.s/Av</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Ações</TableHead>
               </TableRow>
@@ -313,6 +333,8 @@ export default function Provisoes() {
                   <TableCell className="text-right text-sm">{formatCurrency(row.decimo_terceiro)}</TableCell>
                   <TableCell className="text-right text-sm">{formatCurrency((row as any).aviso_previo)}</TableCell>
                   <TableCell className="text-right text-sm">{formatCurrency((row as any).multa_fgts)}</TableCell>
+                  <TableCell className="text-right text-sm">{formatCurrency((row as any).dec_aviso)}</TableCell>
+                  <TableCell className="text-right text-sm">{formatCurrency((row as any).fer_aviso)}</TableCell>
                   <TableCell className="text-right text-sm font-semibold">{formatCurrency(row.total_provisao)}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
@@ -335,12 +357,14 @@ export default function Provisoes() {
             <TableFooter>
               <TableRow className="bg-muted font-semibold text-sm">
                 <TableCell colSpan={3}>Totais do período</TableCell>
-                <TableCell className="text-right">—</TableCell>
+                <TableCell className="text-right text-xs text-muted-foreground">—</TableCell>
                 <TableCell className="text-right">{formatCurrency(totFgts)}</TableCell>
                 <TableCell className="text-right">{formatCurrency(totFerias)}</TableCell>
                 <TableCell className="text-right">{formatCurrency(totDecimo)}</TableCell>
                 <TableCell className="text-right">{formatCurrency(totAviso)}</TableCell>
                 <TableCell className="text-right">{formatCurrency(totMulta)}</TableCell>
+                <TableCell className="text-right">{formatCurrency(totDecAv)}</TableCell>
+                <TableCell className="text-right">{formatCurrency(totFerAv)}</TableCell>
                 <TableCell className="text-right">{formatCurrency(totTotal)}</TableCell>
                 <TableCell />
               </TableRow>
@@ -471,6 +495,32 @@ export default function Provisoes() {
                 step="0.01"
                 value={form.multa_fgts}
                 onChange={(e) => setField('multa_fgts', e.target.value)}
+                className="mt-1 bg-muted"
+                placeholder="0,00"
+              />
+            </div>
+
+            {/* 13° sobre Aviso Prévio */}
+            <div>
+              <Label>13° s/ Aviso Prévio (0,69%)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={form.dec_aviso}
+                onChange={(e) => setField('dec_aviso', e.target.value)}
+                className="mt-1 bg-muted"
+                placeholder="0,00"
+              />
+            </div>
+
+            {/* Férias sobre Aviso Prévio */}
+            <div>
+              <Label>Férias s/ Aviso (0,93%)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={form.fer_aviso}
+                onChange={(e) => setField('fer_aviso', e.target.value)}
                 className="mt-1 bg-muted"
                 placeholder="0,00"
               />

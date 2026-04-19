@@ -341,6 +341,10 @@ export interface ProvisaoFgts {
   fgts_mensal: number | null
   ferias_provisionadas: number | null
   decimo_terceiro: number | null
+  aviso_previo: number | null
+  multa_fgts: number | null
+  dec_aviso: number | null
+  fer_aviso: number | null
   total_provisao: number | null
   observacoes: string | null
   colaboradores?: Pick<Colaborador, 'nome' | 'chapa'>

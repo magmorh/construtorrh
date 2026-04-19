@@ -82,6 +82,8 @@ interface LinhaProvisao {
   decimo_terceiro: number       // 8,33%
   aviso_previo: number          // 8,33% — aviso prévio indenizado
   multa_fgts: number            // 3,20% — multa 40% sobre FGTS
+  dec_aviso: number             // 0,69% — 13° sobre aviso prévio
+  fer_aviso: number             // 0,93% — férias+1/3 sobre aviso prévio
   total: number                 // soma de todos os itens
 }
 
@@ -105,6 +107,8 @@ const PERC_FERIAS = 0.1111   // 1/9 (férias + 1/3 constitucional = 11,11%)
 const PERC_13     = 0.0833   // 1/12
 const PERC_AVISO  = 0.0833   // 1/12 — aviso prévio de 30 dias indenizado
 const PERC_MULTA  = 0.032    // 40% × 8% — multa rescisória sobre FGTS
+const PERC_13AV   = 0.0069   // 1/12 × 1/12 — 13° sobre aviso prévio
+const PERC_FERAV  = 0.0093   // 1/12 × 1/9  — férias+1/3 sobre aviso prévio
 
 const TIPO_LABELS: Record<TipoRescisao, string> = {
   sem_justa_causa: 'Sem Justa Causa',
@@ -149,7 +153,7 @@ export default function ProvisaoRescisao() {
   const [search,         setSearch]         = useState('')
 
   // painel de detalhamento
-  type DetalheKey = 'total' | 'fgts' | 'ferias' | 'decimo' | 'aviso' | 'multa' | 'aviso' | 'multa'
+  type DetalheKey = 'total' | 'fgts' | 'ferias' | 'decimo' | 'aviso' | 'multa' | 'dec_aviso' | 'fer_aviso'
   const [painelAberto,   setPainelAberto]   = useState<DetalheKey | null>(null)
   const [searchDetalhe,  setSearchDetalhe]  = useState('')
 
@@ -220,6 +224,8 @@ export default function ProvisaoRescisao() {
           const dec    = bruto * PERC_13
           const aviso  = bruto * PERC_AVISO
           const multa  = bruto * PERC_MULTA
+          const decAv  = bruto * PERC_13AV
+          const ferAv  = bruto * PERC_FERAV
           // competencia vem como '2026-04-01' — normalizar para 'YYYY-MM'
           const comp = (l.competencia ?? '').slice(0, 7)
           return {
@@ -234,7 +240,9 @@ export default function ProvisaoRescisao() {
             decimo_terceiro: dec,
             aviso_previo: aviso,
             multa_fgts:   multa,
-            total: fgts + ferias + dec + aviso + multa,
+            dec_aviso:    decAv,
+            fer_aviso:    ferAv,
+            total: fgts + ferias + dec + aviso + multa + decAv + ferAv,
           }
       })
 
@@ -259,6 +267,8 @@ export default function ProvisaoRescisao() {
     decimo:  linhasProvisao.reduce((s, l) => s + l.decimo_terceiro, 0),
     aviso:   linhasProvisao.reduce((s, l) => s + l.aviso_previo,    0),
     multa:   linhasProvisao.reduce((s, l) => s + l.multa_fgts,      0),
+    dec_av:  linhasProvisao.reduce((s, l) => s + l.dec_aviso,       0),
+    fer_av:  linhasProvisao.reduce((s, l) => s + l.fer_aviso,       0),
     total:   linhasProvisao.reduce((s, l) => s + l.total,           0),
     bruto:   linhasProvisao.reduce((s, l) => s + l.bruto,           0),
     lancamentos: linhasProvisao.length,
@@ -284,6 +294,8 @@ export default function ProvisaoRescisao() {
     decimo:  { label: 'Provisão 13º (8,33%)',     icon: '🎁', color: '#b45309', bg: '#fef3c7', field: 'decimo_terceiro'  },
     aviso:   { label: 'Provisão Aviso Prévio',    icon: '📋', color: '#0891b2', bg: '#ecfeff', field: 'aviso_previo'     },
     multa:   { label: 'Provisão Multa FGTS 40%',  icon: '⚡', color: '#dc2626', bg: '#fff1f2', field: 'multa_fgts'       },
+    dec_aviso: { label: '13° s/ Aviso Prévio (0,69%)', icon: '📑', color: '#7c3aed', bg: '#f5f3ff', field: 'dec_aviso'      },
+    fer_aviso: { label: 'Férias s/ Aviso (0,93%)',     icon: '🌿', color: '#065f46', bg: '#ecfdf5', field: 'fer_aviso'       },
   }
 
   // ── Totais do painel filtrado ────────────────────────────────────────────────
@@ -365,6 +377,8 @@ export default function ProvisaoRescisao() {
     decimo: linhasProvisoesFiltradas.reduce((s,l) => s + l.decimo_terceiro, 0),
     aviso:  linhasProvisoesFiltradas.reduce((s,l) => s + l.aviso_previo, 0),
     multa:  linhasProvisoesFiltradas.reduce((s,l) => s + l.multa_fgts, 0),
+    dec_av: linhasProvisoesFiltradas.reduce((s,l) => s + l.dec_aviso, 0),
+    fer_av: linhasProvisoesFiltradas.reduce((s,l) => s + l.fer_aviso, 0),
     total:  linhasProvisoesFiltradas.reduce((s,l) => s + l.total, 0),
   }), [linhasProvisoesFiltradas])
 
@@ -395,6 +409,8 @@ export default function ProvisaoRescisao() {
         <td class="num">${fR(l.decimo_terceiro)}</td>
         <td class="num">${fR(l.aviso_previo)}</td>
         <td class="num">${fR(l.multa_fgts)}</td>
+        <td class="num">${fR(l.dec_aviso)}</td>
+        <td class="num">${fR(l.fer_aviso)}</td>
         <td class="num bold">${fR(l.total)}</td>
       </tr>`).join('')
     const tp = totaisProvFiltrados
@@ -414,12 +430,12 @@ tfoot td{background:#1e3a5f;color:#fff;font-weight:700;padding:6px 8px;text-alig
 tfoot td:first-child{text-align:left}
 </style></head><body>
 <h1>Provisões por Colaborador</h1>
-<p class="sub">Base: Sal+DSR · FGTS 8% · Férias 11,11% · 13º 8,33% · Aviso Prévio 8,33% · Multa FGTS 3,2% · ${linhasProvisoesFiltradas.length} lançamentos · Gerado em ${new Date().toLocaleDateString('pt-BR')}</p>
+<p class="sub">Base: Sal+DSR · FGTS 8% · Férias 11,11% · 13º 8,33% · Aviso 8,33% · Multa 3,2% · 13°s/Av 0,69% · Fér.s/Av 0,93% · ${linhasProvisoesFiltradas.length} lançamentos · Gerado em ${new Date().toLocaleDateString('pt-BR')}</p>
 <table>
   <thead><tr>
     <th>Colaborador</th><th>Chapa</th><th>Tipo</th>
     <th>Base Sal+DSR</th><th>FGTS 8%</th><th>Férias 11,11%</th>
-    <th>13º 8,33%</th><th>Aviso Prév. 8,33%</th><th>Multa 3,2%</th>
+    <th>13º 8,33%</th><th>Aviso Prév. 8,33%</th><th>Multa 3,2%</th><th>13°s/Aviso 0,69%</th><th>Férias s/Aviso 0,93%</th>
     <th>TOTAL</th>
   </tr></thead>
   <tbody>${rows}</tbody>
@@ -427,6 +443,7 @@ tfoot td:first-child{text-align:left}
     <td colspan="3">TOTAL (${linhasProvisoesFiltradas.length} lançamentos)</td>
     <td>${fR(tp.bruto)}</td><td>${fR(tp.fgts)}</td><td>${fR(tp.ferias)}</td>
     <td>${fR(tp.decimo)}</td><td>${fR(tp.aviso)}</td><td>${fR(tp.multa)}</td>
+    <td>${fR(tp.dec_av)}</td><td>${fR(tp.fer_av)}</td>
     <td>${fR(tp.total)}</td>
   </tr></tfoot>
 </table>
@@ -510,7 +527,7 @@ tfoot td:first-child{text-align:left}
               </span>
             </h1>
             <p style={{ fontSize: 13, color: 'var(--muted-foreground)', margin: '2px 0 0' }}>
-              Calculado por contracheque emitido · Base: Sal+DSR · FGTS 8% · Férias 11,11% · 13º 8,33% · Aviso Prévio 8,33% · Multa FGTS 3,2%
+              Calculado por contracheque emitido · Base: Sal+DSR · FGTS 8% · Férias 11,11% · 13º 8,33% · Aviso Prévio 8,33% · Multa FGTS 3,2% · 13°s/Aviso 0,69% · Férias s/Aviso 0,93%
             </p>
           </div>
         </div>
@@ -596,6 +613,24 @@ tfoot td:first-child{text-align:left}
           color="#dc2626"
           bg="#dc2626"
           onClick={() => { setPainelAberto('multa'); setSearchDetalhe('') }}
+        />
+        <SummaryCard
+          sigla="13AV"
+          label="13° s/ Aviso Prévio (0,69%)"
+          value={formatCurrency(totais.dec_av)}
+          sub={`${totais.lancamentos} fechamento(s) - clique para detalhar`}
+          onClick={() => setPainelAberto(p => p === 'dec_aviso' ? null : 'dec_aviso')}
+          active={painelAberto === 'dec_aviso'}
+          color="#7c3aed" bg="#f5f3ff"
+        />
+        <SummaryCard
+          sigla="FAV"
+          label="Férias s/ Aviso (0,93%)"
+          value={formatCurrency(totais.fer_av)}
+          sub={`${totais.lancamentos} fechamento(s) - clique para detalhar`}
+          onClick={() => setPainelAberto(p => p === 'fer_aviso' ? null : 'fer_aviso')}
+          active={painelAberto === 'fer_aviso'}
+          color="#065f46" bg="#ecfdf5"
         />
         <SummaryCard
           sigla="RSC"
@@ -916,7 +951,7 @@ tfoot td:first-child{text-align:left}
                     {[
                       { label: 'Colaborador' }, { label: 'Chapa' }, { label: 'Tipo' },
                       { label: 'Base Sal+DSR' }, { label: 'FGTS 8%' }, { label: 'Férias 11,11%' },
-                      { label: '13º 8,33%' },   { label: 'Aviso Prév. 8,33%' }, { label: 'Multa 3,2%' },
+                      { label: '13º 8,33%' },   { label: 'Aviso Prév. 8,33%' }, { label: 'Multa 3,2%' }, { label: '13°s/Aviso' }, { label: 'Fér.s/Aviso' },
                       { label: 'TOTAL' },
                     ].map((h, i) => (
                       <th key={i} style={{ background:'#1e3a5f', color:'#fff', fontWeight:700, padding:'8px 10px', textAlign: i < 3 ? 'left' : 'right', whiteSpace:'nowrap', fontSize:11 }}>
@@ -939,6 +974,8 @@ tfoot td:first-child{text-align:left}
                       <td style={{ padding:'7px 10px', textAlign:'right', color:'#b45309' }}>{formatCurrency(l.decimo_terceiro)}</td>
                       <td style={{ padding:'7px 10px', textAlign:'right', color:'#0891b2' }}>{formatCurrency(l.aviso_previo)}</td>
                       <td style={{ padding:'7px 10px', textAlign:'right', color:'#dc2626' }}>{formatCurrency(l.multa_fgts)}</td>
+                      <td style={{ padding:'7px 10px', textAlign:'right', color:'#7c3aed' }}>{formatCurrency(l.dec_aviso)}</td>
+                      <td style={{ padding:'7px 10px', textAlign:'right', color:'#065f46' }}>{formatCurrency(l.fer_aviso)}</td>
                       <td style={{ padding:'7px 10px', textAlign:'right', fontWeight:800, color:'#7c3aed', fontSize:12 }}>{formatCurrency(l.total)}</td>
                     </tr>
                   ))}
@@ -954,6 +991,8 @@ tfoot td:first-child{text-align:left}
                     <td style={{ background:'#1e3a5f', color:'#fde68a', textAlign:'right', padding:'8px 10px' }}>{formatCurrency(totaisProvFiltrados.decimo)}</td>
                     <td style={{ background:'#1e3a5f', color:'#67e8f9', textAlign:'right', padding:'8px 10px' }}>{formatCurrency(totaisProvFiltrados.aviso)}</td>
                     <td style={{ background:'#1e3a5f', color:'#fca5a5', textAlign:'right', padding:'8px 10px' }}>{formatCurrency(totaisProvFiltrados.multa)}</td>
+                    <td style={{ background:'#1e3a5f', color:'#d8b4fe', textAlign:'right', padding:'8px 10px' }}>{formatCurrency(totaisProvFiltrados.dec_av)}</td>
+                    <td style={{ background:'#1e3a5f', color:'#6ee7b7', textAlign:'right', padding:'8px 10px' }}>{formatCurrency(totaisProvFiltrados.fer_av)}</td>
                     <td style={{ background:'#1e3a5f', color:'#c4b5fd', fontWeight:800, textAlign:'right', padding:'8px 10px', fontSize:12 }}>{formatCurrency(totaisProvFiltrados.total)}</td>
                   </tr>
                 </tfoot>

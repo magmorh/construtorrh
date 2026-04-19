@@ -175,8 +175,7 @@ export default function ProvisaoRescisao() {
         // Contracheques publicados/pagos — sem filtro CLT no join (faz em JS)
         supabase
           .from('contracheques')
-          .select('id, colaborador_id, competencia, tipo, salario_base, valor_dsr, status')
-          .in('status', ['publicado', 'pago'])
+          .select('id, colaborador_id, competencia, tipo, salario_base, valor_dsr')
           .order('competencia', { ascending: false }),
         // rescisões lançadas
         supabase
@@ -191,8 +190,11 @@ export default function ProvisaoRescisao() {
           .order('nome'),
       ])
 
-      if (lancRes.error) throw lancRes.error
-      if (rescRes.error) throw rescRes.error
+      if (lancRes.error) throw new Error(`contracheques: ${lancRes.error.message}`)
+      // rescisoes pode ainda não existir — não bloqueia a tela
+      if (rescRes.error && !rescRes.error.message?.includes('does not exist') && rescRes.error.code !== '42P01') {
+        console.warn('rescisoes query error:', rescRes.error)
+      }
 
       // Mapa de colaboradores CLT para join em JS
       const TIPO_LABELS_PROV: Record<string,string> = {
@@ -240,7 +242,8 @@ export default function ProvisaoRescisao() {
       setRescisoes((rescRes.data ?? []) as Rescisao[])
       setColaboradores(colabRes.data ?? [])
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Erro ao carregar dados')
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'Erro ao carregar dados'
+      toast.error(msg)
     } finally {
       setLoading(false)
     }

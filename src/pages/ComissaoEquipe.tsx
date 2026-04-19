@@ -1,13 +1,12 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 import {
-  Users, Trash2, Search, Building2,
-  CheckCircle2, XCircle, Award, HardHat,
-  ChevronRight, Trophy, RefreshCw,
-  AlertTriangle, RotateCcw,
+  Users, Trash2, Search, Building2, CheckCircle2, XCircle,
+  Award, HardHat, ChevronRight, Trophy, RefreshCw, AlertTriangle, RotateCcw,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
+import { PageHeader } from '@/components/Shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -29,7 +28,6 @@ import { useProfile } from '@/hooks/useProfile'
 interface Obra { id: string; nome: string }
 interface ColaboradorInfo { id: string; nome: string; chapa: string | null }
 
-/** Entrada de playbook_precos — contém enc/cabo vinculados por atividade */
 interface PlaybookPreco {
   id: string; atividade_id: string; obra_id: string
   preco_unitario: number
@@ -40,14 +38,14 @@ interface PlaybookPreco {
   playbook_atividades?: { descricao: string; unidade: string; categoria: string | null }
 }
 
-/** Item concreto da obra — é o que portal_producao.playbook_item_id aponta */
-interface PbItem { id: string; obra_id: string; descricao: string; unidade: string; categoria: string | null }
+interface PbItem {
+  id: string; obra_id: string; descricao: string; unidade: string; categoria: string | null
+}
 
-/** Produção lançada pelo colaborador — tabela ponto_producao */
 interface ProducaoItem {
   id: string; colaborador_id: string; obra_id: string | null
   playbook_item_id: string | null; quantidade: number
-  mes_referencia: string          // formato YYYY-MM
+  mes_referencia: string
   num_retrabalhos?: number | null
   lancamento_id?: string | null
   colaboradores?: { nome: string; chapa: string | null }
@@ -65,13 +63,18 @@ interface ComissaoRow {
   colaboradores?: { nome: string; chapa: string | null }
 }
 
+/** Linha agrupada por atividade (para exibição na tabela) */
 interface LinhaAtividade {
   playbook_item_id: string; descricao: string; unidade: string
-  categoria: string | null; qtdTotal: number; itensProducao: ProducaoItem[]
-  valorPremioEnc: number; valorPremioCabo: number
+  categoria: string | null
+  // totais da atividade (soma de todos os colaboradores)
+  qtdTotal: number
   totalPremioEnc: number; totalPremioCabo: number
+  valorPremioEnc: number; valorPremioCabo: number
   encNome: string | null; caboNome: string | null
   encId: string | null; caboId: string | null
+  // sub-linhas agrupadas por colaborador (não mais por registro individual)
+  subColabs: { colaboradorId: string; nome: string; chapa: string | null; qtd: number }[]
 }
 
 interface EquipeObra { encarregados: ColaboradorInfo[]; cabos: ColaboradorInfo[] }
@@ -80,36 +83,22 @@ type Aba = 'vinculos' | 'calculo'
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 function mesLabel(ym: string) { if (!ym) return '—'; const [y,m] = ym.split('-'); return `${MESES[+m-1]} / ${y}` }
-
-/** Normaliza para comparação: trim + lowercase + espaços duplos */
-function norm(s: string | null | undefined): string {
-  return (s ?? '').toLowerCase().trim().replace(/\s+/g, ' ')
+function norm(s: string | null | undefined) { return (s ?? '').toLowerCase().trim().replace(/\s+/g,' ') }
+function fatorRetrabalho(n?: number | null) { const v=n??0; return v===0?1.0:v===1?0.5:0.0 }
+function uniq<T extends {id:string}>(arr: T[]): T[] {
+  const s=new Set<string>(); return arr.filter(c=>{if(s.has(c.id))return false;s.add(c.id);return true})
 }
 
-function fatorRetrabalho(n: number | null | undefined): number {
-  const v = n ?? 0; if (v === 0) return 1.0; if (v === 1) return 0.5; return 0.0
-}
-function badgeRetrabalho(n: number | null | undefined) {
-  const num = n ?? 0
-  if (num === 0) return { label: '✅ 100%', bg: '#f0fdf4', cor: '#15803d', border: '#bbf7d0' }
-  if (num === 1) return { label: '⚠️ 50%',  bg: '#fffbeb', cor: '#b45309', border: '#fde68a' }
-  return           { label: '❌ Perdeu', bg: '#fee2e2', cor: '#dc2626', border: '#fecaca' }
-}
-function uniq<T extends { id: string }>(arr: T[]): T[] {
-  const s = new Set<string>(); return arr.filter(c => { if (s.has(c.id)) return false; s.add(c.id); return true })
-}
-
-const STATUS_COR: Record<string, { bg: string; border: string; cor: string; label: string }> = {
-  pendente:  { bg: '#fef3c7', border: '#fde68a', cor: '#b45309', label: '⏳ Pendente'  },
-  aprovado:  { bg: '#dcfce7', border: '#bbf7d0', cor: '#15803d', label: '✅ Aprovado'  },
-  cancelado: { bg: '#fee2e2', border: '#fecaca', cor: '#dc2626', label: '❌ Cancelado' },
+const STATUS_COR: Record<string,{bg:string;border:string;cor:string;label:string}> = {
+  pendente:  {bg:'#fef3c7',border:'#fde68a',cor:'#b45309',label:'⏳ Pendente'},
+  aprovado:  {bg:'#dcfce7',border:'#bbf7d0',cor:'#15803d',label:'✅ Aprovado'},
+  cancelado: {bg:'#fee2e2',border:'#fecaca',cor:'#dc2626',label:'❌ Cancelado'},
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 export default function ComissaoEquipe() {
   const { permissions: { canCreate, canEdit, canDelete } } = useProfile()
   const [aba, setAba] = useState<Aba>('vinculos')
-
   const [obras,     setObras]     = useState<Obra[]>([])
   const [colabs,    setColabs]    = useState<ColaboradorInfo[]>([])
   const [precos,    setPrecos]    = useState<PlaybookPreco[]>([])
@@ -118,396 +107,303 @@ export default function ComissaoEquipe() {
   const [comissoes, setComissoes] = useState<ComissaoRow[]>([])
   const [loading,   setLoading]   = useState(true)
 
-  const [competencia,   setCompetencia]   = useState(new Date().toISOString().slice(0,7))
-  const [filtroStatus,  setFiltroStatus]  = useState('todos')
-  const [busca,         setBusca]         = useState('')
-  const [obraCalcSel,   setObraCalcSel]   = useState<Obra | null>(null)
-  const [searchObraCalc,setSearchObraCalc]= useState('')
+  const [competencia,    setCompetencia]    = useState(new Date().toISOString().slice(0,7))
+  const [filtroStatus,   setFiltroStatus]   = useState('todos')
+  const [busca,          setBusca]          = useState('')
+  const [obraCalcSel,    setObraCalcSel]    = useState<Obra|null>(null)
+  const [searchObraCalc, setSearchObraCalc] = useState('')
 
-  const [aprovarCom,  setAprovarCom]  = useState<ComissaoRow | null>(null)
-  const [cancelarCom, setCancelarCom] = useState<ComissaoRow | null>(null)
-  const [deleteCom,   setDeleteCom]   = useState<ComissaoRow | null>(null)
+  const [aprovarCom,  setAprovarCom]  = useState<ComissaoRow|null>(null)
+  const [cancelarCom, setCancelarCom] = useState<ComissaoRow|null>(null)
+  const [deleteCom,   setDeleteCom]   = useState<ComissaoRow|null>(null)
   const [calculando,  setCalculando]  = useState(false)
-
-  type ModalRetrab = { producaoId: string; colaboradorNome: string; descricao: string; numAtual: number } | null
-  const [modalRetrab,   setModalRetrab]   = useState<ModalRetrab>(null)
-  const [salvandoRetrab,setSalvandoRetrab]= useState(false)
-  const [novoRetrab,    setNovoRetrab]    = useState(0)
 
   // ─── Fetch ──────────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const mesInicio = `${competencia}-01`
-    const mesFim    = `${competencia}-31`
-
     const [obrRes, preRes, pbRes, proRes, colRes, comRes] = await Promise.all([
-      supabase.from('obras').select('id, nome').order('nome'),
-      supabase.from('playbook_precos')
-        .select('id, obra_id, atividade_id, preco_unitario, valor_premiacao_enc, valor_premiacao_cabo, encarregado_id, cabo_id, playbook_atividades(descricao, unidade, categoria)'),
-      supabase.from('playbook_itens')
-        .select('id, obra_id, descricao, unidade, categoria'),
-      supabase.from('ponto_producao')
-        .select('id, colaborador_id, obra_id, playbook_item_id, quantidade, mes_referencia, lancamento_id, colaboradores(nome, chapa), playbook_itens(descricao, unidade, categoria)')
-        .eq('mes_referencia', competencia),
-      supabase.from('colaboradores').select('id, nome, chapa').order('nome').limit(2000),
-      supabase.from('comissoes_equipe_v2')
-        .select('*, obras(nome), colaboradores(nome, chapa)')
-        .eq('competencia', competencia)
-        .order('created_at', { ascending: false }),
+      supabase.from('obras').select('id,nome').order('nome'),
+      supabase.from('playbook_precos').select('id,obra_id,atividade_id,preco_unitario,valor_premiacao_enc,valor_premiacao_cabo,encarregado_id,cabo_id,playbook_atividades(descricao,unidade,categoria)'),
+      supabase.from('playbook_itens').select('id,obra_id,descricao,unidade,categoria'),
+      supabase.from('ponto_producao').select('id,colaborador_id,obra_id,playbook_item_id,quantidade,mes_referencia,lancamento_id,colaboradores(nome,chapa),playbook_itens(descricao,unidade,categoria)').eq('mes_referencia',competencia),
+      supabase.from('colaboradores').select('id,nome,chapa').order('nome').limit(2000),
+      supabase.from('comissoes_equipe_v2').select('*,obras(nome),colaboradores(nome,chapa)').eq('competencia',competencia).order('created_at',{ascending:false}),
     ])
-
-    setObras      ((obrRes.data ?? []) as Obra[])
-    setPrecos     ((preRes.data ?? []) as PlaybookPreco[])
-    setPbItens    ((pbRes.data  ?? []) as PbItem[])
-    // ponto_producao: normalizar num_retrabalhos (campo pode não existir ainda)
-    const proData = (proRes.data ?? []).map((p: any) => ({ ...p, num_retrabalhos: p.num_retrabalhos ?? 0 }))
-    setProducoes(proData as ProducaoItem[])
-    setColabs     ((colRes.data ?? []) as ColaboradorInfo[])
-    setComissoes  ((comRes.data ?? []) as ComissaoRow[])
+    setObras     ((obrRes.data??[]) as Obra[])
+    setPrecos    ((preRes.data??[]) as PlaybookPreco[])
+    setPbItens   ((pbRes.data ??[]) as PbItem[])
+    setProducoes ((proRes.data??[]).map((p:any)=>({...p,num_retrabalhos:p.num_retrabalhos??0})) as ProducaoItem[])
+    setColabs    ((colRes.data??[]) as ColaboradorInfo[])
+    setComissoes ((comRes.data??[]) as ComissaoRow[])
     setLoading(false)
   }, [competencia])
+  useEffect(()=>{fetchData()},[fetchData])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  // ─── Mapas ──────────────────────────────────────────────────────────────────
+  const colabsMap = useMemo(()=>{
+    const m=new Map<string,ColaboradorInfo>(); colabs.forEach(c=>m.set(c.id,c)); return m
+  },[colabs])
 
-  // ─── Mapas auxiliares ───────────────────────────────────────────────────────
-  const colabsMap = useMemo(() => {
-    const m = new Map<string, ColaboradorInfo>(); colabs.forEach(c => m.set(c.id, c)); return m
-  }, [colabs])
-
-  /**
-   * Mapa: `${obra_id}::${playbook_item_id}` → PlaybookPreco
-   * Conecta portal_producao.playbook_item_id → playbook_precos via descricao normalizada
-   */
-  const precosPorItemId = useMemo(() => {
-    const m = new Map<string, PlaybookPreco>()
-    pbItens.forEach(item => {
-      const preco = precos.find(p =>
-        p.obra_id === item.obra_id &&
-        norm(p.playbook_atividades?.descricao) === norm(item.descricao)
-      )
-      if (preco) m.set(`${item.obra_id}::${item.id}`, preco)
+  const precosPorItemId = useMemo(()=>{
+    const m=new Map<string,PlaybookPreco>()
+    pbItens.forEach(item=>{
+      const p=precos.find(p=>p.obra_id===item.obra_id&&norm(p.playbook_atividades?.descricao)===norm(item.descricao))
+      if(p) m.set(`${item.obra_id}::${item.id}`,p)
     })
     return m
-  }, [pbItens, precos])
+  },[pbItens,precos])
 
-  /** Mapa: `${obra_id}::${descricao_norm}` → PlaybookPreco (fallback) */
-  const precosPorDesc = useMemo(() => {
-    const m = new Map<string, PlaybookPreco>()
-    precos.forEach(p => {
-      if (p.playbook_atividades?.descricao)
-        m.set(`${p.obra_id}::${norm(p.playbook_atividades.descricao)}`, p)
-    })
+  const precosPorDesc = useMemo(()=>{
+    const m=new Map<string,PlaybookPreco>()
+    precos.forEach(p=>{if(p.playbook_atividades?.descricao) m.set(`${p.obra_id}::${norm(p.playbook_atividades.descricao)}`,p)})
     return m
-  }, [precos])
+  },[precos])
 
-  /** Busca preco com duplo match (item_id → fallback descricao) */
-  function getPreco(obraId: string, prod: ProducaoItem): PlaybookPreco | undefined {
-    if (prod.playbook_item_id) {
-      const v = precosPorItemId.get(`${obraId}::${prod.playbook_item_id}`)
-      if (v) return v
-    }
-    const desc = norm(prod.playbook_itens?.descricao)
-    if (desc) return precosPorDesc.get(`${obraId}::${desc}`)
+  function getPreco(obraId:string, prod:ProducaoItem): PlaybookPreco|undefined {
+    if(prod.playbook_item_id){const v=precosPorItemId.get(`${obraId}::${prod.playbook_item_id}`);if(v)return v}
+    const d=norm(prod.playbook_itens?.descricao); if(d) return precosPorDesc.get(`${obraId}::${d}`)
     return undefined
   }
 
-  // ─── Equipe por obra (derivada de playbook_precos) ──────────────────────────
-  const equipePorObra = useMemo((): Map<string, EquipeObra> => {
-    const m = new Map<string, EquipeObra>()
-    precos.forEach(p => {
-      if (!m.has(p.obra_id)) m.set(p.obra_id, { encarregados: [], cabos: [] })
-      const eq = m.get(p.obra_id)!
-      if (p.encarregado_id) { const c = colabsMap.get(p.encarregado_id); if (c) eq.encarregados.push(c) }
-      if (p.cabo_id)        { const c = colabsMap.get(p.cabo_id);        if (c) eq.cabos.push(c) }
+  const equipePorObra = useMemo(()=>{
+    const m=new Map<string,EquipeObra>()
+    precos.forEach(p=>{
+      if(!m.has(p.obra_id))m.set(p.obra_id,{encarregados:[],cabos:[]})
+      const eq=m.get(p.obra_id)!
+      if(p.encarregado_id){const c=colabsMap.get(p.encarregado_id);if(c)eq.encarregados.push(c)}
+      if(p.cabo_id){const c=colabsMap.get(p.cabo_id);if(c)eq.cabos.push(c)}
     })
-    m.forEach(eq => { eq.encarregados = uniq(eq.encarregados); eq.cabos = uniq(eq.cabos) })
+    m.forEach(eq=>{eq.encarregados=uniq(eq.encarregados);eq.cabos=uniq(eq.cabos)})
     return m
-  }, [precos, colabsMap])
+  },[precos,colabsMap])
 
-  // ─── Calcular comissões ─────────────────────────────────────────────────────
+  // ─── Calcular ───────────────────────────────────────────────────────────────
   async function calcularComissoes() {
-    if (!canCreate) return
-    setCalculando(true)
-    let gerados = 0, erros = 0
+    if(!canCreate)return
+    setCalculando(true); let gerados=0,erros=0
+    const porObra=new Map<string,ProducaoItem[]>()
+    producoes.forEach(p=>{if(!p.obra_id)return;if(!porObra.has(p.obra_id))porObra.set(p.obra_id,[]);porObra.get(p.obra_id)!.push(p)})
 
-    const prodsPorObra = new Map<string, ProducaoItem[]>()
-    producoes.forEach(p => {
-      if (!p.obra_id) return
-      if (!prodsPorObra.has(p.obra_id)) prodsPorObra.set(p.obra_id, [])
-      prodsPorObra.get(p.obra_id)!.push(p)
-    })
+    for(const [obraId,prods] of porObra.entries()){
+      const gpi=new Map<string,ProducaoItem[]>()
+      prods.forEach(p=>{const k=p.playbook_item_id??norm(p.playbook_itens?.descricao??'');if(!k)return;if(!gpi.has(k))gpi.set(k,[]);gpi.get(k)!.push(p)})
+      const totEnc=new Map<string,{total:number;det:string[]}>()
+      const totCabo=new Map<string,{total:number;det:string[]}>()
 
-    for (const [obraId, prodsObra] of prodsPorObra.entries()) {
-      // Agrupar por key (item_id ou descricao)
-      const gpi = new Map<string, ProducaoItem[]>()
-      prodsObra.forEach(p => {
-        const key = p.playbook_item_id ?? norm(p.playbook_itens?.descricao ?? '')
-        if (!key) return
-        if (!gpi.has(key)) gpi.set(key, [])
-        gpi.get(key)!.push(p)
-      })
-
-      // Acumular por pessoa
-      const totalEnc  = new Map<string, { total: number; detalhes: string[] }>()
-      const totalCabo = new Map<string, { total: number; detalhes: string[] }>()
-
-      for (const [, itens] of gpi.entries()) {
-        const ref = itens[0]
-        const po  = getPreco(obraId, ref)
-        if (!po) continue
-
-        let qEfetiv = 0
-        itens.forEach(prod => { qEfetiv += prod.quantidade * fatorRetrabalho(prod.num_retrabalhos) })
-
-        const nomeProd = ref.playbook_itens?.descricao ?? po.playbook_atividades?.descricao ?? '?'
-        const unid     = ref.playbook_itens?.unidade   ?? po.playbook_atividades?.unidade   ?? ''
-        const qtdTotal = itens.reduce((s,p) => s+p.quantidade, 0)
-
-        if (po.encarregado_id && (po.valor_premiacao_enc ?? 0) > 0) {
-          const val = (po.valor_premiacao_enc ?? 0) * qEfetiv
-          if (!totalEnc.has(po.encarregado_id)) totalEnc.set(po.encarregado_id, { total: 0, detalhes: [] })
-          const e = totalEnc.get(po.encarregado_id)!
-          e.total += val
-          e.detalhes.push(`${nomeProd}: ${qtdTotal}${unid} × R$${(po.valor_premiacao_enc??0).toFixed(2)} = R$${val.toFixed(2)}`)
+      for(const [,itens] of gpi.entries()){
+        const ref=itens[0]; const po=getPreco(obraId,ref); if(!po)continue
+        const qtdTot=itens.reduce((s,p)=>s+p.quantidade,0)
+        let qEf=0; itens.forEach(p=>{qEf+=p.quantidade*fatorRetrabalho(p.num_retrabalhos)})
+        const nom=ref.playbook_itens?.descricao??po.playbook_atividades?.descricao??'?'
+        const un=ref.playbook_itens?.unidade??''
+        if(po.encarregado_id&&(po.valor_premiacao_enc??0)>0){
+          const val=(po.valor_premiacao_enc??0)*qEf
+          if(!totEnc.has(po.encarregado_id))totEnc.set(po.encarregado_id,{total:0,det:[]})
+          const e=totEnc.get(po.encarregado_id)!
+          e.total+=val; e.det.push(`${nom}: ${qtdTot}${un} × R$${(po.valor_premiacao_enc??0).toFixed(2)} = R$${val.toFixed(2)}`)
         }
-        if (po.cabo_id && (po.valor_premiacao_cabo ?? 0) > 0) {
-          const val = (po.valor_premiacao_cabo ?? 0) * qEfetiv
-          if (!totalCabo.has(po.cabo_id)) totalCabo.set(po.cabo_id, { total: 0, detalhes: [] })
-          const e = totalCabo.get(po.cabo_id)!
-          e.total += val
-          e.detalhes.push(`${nomeProd}: ${qtdTotal}${unid} × R$${(po.valor_premiacao_cabo??0).toFixed(2)} = R$${val.toFixed(2)}`)
+        if(po.cabo_id&&(po.valor_premiacao_cabo??0)>0){
+          const val=(po.valor_premiacao_cabo??0)*qEf
+          if(!totCabo.has(po.cabo_id))totCabo.set(po.cabo_id,{total:0,det:[]})
+          const e=totCabo.get(po.cabo_id)!
+          e.total+=val; e.det.push(`${nom}: ${qtdTot}${un} × R$${(po.valor_premiacao_cabo??0).toFixed(2)} = R$${val.toFixed(2)}`)
         }
       }
 
-      const qtdObraTotal = prodsObra.reduce((s,p) => s+p.quantidade, 0)
-
-      // Gravar encarregados
-      for (const [encId, { total, detalhes }] of totalEnc.entries()) {
-        if (total <= 0) continue
-        const jaAprovado = comissoes.find(c =>
-          c.obra_id===obraId && c.colaborador_id===encId &&
-          c.funcao==='encarregado' && c.competencia===competencia && c.status==='aprovado'
-        )
-        if (jaAprovado) continue
-        const { error } = await supabase.from('comissoes_equipe_v2').upsert({
-          obra_id: obraId, colaborador_id: encId, funcao: 'encarregado' as const,
-          descricao: `Premiação Encarregado – ${detalhes.join(' | ')}`,
-          quantidade_total: qtdObraTotal, valor_unitario_premiacao: 0,
-          valor_bruto: total, num_cabos: 1, valor_final: total,
-          competencia, status: 'pendente',
-          data_geracao: new Date().toISOString().slice(0,10),
-          observacoes: detalhes.join('\n'),
-        }, { onConflict: 'obra_id,colaborador_id,funcao,competencia', ignoreDuplicates: false })
-        if (error) { console.error('[ENC]', error); erros++ } else gerados++
+      const qtdObraTot=prods.reduce((s,p)=>s+p.quantidade,0)
+      for(const [encId,{total,det}] of totEnc.entries()){
+        if(total<=0)continue
+        const jaAprov=comissoes.find(c=>c.obra_id===obraId&&c.colaborador_id===encId&&c.funcao==='encarregado'&&c.competencia===competencia&&c.status==='aprovado')
+        if(jaAprov)continue
+        const {error}=await supabase.from('comissoes_equipe_v2').upsert({
+          obra_id:obraId,colaborador_id:encId,funcao:'encarregado' as const,
+          descricao:`Premiação Encarregado – ${det.join(' | ')}`,
+          quantidade_total:qtdObraTot,valor_unitario_premiacao:0,valor_bruto:total,num_cabos:1,valor_final:total,
+          competencia,status:'pendente',data_geracao:new Date().toISOString().slice(0,10),observacoes:det.join('\n'),
+        },{onConflict:'obra_id,colaborador_id,funcao,competencia',ignoreDuplicates:false})
+        if(error){console.error('[ENC]',error);erros++}else gerados++
       }
-
-      // Gravar cabos
-      for (const [caboId, { total, detalhes }] of totalCabo.entries()) {
-        if (total <= 0) continue
-        const jaAprovado = comissoes.find(c =>
-          c.obra_id===obraId && c.colaborador_id===caboId &&
-          c.funcao==='cabo' && c.competencia===competencia && c.status==='aprovado'
-        )
-        if (jaAprovado) continue
-        const { error } = await supabase.from('comissoes_equipe_v2').upsert({
-          obra_id: obraId, colaborador_id: caboId, funcao: 'cabo' as const,
-          descricao: `Premiação Cabo – ${detalhes.join(' | ')}`,
-          quantidade_total: qtdObraTotal, valor_unitario_premiacao: 0,
-          valor_bruto: total, num_cabos: totalCabo.size, valor_final: total,
-          competencia, status: 'pendente',
-          data_geracao: new Date().toISOString().slice(0,10),
-          observacoes: detalhes.join('\n'),
-        }, { onConflict: 'obra_id,colaborador_id,funcao,competencia', ignoreDuplicates: false })
-        if (error) { console.error('[CABO]', error); erros++ } else gerados++
+      for(const [caboId,{total,det}] of totCabo.entries()){
+        if(total<=0)continue
+        const jaAprov=comissoes.find(c=>c.obra_id===obraId&&c.colaborador_id===caboId&&c.funcao==='cabo'&&c.competencia===competencia&&c.status==='aprovado')
+        if(jaAprov)continue
+        const {error}=await supabase.from('comissoes_equipe_v2').upsert({
+          obra_id:obraId,colaborador_id:caboId,funcao:'cabo' as const,
+          descricao:`Premiação Cabo – ${det.join(' | ')}`,
+          quantidade_total:qtdObraTot,valor_unitario_premiacao:0,valor_bruto:total,num_cabos:totCabo.size,valor_final:total,
+          competencia,status:'pendente',data_geracao:new Date().toISOString().slice(0,10),observacoes:det.join('\n'),
+        },{onConflict:'obra_id,colaborador_id,funcao,competencia',ignoreDuplicates:false})
+        if(error){console.error('[CABO]',error);erros++}else gerados++
       }
     }
-
     setCalculando(false)
-    if (erros > 0)       toast.error(`${erros} erro(s) ao calcular. Verifique o console.`)
-    else if (gerados===0) toast.warning('Nenhuma premiação gerada. Verifique: (1) há produção no período? (2) enc/cabo vinculados nas atividades do Playbook?')
-    else                 toast.success(`${gerados} premiação(ões) calculada(s) para ${mesLabel(competencia)}!`)
+    if(erros>0) toast.error(`${erros} erro(s). Verifique o console.`)
+    else if(gerados===0) toast.warning('Nenhuma premiação gerada. Verifique enc/cabo no Playbook → Preços.')
+    else toast.success(`${gerados} premiação(ões) calculada(s) para ${mesLabel(competencia)}!`)
     fetchData()
   }
 
-  // ─── Retrabalho ─────────────────────────────────────────────────────────────
-  async function salvarRetrabalho() {
-    if (!modalRetrab) return
-    setSalvandoRetrab(true)
-    // num_retrabalhos não existe em ponto_producao — sempre 0 por padrão
-    const { error } = await supabase.from('ponto_producao')
-      .update({ num_retrabalhos: novoRetrab } as any)
-      .eq('id', modalRetrab.producaoId)
-    setSalvandoRetrab(false)
-    if (error) { toast.error('Erro ao salvar retrabalho.'); console.error(error) }
-    else { toast.success('Retrabalho atualizado!'); setModalRetrab(null); fetchData() }
-  }
-
-  // ─── Ações comissão ─────────────────────────────────────────────────────────
+  // ─── Ações ──────────────────────────────────────────────────────────────────
   async function handleAprovar() {
-    if (!aprovarCom) return
-    if (aprovarCom.valor_final <= 0) { toast.error('Valor final é zero.'); setAprovarCom(null); return }
-    const { data: pd, error: pe } = await supabase.from('premios').insert({
-      colaborador_id: aprovarCom.colaborador_id, obra_id: aprovarCom.obra_id, tipo: 'Produtividade',
-      descricao: `Premiação ${aprovarCom.funcao==='encarregado'?'Encarregado':'Cabo'} — ${mesLabel(aprovarCom.competencia)}`,
-      valor: aprovarCom.valor_final, data: new Date().toISOString().slice(0,10),
-      competencia: aprovarCom.competencia, observacoes: aprovarCom.observacoes ?? '', status: 'pendente',
+    if(!aprovarCom)return
+    if(aprovarCom.valor_final<=0){toast.error('Valor final é zero.');setAprovarCom(null);return}
+    const {data:pd,error:pe}=await supabase.from('premios').insert({
+      colaborador_id:aprovarCom.colaborador_id,obra_id:aprovarCom.obra_id,tipo:'Produtividade',
+      descricao:`Premiação ${aprovarCom.funcao==='encarregado'?'Encarregado':'Cabo'} — ${mesLabel(aprovarCom.competencia)}`,
+      valor:aprovarCom.valor_final,data:new Date().toISOString().slice(0,10),
+      competencia:aprovarCom.competencia,observacoes:aprovarCom.observacoes??'',status:'pendente',
     }).select('id').single()
-    if (pe || !pd) { toast.error('Erro ao criar prêmio'); return }
-    await supabase.from('comissoes_equipe_v2').update({ status: 'aprovado', premio_id: pd.id }).eq('id', aprovarCom.id)
-    toast.success('Aprovado! Prêmio gerado.'); setAprovarCom(null); fetchData()
+    if(pe||!pd){toast.error('Erro ao criar prêmio');return}
+    await supabase.from('comissoes_equipe_v2').update({status:'aprovado',premio_id:pd.id}).eq('id',aprovarCom.id)
+    toast.success('Aprovado! Prêmio gerado.');setAprovarCom(null);fetchData()
   }
-  async function handleCancelar() {
-    if (!cancelarCom) return
-    await supabase.from('comissoes_equipe_v2').update({ status: 'cancelado' }).eq('id', cancelarCom.id)
-    toast.success('Cancelado.'); setCancelarCom(null); fetchData()
+
+  // Recusar: volta para pendente (não cancela definitivamente)
+  async function handleRecusar() {
+    if(!cancelarCom)return
+    await supabase.from('comissoes_equipe_v2').update({status:'pendente',premio_id:null}).eq('id',cancelarCom.id)
+    toast.info('Premiação devolvida para pendente.');setCancelarCom(null);fetchData()
   }
+
   async function handleDelete() {
-    if (!deleteCom) return
-    await supabase.from('comissoes_equipe_v2').delete().eq('id', deleteCom.id)
-    toast.success('Excluído.'); setDeleteCom(null); fetchData()
+    if(!deleteCom)return
+    await supabase.from('comissoes_equipe_v2').delete().eq('id',deleteCom.id)
+    toast.success('Excluído.');setDeleteCom(null);fetchData()
   }
 
-  // ─── Linhas de atividade ────────────────────────────────────────────────────
-  const linhasAtividade = useMemo((): LinhaAtividade[] => {
-    if (!obraCalcSel) return []
-    const prodsObra = producoes.filter(p => p.obra_id === obraCalcSel.id)
-    if (prodsObra.length === 0) return []
+  // ─── Linhas de atividade (agrupadas por colaborador) ────────────────────────
+  const linhasAtividade = useMemo(():LinhaAtividade[]=>{
+    if(!obraCalcSel)return[]
+    const prodsObra=producoes.filter(p=>p.obra_id===obraCalcSel.id)
+    if(!prodsObra.length)return[]
 
-    const gpi = new Map<string, ProducaoItem[]>()
-    prodsObra.forEach(p => {
-      const key = p.playbook_item_id ?? norm(p.playbook_itens?.descricao ?? '')
-      if (!key) return
-      if (!gpi.has(key)) gpi.set(key, [])
-      gpi.get(key)!.push(p)
+    const gpi=new Map<string,ProducaoItem[]>()
+    prodsObra.forEach(p=>{
+      const k=p.playbook_item_id??norm(p.playbook_itens?.descricao??'')
+      if(!k)return; if(!gpi.has(k))gpi.set(k,[]); gpi.get(k)!.push(p)
     })
 
-    const linhas: LinhaAtividade[] = []
-    for (const [itemId, itens] of gpi.entries()) {
-      const ref = itens[0]
-      const po  = getPreco(obraCalcSel.id, ref)
-      const vEnc  = po?.valor_premiacao_enc  ?? 0
-      const vCabo = po?.valor_premiacao_cabo ?? 0
-      let tEnc = 0, tCabo = 0
-      itens.forEach(prod => {
-        const f = fatorRetrabalho(prod.num_retrabalhos)
-        tEnc  += prod.quantidade * vEnc  * f
-        tCabo += prod.quantidade * vCabo * f
+    const linhas:LinhaAtividade[]=[]
+    for(const [itemId,itens] of gpi.entries()){
+      const ref=itens[0]; const po=getPreco(obraCalcSel.id,ref)
+      const vEnc=po?.valor_premiacao_enc??0; const vCabo=po?.valor_premiacao_cabo??0
+      let tEnc=0,tCabo=0
+      // Agrupar sub-linhas por colaborador (somar quantidades)
+      const colabQtd=new Map<string,number>()
+      itens.forEach(prod=>{
+        const f=fatorRetrabalho(prod.num_retrabalhos)
+        tEnc+=prod.quantidade*vEnc*f; tCabo+=prod.quantidade*vCabo*f
+        colabQtd.set(prod.colaborador_id,(colabQtd.get(prod.colaborador_id)??0)+prod.quantidade)
       })
+      const subColabs=[...colabQtd.entries()].map(([cid,qtd])=>{
+        const c=itens.find(p=>p.colaborador_id===cid)
+        return {colaboradorId:cid,nome:c?.colaboradores?.nome??'—',chapa:c?.colaboradores?.chapa??null,qtd}
+      }).sort((a,b)=>a.nome.localeCompare(b.nome))
+
       linhas.push({
-        playbook_item_id: itemId,
-        descricao:  ref.playbook_itens?.descricao ?? po?.playbook_atividades?.descricao ?? '—',
-        unidade:    ref.playbook_itens?.unidade   ?? po?.playbook_atividades?.unidade   ?? '—',
-        categoria:  ref.playbook_itens?.categoria ?? po?.playbook_atividades?.categoria ?? null,
-        qtdTotal:   itens.reduce((s,p) => s+p.quantidade, 0),
-        itensProducao: itens,
-        valorPremioEnc: vEnc, valorPremioCabo: vCabo,
-        totalPremioEnc: tEnc, totalPremioCabo: tCabo,
-        encNome:  po?.encarregado_id ? (colabsMap.get(po.encarregado_id)?.nome ?? null) : null,
-        caboNome: po?.cabo_id        ? (colabsMap.get(po.cabo_id)?.nome         ?? null) : null,
-        encId:    po?.encarregado_id ?? null,
-        caboId:   po?.cabo_id        ?? null,
+        playbook_item_id:itemId,
+        descricao:ref.playbook_itens?.descricao??po?.playbook_atividades?.descricao??'—',
+        unidade:ref.playbook_itens?.unidade??po?.playbook_atividades?.unidade??'—',
+        categoria:ref.playbook_itens?.categoria??po?.playbook_atividades?.categoria??null,
+        qtdTotal:itens.reduce((s,p)=>s+p.quantidade,0),
+        totalPremioEnc:tEnc,totalPremioCabo:tCabo,
+        valorPremioEnc:vEnc,valorPremioCabo:vCabo,
+        encNome:po?.encarregado_id?(colabsMap.get(po.encarregado_id)?.nome??null):null,
+        caboNome:po?.cabo_id?(colabsMap.get(po.cabo_id)?.nome??null):null,
+        encId:po?.encarregado_id??null,caboId:po?.cabo_id??null,
+        subColabs,
       })
     }
-    return linhas.sort((a,b) => (a.categoria??'Z').localeCompare(b.categoria??'Z') || a.descricao.localeCompare(b.descricao))
-  }, [obraCalcSel, producoes, precosPorItemId, precosPorDesc, colabsMap])
+    return linhas.sort((a,b)=>(a.categoria??'Z').localeCompare(b.categoria??'Z')||a.descricao.localeCompare(b.descricao))
+  },[obraCalcSel,producoes,precosPorItemId,precosPorDesc,colabsMap])
 
-  const totalEncObra  = linhasAtividade.reduce((s,l) => s+l.totalPremioEnc,  0)
-  const totalCaboObra = linhasAtividade.reduce((s,l) => s+l.totalPremioCabo, 0)
-  const equipeCalc = obraCalcSel ? (equipePorObra.get(obraCalcSel.id) ?? { encarregados:[], cabos:[] }) : { encarregados:[], cabos:[] }
+  const totalEncObra  = linhasAtividade.reduce((s,l)=>s+l.totalPremioEnc, 0)
+  const totalCaboObra = linhasAtividade.reduce((s,l)=>s+l.totalPremioCabo,0)
+  const equipeCalc = obraCalcSel?(equipePorObra.get(obraCalcSel.id)??{encarregados:[],cabos:[]}): {encarregados:[],cabos:[]}
 
-  const resumoEncObra = useMemo(() => {
-    const m = new Map<string,number>()
-    linhasAtividade.forEach(l => { if (l.encId  && l.totalPremioEnc  > 0) m.set(l.encId,  (m.get(l.encId)  ?? 0) + l.totalPremioEnc)  })
+  const resumoEnc = useMemo(()=>{
+    const m=new Map<string,number>()
+    linhasAtividade.forEach(l=>{if(l.encId&&l.totalPremioEnc>0) m.set(l.encId,(m.get(l.encId)??0)+l.totalPremioEnc)})
     return m
-  }, [linhasAtividade])
-  const resumoCaboObra = useMemo(() => {
-    const m = new Map<string,number>()
-    linhasAtividade.forEach(l => { if (l.caboId && l.totalPremioCabo > 0) m.set(l.caboId, (m.get(l.caboId) ?? 0) + l.totalPremioCabo) })
+  },[linhasAtividade])
+  const resumoCabo = useMemo(()=>{
+    const m=new Map<string,number>()
+    linhasAtividade.forEach(l=>{if(l.caboId&&l.totalPremioCabo>0) m.set(l.caboId,(m.get(l.caboId)??0)+l.totalPremioCabo)})
     return m
-  }, [linhasAtividade])
+  },[linhasAtividade])
 
-  // ─── Resumo rápido por obra (lista lateral) ─────────────────────────────────
-  function calcRapidoObra(obra: Obra): { qtd: number; total: number } {
-    const prodsObra = producoes.filter(p => p.obra_id === obra.id)
-    const qtd = prodsObra.reduce((s,p) => s+p.quantidade, 0)
-    let total = 0
-    const gpi2 = new Map<string, ProducaoItem[]>()
-    prodsObra.forEach(p => {
-      const k = p.playbook_item_id ?? norm(p.playbook_itens?.descricao ?? '')
-      if (!k) return
-      if (!gpi2.has(k)) gpi2.set(k,[])
-      gpi2.get(k)!.push(p)
-    })
-    for (const [,itens] of gpi2.entries()) {
-      const ref = itens[0]; const po = getPreco(obra.id, ref); if (!po) continue
-      itens.forEach(prod => {
-        const f = fatorRetrabalho(prod.num_retrabalhos)
-        total += prod.quantidade * ((po.valor_premiacao_enc??0) + (po.valor_premiacao_cabo??0)) * f
-      })
-    }
-    return { qtd, total }
+  function calcRapido(obra:Obra){
+    const prods=producoes.filter(p=>p.obra_id===obra.id)
+    const qtd=prods.reduce((s,p)=>s+p.quantidade,0)
+    let tot=0
+    const gpi2=new Map<string,ProducaoItem[]>()
+    prods.forEach(p=>{const k=p.playbook_item_id??norm(p.playbook_itens?.descricao??'');if(!k)return;if(!gpi2.has(k))gpi2.set(k,[]);gpi2.get(k)!.push(p)})
+    for(const [,itens] of gpi2.entries()){const ref=itens[0];const po=getPreco(obra.id,ref);if(!po)continue;itens.forEach(p=>{tot+=p.quantidade*((po.valor_premiacao_enc??0)+(po.valor_premiacao_cabo??0))*fatorRetrabalho(p.num_retrabalhos)})}
+    return {qtd,tot}
   }
 
   // ─── Render ─────────────────────────────────────────────────────────────────
+  const calcBtn = (
+    <Button onClick={calcularComissoes} disabled={calculando} size="sm" style={{gap:6}}>
+      <RefreshCw size={14} className={calculando?'animate-spin':''}/>
+      {calculando?'Calculando…':`Calcular ${mesLabel(competencia)}`}
+    </Button>
+  )
+
   return (
-    <div style={{ padding: '20px 24px', maxWidth: 1400, margin: '0 auto' }}>
+    <div className="page-container">
+      <PageHeader
+        title="Comissão sobre Produtividade"
+        subtitle="Premiação automática por produção — Encarregado e Cabo vinculados nas atividades do Playbook"
+        icon={<Trophy size={18}/>}
+        action={aba==='calculo'?calcBtn:undefined}
+      />
 
-      {/* Header */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20, flexWrap:'wrap', gap:12 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <div style={{ width:42, height:42, borderRadius:12, background:'linear-gradient(135deg,#f59e0b,#d97706)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <Trophy size={20} color="#fff"/>
-          </div>
-          <div>
-            <h1 style={{ fontSize:20, fontWeight:800, color:'#1e293b', margin:0 }}>Comissão sobre Produtividade</h1>
-            <p style={{ fontSize:12, color:'#64748b', margin:0 }}>Premiação automática por produção — Encarregado e Cabo vinculados nas atividades do Playbook</p>
-          </div>
+      {/* Abas + competência */}
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
+        <div style={{display:'flex',gap:4,background:'var(--muted)',borderRadius:10,padding:4}}>
+          {([{id:'vinculos',label:'🔗 Vínculos por Obra'},{id:'calculo',label:'💰 Cálculo de Premiações'}] as const).map(t=>(
+            <button key={t.id} onClick={()=>setAba(t.id)} style={{padding:'6px 16px',borderRadius:8,border:'none',cursor:'pointer',fontSize:13,fontWeight:600,background:aba===t.id?'var(--card)':'transparent',color:aba===t.id?'var(--primary)':'var(--muted-foreground)',boxShadow:aba===t.id?'0 1px 3px rgba(0,0,0,.1)':'none',transition:'all .15s'}}>{t.label}</button>
+          ))}
         </div>
-        {aba==='calculo' && (
-          <Button onClick={calcularComissoes} disabled={calculando} style={{ gap:6, background:'#0d3f56', color:'#fff' }}>
-            <RefreshCw size={14} className={calculando?'animate-spin':''}/>
-            {calculando ? 'Calculando…' : `Calcular ${mesLabel(competencia)}`}
-          </Button>
+        {aba==='calculo'&&(
+          <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-1.5">
+            <span className="text-xs font-semibold text-muted-foreground">Competência:</span>
+            <input type="month" value={competencia} onChange={e=>{setCompetencia(e.target.value);setObraCalcSel(null)}} style={{border:'none',outline:'none',fontSize:13,fontWeight:700,color:'var(--primary)',background:'transparent'}}/>
+          </div>
         )}
-      </div>
-
-      {/* Abas */}
-      <div style={{ display:'flex', gap:4, marginBottom:20, background:'#f1f5f9', borderRadius:10, padding:4, width:'fit-content' }}>
-        {([{id:'vinculos',label:'🔗 Vínculos por Obra'},{id:'calculo',label:'💰 Cálculo de Premiações'}] as const).map(t => (
-          <button key={t.id} onClick={() => setAba(t.id)} style={{ padding:'7px 18px', borderRadius:8, border:'none', cursor:'pointer', fontSize:13, fontWeight:600, background:aba===t.id?'#fff':'transparent', color:aba===t.id?'#0d3f56':'#64748b', boxShadow:aba===t.id?'0 1px 4px rgba(0,0,0,.1)':'none', transition:'all .15s' }}>{t.label}</button>
-        ))}
+        {aba==='calculo'&&<div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">🔒 Aprovadas não são alteradas ao recalcular</div>}
       </div>
 
       {/* ══ VÍNCULOS ══════════════════════════════════════════════════════════ */}
-      {aba==='vinculos' && (
+      {aba==='vinculos'&&(
         <div>
-          <div style={{ background:'#f0f9ff', border:'1px solid #bae6fd', borderRadius:10, padding:'12px 16px', marginBottom:16, fontSize:13, color:'#0369a1' }}>
-            📌 Vínculos de <strong>Encarregado</strong> e <strong>Cabo</strong> são configurados em <strong>Playbooks → Preços por Obra</strong>. Os dados abaixo refletem esses vínculos automaticamente.
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm text-blue-700">
+            📌 Vínculos configurados em <strong>Playbooks → Preços por Obra</strong> (colunas R$ Enc. e R$ Cabo). Refletidos automaticamente abaixo.
           </div>
-          {loading ? <div style={{ padding:40, textAlign:'center', color:'#94a3b8' }}>Carregando…</div> : (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(340px,1fr))', gap:12 }}>
-              {obras.map(obra => {
-                const eq   = equipePorObra.get(obra.id) ?? { encarregados:[], cabos:[] }
-                const qtd  = producoes.filter(p => p.obra_id===obra.id).reduce((s,p) => s+p.quantidade, 0)
-                return (
-                  <div key={obra.id} style={{ background:'#fff', border:'1px solid #e2e8f0', borderRadius:12, padding:'14px 16px' }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
-                      <div style={{ width:36, height:36, borderRadius:9, background:'linear-gradient(135deg,#0d3f56,#1e3a5f)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><Building2 size={16} color="#fff"/></div>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontWeight:700, fontSize:14, color:'#1e293b', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{obra.nome}</div>
-                        <div style={{ fontSize:11, color:'#64748b' }}>{qtd>0 ? `${qtd.toLocaleString('pt-BR')} un. em ${mesLabel(competencia)}` : 'Sem produção neste mês'}</div>
+          {loading?<div className="text-center py-10 text-muted-foreground">Carregando…</div>:(
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))',gap:12}}>
+              {obras.map(obra=>{
+                const eq=equipePorObra.get(obra.id)??{encarregados:[],cabos:[]}
+                const qtd=producoes.filter(p=>p.obra_id===obra.id).reduce((s,p)=>s+p.quantidade,0)
+                return(
+                  <div key={obra.id} className="bg-card border border-border rounded-xl p-4">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div style={{width:36,height:36,borderRadius:9,background:'var(--primary)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Building2 size={16} color="#fff"/></div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div className="font-bold text-sm truncate">{obra.nome}</div>
+                        <div className="text-xs text-muted-foreground">{qtd>0?`${qtd.toLocaleString('pt-BR')} un. em ${mesLabel(competencia)}`:'Sem produção neste mês'}</div>
                       </div>
-                      {eq.encarregados.length===0 && eq.cabos.length===0 && <span style={{ fontSize:10, color:'#94a3b8', background:'#f1f5f9', borderRadius:20, padding:'2px 8px' }}>Sem equipe</span>}
                     </div>
-                    <div style={{ marginBottom:8 }}>
-                      <div style={{ fontSize:10, fontWeight:700, color:'#c2410c', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>👷 Encarregado(s)</div>
-                      {eq.encarregados.length===0 ? <div style={{ fontSize:12, color:'#94a3b8', fontStyle:'italic' }}>— não vinculado nas atividades —</div>
-                       : eq.encarregados.map(c => <div key={c.id} style={{ fontSize:13, fontWeight:600, color:'#1e293b', display:'flex', alignItems:'center', gap:6 }}><HardHat size={13} color="#c2410c"/>{c.nome}{c.chapa && <span style={{ fontSize:10, color:'#94a3b8', fontFamily:'monospace' }}>({c.chapa})</span>}</div>)}
+                    <div className="mb-2">
+                      <div className="text-xs font-bold text-orange-600 uppercase tracking-wide mb-1">👷 Encarregado(s)</div>
+                      {eq.encarregados.length===0?<div className="text-xs text-muted-foreground italic">— não vinculado —</div>
+                       :eq.encarregados.map(c=><div key={c.id} className="text-sm font-semibold flex items-center gap-1"><HardHat size={12} color="#c2410c"/>{c.nome}</div>)}
                     </div>
                     <div>
-                      <div style={{ fontSize:10, fontWeight:700, color:'#0369a1', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:4 }}>🔧 Cabo(s)</div>
-                      {eq.cabos.length===0 ? <div style={{ fontSize:12, color:'#94a3b8', fontStyle:'italic' }}>— não vinculado nas atividades —</div>
-                       : eq.cabos.map(c => <div key={c.id} style={{ fontSize:13, fontWeight:600, color:'#1e293b', display:'flex', alignItems:'center', gap:6, marginBottom:2 }}><Users size={12} color="#0369a1"/>{c.nome}{c.chapa && <span style={{ fontSize:10, color:'#94a3b8', fontFamily:'monospace' }}>({c.chapa})</span>}</div>)}
+                      <div className="text-xs font-bold text-blue-600 uppercase tracking-wide mb-1">🔧 Cabo(s)</div>
+                      {eq.cabos.length===0?<div className="text-xs text-muted-foreground italic">— não vinculado —</div>
+                       :eq.cabos.map(c=><div key={c.id} className="text-sm font-semibold flex items-center gap-1 mb-0.5"><Users size={11} color="#0369a1"/>{c.nome}</div>)}
                     </div>
                   </div>
                 )
@@ -518,300 +414,259 @@ export default function ComissaoEquipe() {
       )}
 
       {/* ══ CÁLCULO ═══════════════════════════════════════════════════════════ */}
-      {aba==='calculo' && (
-        <div>
-          <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:6, background:'#fff', borderRadius:9, border:'1px solid #e2e8f0', padding:'6px 12px' }}>
-              <span style={{ fontSize:12, fontWeight:600, color:'#64748b' }}>Competência:</span>
-              <input type="month" value={competencia} onChange={e => { setCompetencia(e.target.value); setObraCalcSel(null) }} style={{ border:'none', outline:'none', fontSize:13, fontWeight:700, color:'#0d3f56', background:'transparent' }}/>
+      {aba==='calculo'&&(
+        <div style={{display:'grid',gridTemplateColumns:'260px 1fr',gap:16,alignItems:'start'}}>
+
+          {/* Lista obras */}
+          <div className="bg-card border border-border rounded-xl overflow-hidden" style={{position:'sticky',top:20}}>
+            <div className="px-3 py-3 border-b border-border bg-muted/50">
+              <p className="text-sm font-bold mb-2 flex items-center gap-1"><Building2 size={13}/> Obras</p>
+              <div style={{position:'relative'}}>
+                <Search size={12} style={{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',color:'var(--muted-foreground)'}}/>
+                <Input style={{paddingLeft:26,height:30,fontSize:12}} placeholder="Filtrar…" value={searchObraCalc} onChange={e=>setSearchObraCalc(e.target.value)}/>
+              </div>
             </div>
-            <div style={{ background:'#fffbeb', border:'1px solid #fde68a', borderRadius:9, padding:'6px 12px', fontSize:12, color:'#92400e', display:'flex', alignItems:'center', gap:6 }}>
-              🔒 Comissões <strong>aprovadas</strong> não são alteradas ao recalcular
+            <div style={{maxHeight:520,overflowY:'auto'}}>
+              {loading?<div className="p-4 text-center text-xs text-muted-foreground">Carregando…</div>
+               :obras.filter(o=>!searchObraCalc||o.nome.toLowerCase().includes(searchObraCalc.toLowerCase())).map(obra=>{
+                const isSel=obraCalcSel?.id===obra.id
+                const eq=equipePorObra.get(obra.id)
+                const temEq=eq&&(eq.encarregados.length>0||eq.cabos.length>0)
+                const {qtd,tot}=calcRapido(obra)
+                return(
+                  <button key={obra.id} type="button" onClick={()=>setObraCalcSel(obra)} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'10px 12px',border:'none',cursor:'pointer',textAlign:'left',borderLeft:isSel?'3px solid var(--primary)':'3px solid transparent',background:isSel?'rgba(var(--primary-rgb),.06)':'transparent',borderBottom:'1px solid var(--border)'}}>
+                    <div style={{width:32,height:32,borderRadius:7,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,background:isSel?'var(--primary)':'var(--muted)',color:isSel?'#fff':'var(--muted-foreground)'}}>{obra.nome.slice(0,2).toUpperCase()}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <p className="text-sm truncate" style={{fontWeight:isSel?700:500,color:isSel?'var(--primary)':'var(--foreground)',margin:0}}>{obra.nome}</p>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {qtd>0?<>{qtd.toLocaleString('pt-BR')} un.{tot>0&&<span className="text-green-600 font-semibold ml-1">· {formatCurrency(tot)}</span>}</>:<span>Sem produção</span>}
+                      </div>
+                    </div>
+                    {!temEq&&<span className="text-xs bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5 shrink-0">s/eq</span>}
+                    <ChevronRight size={12} color={isSel?'var(--primary)':'var(--muted-foreground)'}/>
+                  </button>
+                )
+              })}
             </div>
           </div>
 
-          <div style={{ display:'grid', gridTemplateColumns:'280px 1fr', gap:16, alignItems:'start' }}>
-
-            {/* Lista obras */}
-            <div style={{ border:'1px solid #e2e8f0', borderRadius:10, background:'#fff', overflow:'hidden', position:'sticky', top:20 }}>
-              <div style={{ padding:'12px 14px', borderBottom:'1px solid #e2e8f0', background:'#f8fafc' }}>
-                <p style={{ margin:'0 0 8px', fontSize:13, fontWeight:700, color:'#1e293b', display:'flex', alignItems:'center', gap:6 }}><Building2 size={13} color="#0d3f56"/> Obras</p>
-                <div style={{ position:'relative' }}>
-                  <Search size={12} style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', color:'#94a3b8' }}/>
-                  <Input style={{ paddingLeft:28, height:30, fontSize:12 }} placeholder="Filtrar obras…" value={searchObraCalc} onChange={e => setSearchObraCalc(e.target.value)}/>
-                </div>
-              </div>
-              <div style={{ maxHeight:560, overflowY:'auto' }}>
-                {loading ? <div style={{ padding:20, textAlign:'center', color:'#94a3b8', fontSize:12 }}>Carregando…</div>
-                 : obras.filter(o => !searchObraCalc || o.nome.toLowerCase().includes(searchObraCalc.toLowerCase())).map(obra => {
-                  const isSel = obraCalcSel?.id === obra.id
-                  const eq    = equipePorObra.get(obra.id)
-                  const temEq = eq && (eq.encarregados.length>0 || eq.cabos.length>0)
-                  const { qtd, total } = calcRapidoObra(obra)
-                  return (
-                    <button key={obra.id} type="button" onClick={() => setObraCalcSel(obra)} style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'11px 14px', border:'none', cursor:'pointer', textAlign:'left', borderLeft:isSel?'3px solid #0d3f56':'3px solid transparent', background:isSel?'rgba(13,63,86,.06)':'transparent', borderBottom:'1px solid #f1f5f9' }}>
-                      <div style={{ width:34, height:34, borderRadius:8, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, background:isSel?'#0d3f56':'#f1f5f9', color:isSel?'#fff':'#64748b' }}>{obra.nome.slice(0,2).toUpperCase()}</div>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <p style={{ margin:0, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontWeight:isSel?700:500, color:isSel?'#0d3f56':'#1e293b' }}>{obra.nome}</p>
-                        <div style={{ fontSize:10, color:'#94a3b8', marginTop:1 }}>
-                          {qtd>0 ? <>{qtd.toLocaleString('pt-BR')} un.{total>0 && <span style={{ marginLeft:4, color:'#15803d', fontWeight:600 }}>· {formatCurrency(total)}</span>}</> : <span style={{ color:'#cbd5e1' }}>Sem produção</span>}
-                        </div>
-                      </div>
-                      {!temEq && <span style={{ fontSize:9, background:'#fef3c7', color:'#b45309', borderRadius:10, padding:'1px 6px', flexShrink:0 }}>s/ equipe</span>}
-                      <ChevronRight size={12} color={isSel?'#0d3f56':'#cbd5e1'}/>
-                    </button>
-                  )
-                })}
-              </div>
+          {/* Painel detalhe */}
+          {!obraCalcSel?(
+            <div className="flex flex-col items-center justify-center py-16 border-2 border-dashed border-border rounded-xl text-muted-foreground gap-3">
+              <Trophy size={40} style={{opacity:.2}}/><p className="font-medium">Selecione uma obra</p>
+              <p className="text-sm">← Escolha a obra para ver atividades e calcular comissões</p>
             </div>
+          ):(
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
 
-            {/* Detalhe */}
-            {!obraCalcSel ? (
-              <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:60, border:'2px dashed #e2e8f0', borderRadius:12, color:'#94a3b8', gap:10 }}>
-                <Trophy size={40} style={{ opacity:.2 }}/><p style={{ margin:0, fontSize:15, fontWeight:500 }}>Selecione uma obra</p>
-                <p style={{ margin:0, fontSize:13 }}>← Escolha a obra para ver atividades e comissões</p>
-              </div>
-            ) : (
-              <div style={{ border:'1px solid #e2e8f0', borderRadius:12, background:'#fff', overflow:'hidden' }}>
-
-                {/* Header azul */}
-                <div style={{ padding:'14px 18px', background:'linear-gradient(135deg,#0d3f56,#1e3a5f)', color:'#fff' }}>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
-                    <div>
-                      <div style={{ fontWeight:800, fontSize:16 }}>{obraCalcSel.nome}</div>
-                      <div style={{ fontSize:12, color:'rgba(255,255,255,.7)', marginTop:2 }}>{linhasAtividade.length} atividade(s) · {mesLabel(competencia)}</div>
+              {/* Header da obra */}
+              <div style={{padding:'14px 18px',background:'var(--primary)',color:'#fff'}}>
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <div style={{fontWeight:800,fontSize:16}}>{obraCalcSel.nome}</div>
+                    <div style={{fontSize:12,opacity:.75,marginTop:2}}>{linhasAtividade.length} atividade(s) · {mesLabel(competencia)}</div>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <div style={{background:'rgba(255,255,255,.15)',borderRadius:8,padding:'8px 12px',minWidth:110}}>
+                      <div style={{fontSize:10,opacity:.75,marginBottom:2}}>👷 Total Enc.</div>
+                      <div style={{fontSize:15,fontWeight:800,color:'#fde68a'}}>{formatCurrency(totalEncObra)}</div>
+                      {equipeCalc.encarregados.length>0&&<div style={{fontSize:10,opacity:.6,marginTop:1}}>{equipeCalc.encarregados.map(c=>c.nome.split(' ')[0]).join(', ')}</div>}
                     </div>
-                    <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
-                      <div style={{ background:'rgba(255,255,255,.15)', borderRadius:8, padding:'8px 14px', minWidth:120 }}>
-                        <div style={{ fontSize:10, color:'rgba(255,255,255,.7)', marginBottom:2 }}>👷 Total Enc.</div>
-                        <div style={{ fontSize:15, fontWeight:800, color:'#fde68a' }}>{formatCurrency(totalEncObra)}</div>
-                        {equipeCalc.encarregados.length>0 && <div style={{ fontSize:10, color:'rgba(255,255,255,.6)', marginTop:2 }}>{equipeCalc.encarregados.map(c=>c.nome.split(' ')[0]).join(', ')}</div>}
-                      </div>
-                      <div style={{ background:'rgba(255,255,255,.15)', borderRadius:8, padding:'8px 14px', minWidth:120 }}>
-                        <div style={{ fontSize:10, color:'rgba(255,255,255,.7)', marginBottom:2 }}>🔧 Total Cabo</div>
-                        <div style={{ fontSize:15, fontWeight:800, color:'#bfdbfe' }}>{formatCurrency(totalCaboObra)}</div>
-                        {equipeCalc.cabos.length>0 && <div style={{ fontSize:10, color:'rgba(255,255,255,.6)', marginTop:2 }}>{equipeCalc.cabos.map(c=>c.nome.split(' ')[0]).join(', ')}</div>}
-                      </div>
+                    <div style={{background:'rgba(255,255,255,.15)',borderRadius:8,padding:'8px 12px',minWidth:110}}>
+                      <div style={{fontSize:10,opacity:.75,marginBottom:2}}>🔧 Total Cabo</div>
+                      <div style={{fontSize:15,fontWeight:800,color:'#bfdbfe'}}>{formatCurrency(totalCaboObra)}</div>
+                      {equipeCalc.cabos.length>0&&<div style={{fontSize:10,opacity:.6,marginTop:1}}>{equipeCalc.cabos.map(c=>c.nome.split(' ')[0]).join(', ')}</div>}
                     </div>
                   </div>
-                  {equipeCalc.encarregados.length===0 && <div style={{ marginTop:8, background:'rgba(245,158,11,.25)', borderRadius:6, padding:'6px 10px', fontSize:11, color:'#fde68a', display:'flex', alignItems:'center', gap:6 }}><AlertTriangle size={12}/> Nenhum encarregado vinculado nas atividades desta obra</div>}
-                  {equipeCalc.cabos.length===0        && <div style={{ marginTop:6, background:'rgba(245,158,11,.25)', borderRadius:6, padding:'6px 10px', fontSize:11, color:'#fde68a', display:'flex', alignItems:'center', gap:6 }}><AlertTriangle size={12}/> Nenhum cabo vinculado nas atividades desta obra</div>}
                 </div>
+                {equipeCalc.encarregados.length===0&&<div style={{marginTop:8,background:'rgba(245,158,11,.25)',borderRadius:6,padding:'6px 10px',fontSize:11,color:'#fde68a',display:'flex',alignItems:'center',gap:6}}><AlertTriangle size={12}/> Nenhum encarregado vinculado</div>}
+                {equipeCalc.cabos.length===0&&<div style={{marginTop:6,background:'rgba(245,158,11,.25)',borderRadius:6,padding:'6px 10px',fontSize:11,color:'#fde68a',display:'flex',alignItems:'center',gap:6}}><AlertTriangle size={12}/> Nenhum cabo vinculado</div>}
+              </div>
 
-                {/* Tabela atividades */}
-                {linhasAtividade.length===0 ? (
-                  <div style={{ padding:40, textAlign:'center', color:'#94a3b8' }}>
-                    <Trophy size={32} style={{ marginBottom:10, opacity:.2 }}/>
-                    <div style={{ fontWeight:600 }}>Sem produção em {mesLabel(competencia)}</div>
-                    <div style={{ fontSize:12, marginTop:4 }}>Lance produções no portal para calcular as comissões.</div>
+              {/* Tabela atividades */}
+              {linhasAtividade.length===0?(
+                <div className="flex flex-col items-center py-10 text-muted-foreground gap-2">
+                  <Trophy size={32} style={{opacity:.2}}/><div className="font-semibold">Sem produção em {mesLabel(competencia)}</div>
+                  <div className="text-sm">Lance produções no portal para calcular.</div>
+                </div>
+              ):(
+                <div style={{overflowX:'auto'}}>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/50">
+                        <TableHead className="w-24">Categoria</TableHead>
+                        <TableHead>Atividade / Colaboradores</TableHead>
+                        <TableHead className="text-center w-16">Unid.</TableHead>
+                        <TableHead className="text-right w-24">Qtd. Total</TableHead>
+                        <TableHead className="text-center w-28">Enc.</TableHead>
+                        <TableHead className="text-center w-28">Cabo</TableHead>
+                        <TableHead className="text-right w-28 text-orange-600 font-bold">💰 Enc.</TableHead>
+                        <TableHead className="text-right w-28 text-blue-600 font-bold">💰 Cabo</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {linhasAtividade.map((linha,idx)=>(
+                        <React.Fragment key={linha.playbook_item_id}>
+                          {/* Linha da atividade */}
+                          <TableRow style={{background:idx%2===0?'transparent':'var(--muted/20)'}}>
+                            <TableCell><span className="text-xs font-medium px-2 py-0.5 rounded" style={{background:'rgba(var(--primary-rgb),.08)',color:'var(--primary)'}}>{linha.categoria??'Outros'}</span></TableCell>
+                            <TableCell>
+                              <div className="font-bold text-sm">{linha.descricao}</div>
+                              {/* Sub-linhas por colaborador (agrupadas) */}
+                              {linha.subColabs.map(sc=>(
+                                <div key={sc.colaboradorId} className="flex items-center gap-1.5 mt-0.5">
+                                  <span className="text-xs text-muted-foreground">↳</span>
+                                  <span className="text-xs font-medium">{sc.nome}</span>
+                                  {sc.chapa&&<span className="text-xs text-muted-foreground font-mono">({sc.chapa})</span>}
+                                  <span className="text-xs text-muted-foreground">— {sc.qtd.toLocaleString('pt-BR')} {linha.unidade}</span>
+                                </div>
+                              ))}
+                            </TableCell>
+                            <TableCell className="text-center"><span className="font-mono text-xs font-bold">{linha.unidade}</span></TableCell>
+                            <TableCell className="text-right font-bold">{linha.qtdTotal.toLocaleString('pt-BR')}</TableCell>
+                            <TableCell className="text-center">
+                              {linha.encNome?<span className="text-xs font-semibold text-orange-700 bg-orange-50 border border-orange-200 rounded-full px-2 py-0.5">👷 {linha.encNome.split(' ')[0]}</span>:<span className="text-xs text-muted-foreground">—</span>}
+                              {linha.valorPremioEnc>0&&<div className="text-xs text-orange-600 mt-0.5">R${linha.valorPremioEnc.toFixed(2)}/un.</div>}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {linha.caboNome?<span className="text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5">🔧 {linha.caboNome.split(' ')[0]}</span>:<span className="text-xs text-muted-foreground">—</span>}
+                              {linha.valorPremioCabo>0&&<div className="text-xs text-blue-600 mt-0.5">R${linha.valorPremioCabo.toFixed(2)}/un.</div>}
+                            </TableCell>
+                            <TableCell className="text-right"><span className="font-bold" style={{color:linha.totalPremioEnc>0?'#c2410c':'var(--muted-foreground)',fontSize:14}}>{formatCurrency(linha.totalPremioEnc)}</span></TableCell>
+                            <TableCell className="text-right"><span className="font-bold" style={{color:linha.totalPremioCabo>0?'#0369a1':'var(--muted-foreground)',fontSize:14}}>{formatCurrency(linha.totalPremioCabo)}</span></TableCell>
+                          </TableRow>
+                        </React.Fragment>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {/* Rodapé resumo + gerar */}
+              {linhasAtividade.length>0&&(
+                <div className="px-4 py-3 border-t border-border bg-muted/30">
+                  <div className="flex gap-8 flex-wrap mb-3">
+                    <div>
+                      <div className="text-xs font-bold text-orange-600 uppercase tracking-wide mb-2">👷 Encarregado(s) recebem</div>
+                      {resumoEnc.size===0?<div className="text-xs text-muted-foreground italic">— nenhum vinculado —</div>
+                       :[...resumoEnc.entries()].map(([id,val])=>{const c=colabsMap.get(id);return<div key={id} className="flex items-center gap-2 mb-1"><HardHat size={13} color="#c2410c"/><span className="font-bold text-sm">{c?.nome??id}</span><span className="font-extrabold text-base text-orange-600">{formatCurrency(val)}</span></div>})}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-blue-600 uppercase tracking-wide mb-2">🔧 Cabo(s) recebem</div>
+                      {resumoCabo.size===0?<div className="text-xs text-muted-foreground italic">— nenhum vinculado —</div>
+                       :[...resumoCabo.entries()].map(([id,val])=>{const c=colabsMap.get(id);return<div key={id} className="flex items-center gap-2 mb-1"><Users size={12} color="#0369a1"/><span className="font-bold text-sm">{c?.nome??id}</span><span className="font-extrabold text-base text-blue-600">{formatCurrency(val)}</span></div>})}
+                    </div>
                   </div>
-                ) : (
-                  <div style={{ overflowX:'auto' }}>
+                  {canCreate&&<div className="flex justify-end">{calcBtn}</div>}
+                </div>
+              )}
+
+              {/* Prêmios lançados */}
+              <div className="px-4 py-4 border-t border-border">
+                <div className="text-sm font-bold mb-3 flex items-center gap-2"><Award size={14} className="text-amber-500"/> Prêmios Lançados — {obraCalcSel.nome}</div>
+                <div className="flex gap-2 mb-3 flex-wrap">
+                  <Select value={filtroStatus} onValueChange={setFiltroStatus}>
+                    <SelectTrigger style={{width:160,height:32}}><SelectValue/></SelectTrigger>
+                    <SelectContent><SelectItem value="todos">Todos</SelectItem><SelectItem value="pendente">⏳ Pendente</SelectItem><SelectItem value="aprovado">✅ Aprovado</SelectItem><SelectItem value="cancelado">❌ Cancelado</SelectItem></SelectContent>
+                  </Select>
+                  <div style={{position:'relative',flex:1,minWidth:140}}><Search size={12} style={{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',color:'var(--muted-foreground)'}}/><Input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar…" style={{paddingLeft:26,height:32}}/></div>
+                </div>
+                {/* Cards resumo */}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:12}}>
+                  {[
+                    {label:'Pendente',val:comissoes.filter(c=>c.obra_id===obraCalcSel.id&&c.status==='pendente').reduce((s,c)=>s+c.valor_final,0),cor:'#b45309',bg:'#fffbeb',icon:'⏳'},
+                    {label:'Aprovado',val:comissoes.filter(c=>c.obra_id===obraCalcSel.id&&c.status==='aprovado').reduce((s,c)=>s+c.valor_final,0),cor:'#15803d',bg:'#f0fdf4',icon:'✅'},
+                    {label:'Total',val:comissoes.filter(c=>c.obra_id===obraCalcSel.id).reduce((s,c)=>s+c.valor_final,0),cor:'var(--primary)',bg:'var(--muted)',icon:'📊'},
+                  ].map(card=><div key={card.label} style={{background:card.bg,border:`1px solid ${card.cor}22`,borderRadius:8,padding:'8px 10px'}}><div className="text-xs font-semibold text-muted-foreground mb-1">{card.icon} {card.label}</div><div style={{fontSize:15,fontWeight:800,color:card.cor}}>{formatCurrency(card.val)}</div></div>)}
+                </div>
+                {/* Tabela lançamentos */}
+                {comissoes.filter(c=>c.obra_id===obraCalcSel.id).length===0?(
+                  <div className="text-center text-xs text-muted-foreground py-4 bg-muted/30 rounded-lg">Nenhum lançamento. Clique em "Calcular" acima.</div>
+                ):(
+                  <div className="border border-border rounded-lg overflow-hidden">
                     <Table>
-                      <TableHeader>
-                        <TableRow style={{ background:'#f8fafc' }}>
-                          <TableHead style={{ width:110 }}>Categoria</TableHead>
-                          <TableHead>Atividade</TableHead>
-                          <TableHead style={{ textAlign:'center', width:70 }}>Unid.</TableHead>
-                          <TableHead style={{ textAlign:'right', width:90 }}>Qtd.</TableHead>
-                          <TableHead style={{ textAlign:'center', width:130 }}>Enc. Vinculado</TableHead>
-                          <TableHead style={{ textAlign:'center', width:130 }}>Cabo Vinculado</TableHead>
-                          <TableHead style={{ textAlign:'right', width:110, color:'#c2410c', fontWeight:700 }}>💰 Enc.</TableHead>
-                          <TableHead style={{ textAlign:'right', width:110, color:'#0369a1', fontWeight:700 }}>💰 Cabo</TableHead>
-                          <TableHead style={{ textAlign:'center', width:100 }}>Retrab.</TableHead>
-                        </TableRow>
-                      </TableHeader>
+                      <TableHeader><TableRow className="bg-muted/50"><TableHead>Colaborador</TableHead><TableHead className="text-center">Função</TableHead><TableHead className="text-right font-bold">💰 Premiação</TableHead><TableHead className="text-center">Status</TableHead><TableHead className="text-center">Ações</TableHead></TableRow></TableHeader>
                       <TableBody>
-                        {linhasAtividade.map((linha, idx) => (
-                          <React.Fragment key={linha.playbook_item_id}>
-                            <TableRow style={{ background:idx%2===0?'transparent':'#fafafa' }}>
-                              <TableCell><span style={{ fontSize:11, background:'rgba(37,99,235,.07)', color:'#0d3f56', borderRadius:4, padding:'2px 7px' }}>{linha.categoria ?? 'Outros'}</span></TableCell>
-                              <TableCell><div style={{ fontWeight:700, fontSize:13, color:'#1e293b' }}>{linha.descricao}</div><div style={{ fontSize:10, color:'#94a3b8' }}>{linha.itensProducao.length} registro(s)</div></TableCell>
-                              <TableCell style={{ textAlign:'center' }}><span style={{ fontFamily:'monospace', fontSize:11, fontWeight:700 }}>{linha.unidade}</span></TableCell>
-                              <TableCell style={{ textAlign:'right', fontWeight:700, fontSize:13 }}>{linha.qtdTotal.toLocaleString('pt-BR')}</TableCell>
-                              <TableCell style={{ textAlign:'center' }}>
-                                {linha.encNome ? <span style={{ fontSize:11, fontWeight:600, color:'#c2410c', background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:20, padding:'2px 8px', whiteSpace:'nowrap' }}>👷 {linha.encNome.split(' ')[0]}</span> : <span style={{ fontSize:10, color:'#cbd5e1' }}>—</span>}
-                                {linha.valorPremioEnc>0 && <div style={{ fontSize:10, color:'#c2410c', marginTop:1 }}>R${linha.valorPremioEnc.toFixed(2)}/un.</div>}
+                        {comissoes.filter(c=>c.obra_id===obraCalcSel.id&&(filtroStatus==='todos'||c.status===filtroStatus)&&(!busca||(c.colaboradores?.nome??'').toLowerCase().includes(busca.toLowerCase()))).map((c,idx)=>{
+                          const st=STATUS_COR[c.status]??STATUS_COR.pendente
+                          return(
+                            <TableRow key={c.id} style={{background:idx%2===0?'transparent':'var(--muted/10)'}}>
+                              <TableCell><div className="font-bold text-sm">{c.colaboradores?.nome??'—'}</div>{c.colaboradores?.chapa&&<div className="text-xs text-muted-foreground font-mono">{c.colaboradores.chapa}</div>}</TableCell>
+                              <TableCell className="text-center"><span style={{fontSize:11,fontWeight:700,padding:'3px 9px',borderRadius:20,whiteSpace:'nowrap',background:c.funcao==='encarregado'?'#fff7ed':'#f0f9ff',color:c.funcao==='encarregado'?'#c2410c':'#0369a1',border:`1px solid ${c.funcao==='encarregado'?'#fed7aa':'#bae6fd'}`}}>{c.funcao==='encarregado'?'👷 Encarregado':'🔧 Cabo'}</span></TableCell>
+                              <TableCell className="text-right" style={{fontWeight:800,fontSize:15,color:c.valor_final>0?'#15803d':'#dc2626'}}>{formatCurrency(c.valor_final)}</TableCell>
+                              <TableCell className="text-center">
+                                <span style={{fontSize:10,fontWeight:700,padding:'3px 9px',borderRadius:20,whiteSpace:'nowrap',background:st.bg,color:st.cor,border:`1px solid ${st.border}`}}>{st.label}</span>
+                                {c.status==='aprovado'&&<div className="text-xs text-muted-foreground mt-0.5">🔒 protegido</div>}
                               </TableCell>
-                              <TableCell style={{ textAlign:'center' }}>
-                                {linha.caboNome ? <span style={{ fontSize:11, fontWeight:600, color:'#0369a1', background:'#f0f9ff', border:'1px solid #bae6fd', borderRadius:20, padding:'2px 8px', whiteSpace:'nowrap' }}>🔧 {linha.caboNome.split(' ')[0]}</span> : <span style={{ fontSize:10, color:'#cbd5e1' }}>—</span>}
-                                {linha.valorPremioCabo>0 && <div style={{ fontSize:10, color:'#0369a1', marginTop:1 }}>R${linha.valorPremioCabo.toFixed(2)}/un.</div>}
+                              <TableCell className="text-center">
+                                <div className="flex gap-1 justify-center">
+                                  {c.status==='pendente'&&<Button variant="ghost" size="icon" style={{width:26,height:26}} title="Aprovar" onClick={()=>setAprovarCom(c)}><CheckCircle2 size={13} color="#15803d"/></Button>}
+                                  {/* Recusar: devolve para pendente */}
+                                  {c.status==='aprovado'&&canEdit&&<Button variant="ghost" size="icon" style={{width:26,height:26}} title="Devolver para pendente" onClick={()=>setCancelarCom(c)}><RotateCcw size={13} color="#b45309"/></Button>}
+                                  {c.status==='pendente'&&<Button variant="ghost" size="icon" style={{width:26,height:26}} title="Recusar (volta para pendente)" onClick={()=>setCancelarCom(c)}><XCircle size={13} color="#dc2626"/></Button>}
+                                  {canDelete&&c.status!=='aprovado'&&<Button variant="ghost" size="icon" style={{width:26,height:26}} title="Excluir" onClick={()=>setDeleteCom(c)}><Trash2 size={13} color="#dc2626"/></Button>}
+                                </div>
                               </TableCell>
-                              <TableCell style={{ textAlign:'right' }}><span style={{ fontSize:14, fontWeight:800, color:linha.totalPremioEnc>0?'#c2410c':'#cbd5e1' }}>{formatCurrency(linha.totalPremioEnc)}</span></TableCell>
-                              <TableCell style={{ textAlign:'right' }}><span style={{ fontSize:14, fontWeight:800, color:linha.totalPremioCabo>0?'#0369a1':'#cbd5e1' }}>{formatCurrency(linha.totalPremioCabo)}</span></TableCell>
-                              <TableCell/>
                             </TableRow>
-                            {linha.itensProducao.map(prod => {
-                              const badge = badgeRetrabalho(prod.num_retrabalhos)
-                              const fator = fatorRetrabalho(prod.num_retrabalhos)
-                              return (
-                                <TableRow key={prod.id} style={{ background:'#f0f9ff' }}>
-                                  <TableCell style={{ paddingTop:3, paddingBottom:3 }}/>
-                                  <TableCell style={{ paddingTop:3, paddingBottom:3, paddingLeft:28 }}>
-                                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                                      <span style={{ fontSize:10, color:'#0369a1' }}>↳</span>
-                                      <span style={{ fontSize:12, fontWeight:600, color:'#1e293b' }}>{prod.colaboradores?.nome ?? '—'}</span>
-                                      {prod.colaboradores?.chapa && <span style={{ fontSize:10, color:'#94a3b8', fontFamily:'monospace' }}>{prod.colaboradores.chapa}</span>}
-                                      <span style={{ fontSize:10, color:'#64748b' }}>· {prod.mes_referencia}</span>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell style={{ textAlign:'center', paddingTop:3, paddingBottom:3 }}><span style={{ fontFamily:'monospace', fontSize:10 }}>{linha.unidade}</span></TableCell>
-                                  <TableCell style={{ textAlign:'right', paddingTop:3, paddingBottom:3 }}><span style={{ fontSize:12, fontWeight:600 }}>{prod.quantidade.toLocaleString('pt-BR')}</span></TableCell>
-                                  <TableCell colSpan={2} style={{ paddingTop:3, paddingBottom:3 }}/>
-                                  <TableCell style={{ textAlign:'right', paddingTop:3, paddingBottom:3 }}><span style={{ fontSize:11, fontWeight:700, color:fator>0?'#c2410c':'#dc2626' }}>{formatCurrency(prod.quantidade*linha.valorPremioEnc*fator)}</span></TableCell>
-                                  <TableCell style={{ textAlign:'right', paddingTop:3, paddingBottom:3 }}><span style={{ fontSize:11, fontWeight:700, color:fator>0?'#0369a1':'#dc2626' }}>{formatCurrency(prod.quantidade*linha.valorPremioCabo*fator)}</span></TableCell>
-                                  <TableCell style={{ textAlign:'center', paddingTop:3, paddingBottom:3 }}>
-                                    <div style={{ display:'flex', alignItems:'center', gap:4, justifyContent:'center' }}>
-                                      <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:20, background:badge.bg, color:badge.cor, border:`1px solid ${badge.border}`, whiteSpace:'nowrap' }}>{badge.label}</span>
-                                      {canEdit && <button title="Editar retrabalho" onClick={() => { setModalRetrab({ producaoId:prod.id, colaboradorNome:prod.colaboradores?.nome??'—', descricao:linha.descricao, numAtual:prod.num_retrabalhos??0 }); setNovoRetrab(prod.num_retrabalhos??0) }} style={{ background:'#f1f5f9', border:'1px solid #e2e8f0', borderRadius:6, padding:'2px 6px', cursor:'pointer', fontSize:10, color:'#475569', display:'flex', alignItems:'center', gap:3 }}><RotateCcw size={9}/> editar</button>}
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              )
-                            })}
-                          </React.Fragment>
-                        ))}
+                          )
+                        })}
                       </TableBody>
                     </Table>
                   </div>
                 )}
-
-                {/* Rodapé resumo */}
-                {linhasAtividade.length>0 && (
-                  <div style={{ padding:'14px 18px', borderTop:'2px solid #e2e8f0', background:'#f8fafc' }}>
-                    <div style={{ display:'flex', gap:24, flexWrap:'wrap', marginBottom:12 }}>
-                      <div>
-                        <div style={{ fontSize:10, fontWeight:700, color:'#c2410c', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 }}>👷 Encarregado(s) recebem</div>
-                        {resumoEncObra.size===0 ? <div style={{ fontSize:12, color:'#94a3b8', fontStyle:'italic' }}>— Nenhum vinculado —</div>
-                         : [...resumoEncObra.entries()].map(([id,val]) => { const c=colabsMap.get(id); return <div key={id} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}><HardHat size={13} color="#c2410c"/><span style={{ fontSize:13, fontWeight:700, color:'#1e293b' }}>{c?.nome??id}</span><span style={{ fontSize:16, fontWeight:800, color:'#c2410c' }}>{formatCurrency(val)}</span></div> })}
-                      </div>
-                      <div>
-                        <div style={{ fontSize:10, fontWeight:700, color:'#0369a1', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:6 }}>🔧 Cabo(s) recebem</div>
-                        {resumoCaboObra.size===0 ? <div style={{ fontSize:12, color:'#94a3b8', fontStyle:'italic' }}>— Nenhum vinculado —</div>
-                         : [...resumoCaboObra.entries()].map(([id,val]) => { const c=colabsMap.get(id); return <div key={id} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}><Users size={12} color="#0369a1"/><span style={{ fontSize:13, fontWeight:700, color:'#1e293b' }}>{c?.nome??id}</span><span style={{ fontSize:15, fontWeight:800, color:'#0369a1' }}>{formatCurrency(val)}</span></div> })}
-                      </div>
-                    </div>
-                    {canCreate && <div style={{ display:'flex', justifyContent:'flex-end' }}><Button onClick={calcularComissoes} disabled={calculando} style={{ gap:6, background:'#0d3f56', color:'#fff' }}><RefreshCw size={14} className={calculando?'animate-spin':''}/>{calculando?'Calculando…':`Gerar lançamento — ${mesLabel(competencia)}`}</Button></div>}
-                  </div>
-                )}
-
-                {/* Prêmios lançados */}
-                <div style={{ padding:'14px 18px', borderTop:'2px solid #e2e8f0', background:'#fff' }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:'#1e293b', marginBottom:12, display:'flex', alignItems:'center', gap:6 }}><Award size={15} color="#f59e0b"/> Prêmios Lançados — {obraCalcSel.nome}</div>
-                  <div style={{ display:'flex', gap:8, marginBottom:12, flexWrap:'wrap' }}>
-                    <Select value={filtroStatus} onValueChange={setFiltroStatus}><SelectTrigger style={{ width:160, height:32 }}><SelectValue placeholder="Status"/></SelectTrigger><SelectContent><SelectItem value="todos">Todos</SelectItem><SelectItem value="pendente">⏳ Pendente</SelectItem><SelectItem value="aprovado">✅ Aprovado</SelectItem><SelectItem value="cancelado">❌ Cancelado</SelectItem></SelectContent></Select>
-                    <div style={{ position:'relative', flex:1, minWidth:160 }}><Search size={12} style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', color:'#94a3b8' }}/><Input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar…" style={{ paddingLeft:28, height:32 }}/></div>
-                  </div>
-                  <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:12 }}>
-                    {[
-                      {label:'Pendente',valor:formatCurrency(comissoes.filter(c=>c.obra_id===obraCalcSel.id&&c.status==='pendente').reduce((s,c)=>s+c.valor_final,0)),cor:'#b45309',bg:'#fffbeb',icon:'⏳'},
-                      {label:'Aprovado',valor:formatCurrency(comissoes.filter(c=>c.obra_id===obraCalcSel.id&&c.status==='aprovado').reduce((s,c)=>s+c.valor_final,0)),cor:'#15803d',bg:'#f0fdf4',icon:'✅'},
-                      {label:'Total',   valor:formatCurrency(comissoes.filter(c=>c.obra_id===obraCalcSel.id).reduce((s,c)=>s+c.valor_final,0)),cor:'#0d3f56',bg:'#f0f9ff',icon:'📊'},
-                    ].map(card => <div key={card.label} style={{ background:card.bg, border:`1px solid ${card.cor}22`, borderRadius:8, padding:'10px 12px' }}><div style={{ fontSize:10, fontWeight:600, color:'#64748b', marginBottom:2 }}>{card.icon} {card.label}</div><div style={{ fontSize:16, fontWeight:800, color:card.cor }}>{card.valor}</div></div>)}
-                  </div>
-                  {comissoes.filter(c=>c.obra_id===obraCalcSel.id).length===0 ? (
-                    <div style={{ padding:20, textAlign:'center', color:'#94a3b8', fontSize:12, background:'#f8fafc', borderRadius:8 }}>Nenhum lançamento. Clique em "Gerar lançamento" acima.</div>
-                  ) : (
-                    <div style={{ border:'1px solid #e2e8f0', borderRadius:8, overflow:'hidden' }}>
-                      <Table>
-                        <TableHeader><TableRow style={{ background:'#f8fafc' }}><TableHead>Colaborador</TableHead><TableHead style={{ textAlign:'center' }}>Função</TableHead><TableHead style={{ textAlign:'right', fontWeight:800 }}>💰 Premiação</TableHead><TableHead style={{ textAlign:'center' }}>Status</TableHead><TableHead style={{ textAlign:'center' }}>Ações</TableHead></TableRow></TableHeader>
-                        <TableBody>
-                          {comissoes.filter(c =>
-                            c.obra_id===obraCalcSel.id &&
-                            (filtroStatus==='todos'||c.status===filtroStatus) &&
-                            (!busca||(c.colaboradores?.nome??'').toLowerCase().includes(busca.toLowerCase()))
-                          ).map((c,idx) => {
-                            const st = STATUS_COR[c.status] ?? STATUS_COR.pendente
-                            return (
-                              <TableRow key={c.id} style={{ background:idx%2===0?'transparent':'#fafafa' }}>
-                                <TableCell><div style={{ fontWeight:700, fontSize:13, color:'#1e293b' }}>{c.colaboradores?.nome??'—'}</div>{c.colaboradores?.chapa && <div style={{ fontSize:10, color:'#94a3b8', fontFamily:'monospace' }}>{c.colaboradores.chapa}</div>}</TableCell>
-                                <TableCell style={{ textAlign:'center' }}><span style={{ fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:20, whiteSpace:'nowrap', background:c.funcao==='encarregado'?'#fff7ed':'#f0f9ff', color:c.funcao==='encarregado'?'#c2410c':'#0369a1', border:`1px solid ${c.funcao==='encarregado'?'#fed7aa':'#bae6fd'}` }}>{c.funcao==='encarregado'?'👷 Encarregado':'🔧 Cabo'}</span></TableCell>
-                                <TableCell style={{ textAlign:'right', fontWeight:800, fontSize:16, color:c.valor_final>0?'#15803d':'#dc2626' }}>{formatCurrency(c.valor_final)}{c.funcao==='cabo'&&c.num_cabos>1&&<div style={{ fontSize:10, color:'#64748b', fontWeight:400 }}>÷ {c.num_cabos} cabos</div>}</TableCell>
-                                <TableCell style={{ textAlign:'center' }}>
-                                  <span style={{ fontSize:10, fontWeight:700, padding:'3px 9px', borderRadius:20, whiteSpace:'nowrap', background:st.bg, color:st.cor, border:`1px solid ${st.border}` }}>{st.label}</span>
-                                  {c.status==='aprovado' && <div style={{ fontSize:9, color:'#64748b', marginTop:1 }}>🔒 protegido</div>}
-                                </TableCell>
-                                <TableCell style={{ textAlign:'center' }}>
-                                  <div style={{ display:'flex', gap:3, justifyContent:'center' }}>
-                                    {c.status==='pendente' && <><Button variant="ghost" size="icon" style={{ width:26, height:26 }} title="Aprovar" onClick={() => setAprovarCom(c)}><CheckCircle2 size={12} color="#15803d"/></Button><Button variant="ghost" size="icon" style={{ width:26, height:26 }} title="Cancelar" onClick={() => setCancelarCom(c)}><XCircle size={12} color="#dc2626"/></Button></>}
-                                    {c.status==='aprovado' && <span style={{ fontSize:10, color:'#15803d' }}>✅ Prêmio gerado</span>}
-                                    {canDelete && c.status!=='aprovado' && <Button variant="ghost" size="icon" style={{ width:26, height:26 }} title="Excluir" onClick={() => setDeleteCom(c)}><Trash2 size={12} color="#dc2626"/></Button>}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            )
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </div>
-
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Modal Retrabalho */}
-      <Dialog open={!!modalRetrab} onOpenChange={o => { if (!o) setModalRetrab(null) }}>
-        <DialogContent style={{ maxWidth:420 }}>
-          <DialogHeader><DialogTitle style={{ display:'flex', alignItems:'center', gap:8 }}><RotateCcw size={16} color="#b45309"/> Indicar Retrabalho</DialogTitle></DialogHeader>
-          <div style={{ padding:'12px 0' }}>
-            <div style={{ background:'#f8fafc', borderRadius:8, padding:'10px 14px', marginBottom:14 }}>
-              <div style={{ fontSize:12, color:'#64748b', marginBottom:2 }}>Produção</div>
-              <div style={{ fontWeight:700, fontSize:14, color:'#1e293b' }}>{modalRetrab?.colaboradorNome}</div>
-              <div style={{ fontSize:12, color:'#475569' }}>{modalRetrab?.descricao}</div>
-            </div>
-            <div style={{ marginBottom:14 }}>
-              <div style={{ fontSize:12, fontWeight:600, color:'#475569', marginBottom:8 }}>Nº de Retrabalhos:</div>
-              <div style={{ display:'flex', gap:8 }}>
-                {[0,1,2].map(n => { const badge=badgeRetrabalho(n); const isSel=novoRetrab===n; return (
-                  <button key={n} onClick={() => setNovoRetrab(n)} style={{ flex:1, padding:'12px 8px', borderRadius:10, cursor:'pointer', border:isSel?`2px solid ${badge.cor}`:'2px solid #e2e8f0', background:isSel?badge.bg:'#fff', transition:'all .15s' }}>
-                    <div style={{ fontSize:18, marginBottom:4 }}>{n===0?'✅':n===1?'⚠️':'❌'}</div>
-                    <div style={{ fontSize:11, fontWeight:700, color:badge.cor }}>{badge.label}</div>
-                    <div style={{ fontSize:10, color:'#64748b', marginTop:2 }}>{n===0?'Integral':n===1?'50% da premiação':'Perde a premiação'}</div>
-                  </button>
-                )})}
+      {/* AlertDialog Aprovar */}
+      <AlertDialog open={!!aprovarCom} onOpenChange={o=>!o&&setAprovarCom(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Aprovar premiação?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Prêmio de <strong>{formatCurrency(aprovarCom?.valor_final??0)}</strong> para <strong>{aprovarCom?.colaboradores?.nome}</strong> ({aprovarCom?.funcao}) — {mesLabel(aprovarCom?.competencia??'')}.<br/><br/>
+              <div className="bg-green-50 border border-green-200 rounded p-2 text-xs text-green-700 mt-1">
+                🔒 Após aprovação este valor fica protegido. Use o botão ↩ para devolver a pendente se necessário.
               </div>
-            </div>
-            <div style={{ background:'#fffbeb', border:'1px solid #fde68a', borderRadius:8, padding:'8px 12px', fontSize:12, color:'#92400e' }}>
-              <strong>Regra:</strong> 0 → 100% · 1 → 50% · 2+ → perde premiação desta produção
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalRetrab(null)}>Cancelar</Button>
-            <Button disabled={salvandoRetrab} onClick={salvarRetrabalho} style={{ background:'#0d3f56', color:'#fff', gap:6 }}>{salvandoRetrab?'Salvando…':'✅ Salvar'}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog open={!!aprovarCom} onOpenChange={o => !o && setAprovarCom(null)}>
-        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Aprovar premiação?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Prêmio de <strong>{formatCurrency(aprovarCom?.valor_final??0)}</strong> para <strong>{aprovarCom?.colaboradores?.nome}</strong> ({aprovarCom?.funcao}) em {mesLabel(aprovarCom?.competencia??'')}.<br/><br/>
-            <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:6, padding:'8px 10px', fontSize:12, color:'#15803d', marginTop:4 }}>
-              🔒 Após aprovação este valor <strong>não será alterado</strong> mesmo que enc/cabo sejam substituídos.
-            </div>
-            <br/><details style={{ fontSize:12, color:'#475569' }}><summary style={{ cursor:'pointer', fontWeight:600 }}>Ver detalhes</summary><pre style={{ whiteSpace:'pre-wrap', marginTop:8, fontSize:11 }}>{aprovarCom?.observacoes??'—'}</pre></details>
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleAprovar} style={{ background:'#15803d', color:'#fff' }}>✅ Aprovar</AlertDialogAction></AlertDialogFooter>
+              <details className="mt-2 text-xs text-muted-foreground"><summary className="cursor-pointer font-semibold">Ver detalhes</summary><pre className="whitespace-pre-wrap mt-1 text-xs">{aprovarCom?.observacoes??'—'}</pre></details>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleAprovar} style={{background:'#15803d',color:'#fff'}}>✅ Aprovar</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!cancelarCom} onOpenChange={o => !o && setCancelarCom(null)}>
-        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Cancelar premiação?</AlertDialogTitle><AlertDialogDescription>A premiação de <strong>{cancelarCom?.colaboradores?.nome}</strong> ({formatCurrency(cancelarCom?.valor_final??0)}) será cancelada.</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>Voltar</AlertDialogCancel><AlertDialogAction onClick={handleCancelar} style={{ background:'#dc2626', color:'#fff' }}>Cancelar</AlertDialogAction></AlertDialogFooter>
+      {/* AlertDialog Recusar/Devolver */}
+      <AlertDialog open={!!cancelarCom} onOpenChange={o=>!o&&setCancelarCom(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {cancelarCom?.status==='aprovado'?'Devolver para pendente?':'Recusar premiação?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {cancelarCom?.status==='aprovado'
+                ?<>O prêmio de <strong>{formatCurrency(cancelarCom?.valor_final??0)}</strong> de <strong>{cancelarCom?.colaboradores?.nome}</strong> voltará para <strong>Pendente</strong> de aprovação.</>
+                :(<>A premiação de <strong>{cancelarCom?.colaboradores?.nome}</strong> ({formatCurrency(cancelarCom?.valor_final??0)}) voltará para <strong>Pendente</strong> — não é excluída, apenas aguarda nova avaliação.</>)
+              }
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRecusar} style={{background:'#b45309',color:'#fff'}}>
+              {cancelarCom?.status==='aprovado'?'↩ Devolver a pendente':'↩ Recusar (volta a pendente)'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!deleteCom} onOpenChange={o => !o && setDeleteCom(null)}>
-        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Excluir lançamento?</AlertDialogTitle><AlertDialogDescription>Esta ação é irreversível.</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleDelete} style={{ background:'#dc2626', color:'#fff' }}>Excluir</AlertDialogAction></AlertDialogFooter>
+      {/* AlertDialog Excluir */}
+      <AlertDialog open={!!deleteCom} onOpenChange={o=>!o&&setDeleteCom(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>Excluir lançamento?</AlertDialogTitle><AlertDialogDescription>Esta ação é irreversível.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleDelete} style={{background:'#dc2626',color:'#fff'}}>Excluir</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
     </div>
   )
 }

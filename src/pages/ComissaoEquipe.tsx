@@ -309,6 +309,21 @@ export default function ComissaoEquipe() {
   async function handleAprovar() {
     if (!aprovarCom) return
     if (aprovarCom.valor_final <= 0) { toast.error('Valor final é zero.'); setAprovarCom(null); return }
+    // Verificar se já existe prêmio ativo (pendente/aprovado/pago) para evitar duplicata
+    const { data: premExist } = await supabase.from('premios')
+      .select('id,status')
+      .eq('colaborador_id', aprovarCom.colaborador_id)
+      .eq('competencia', aprovarCom.competencia)
+      .eq('tipo', 'Produtividade')
+      .eq('obra_id', aprovarCom.obra_id ?? '')
+      .in('status', ['pendente', 'aprovado', 'pago'])
+      .limit(1)
+    if (premExist && premExist.length > 0) {
+      const st = premExist[0].status
+      toast.error(`Prêmio duplicado! Já existe um prêmio de Produtividade ${st === 'pago' ? 'pago' : st === 'aprovado' ? 'aprovado' : 'pendente'} para este colaborador nesta competência.`)
+      setAprovarCom(null)
+      return
+    }
     const { data: pd, error: pe } = await supabase.from('premios').insert({
       colaborador_id: aprovarCom.colaborador_id, obra_id: aprovarCom.obra_id, tipo: 'Produtividade',
       descricao: `Premiação ${aprovarCom.funcao === 'encarregado' ? 'Encarregado' : 'Cabo'} — ${mesLabel(aprovarCom.competencia)}`,

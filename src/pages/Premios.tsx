@@ -555,20 +555,16 @@ export default function Premios() {
                                   <CheckCircle2 size={12}/> Aprovar
                                 </button>
                               )}
-                              {(st==='pendente'||st==='aprovado') && (
+                              {st==='pendente' && (
                                 <button onClick={()=>openEdit(row)} title="Editar"
                                   style={{width:28, height:28, borderRadius:6, border:'1px solid var(--border)', background:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}>
                                   <Pencil size={12}/>
                                 </button>
                               )}
-                              {st==='aprovado' && (
-                                <button onClick={()=>setCancelarRow(row)} title="Cancelar"
-                                  style={{height:28, padding:'0 10px', borderRadius:6, border:'1px solid #fecaca', background:'#fff5f5', color:'#dc2626', cursor:'pointer', fontSize:11, fontWeight:700, display:'flex', alignItems:'center', gap:4}}>
-                                  <XCircle size={12}/> Cancelar
-                                </button>
-                              )}
-                              {st==='pago' && (
-                                <span title="Pago" style={{width:28, height:28, borderRadius:6, background:'#eff6ff', border:'1px solid #bfdbfe', display:'flex', alignItems:'center', justifyContent:'center', cursor:'help'}}>🔒</span>
+                              {(st==='aprovado'||st==='pago') && (
+                                <span
+                                  title={st==='pago' ? '💳 Pago no fechamento — permanentemente bloqueado' : '✅ Aprovado — para editar, recuse o fechamento de ponto onde este prêmio foi incluído e depois cancele aqui'}
+                                  style={{width:28, height:28, borderRadius:6, background:'#eff6ff', border:'1px solid #bfdbfe', display:'flex', alignItems:'center', justifyContent:'center', cursor:'help', fontSize:13}}>🔒</span>
                               )}
                               {(st==='pendente'||st==='cancelado') && (
                                 <button onClick={()=>setDeleteId(row.id)} title="Excluir"

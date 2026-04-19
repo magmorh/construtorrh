@@ -1443,7 +1443,7 @@ export default function FechamentoPonto() {
                                     )}
                                     {lanc.valor_premio > 0 && (
                                       <><span style={{ color: '#9ca3af' }}>+</span>
-                                      <span>🎯 Bônus: <span style={{ color: '#15803d', fontWeight: 600 }}>{formatCurrency(lanc.valor_premio)}</span></span></>
+                                      <span>Prêmio: <span style={{ color: '#7c3aed', fontWeight: 600 }}>{formatCurrency(lanc.valor_premio)}</span></span></>
                                     )}
                                     {lanc.valor_producao > 0 && lanc.valor_premio === 0 && (
                                       <><span style={{ color: '#9ca3af' }}> · </span>
@@ -1469,6 +1469,10 @@ export default function FechamentoPonto() {
                                     {lanc.valor_producao > 0 && (
                                       <><span style={{ color: '#9ca3af' }}>+</span>
                                       <span>Prod: <span style={{ color: '#b45309', fontWeight: 600 }}>{formatCurrency(lanc.valor_producao)}</span></span></>
+                                    )}
+                                    {lanc.valor_premio > 0 && (
+                                      <><span style={{ color: '#9ca3af' }}>+</span>
+                                      <span>Prêmio: <span style={{ color: '#7c3aed', fontWeight: 600 }}>{formatCurrency(lanc.valor_premio)}</span></span></>
                                     )}
                                   </div>
                                 </div>

@@ -77,6 +77,36 @@ async function uploadPdf(file: File) {
   return { url: supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl, nome: file.name }
 }
 
+// ─── Utilitário: sincronizar registros de ponto para portal_ponto_diario ──────
+// Chamado automaticamente ao publicar/gerar qualquer holerite (individual ou lote)
+async function syncPontoPortal(colaboradorId: string, lancamentoId: string): Promise<{ ok: boolean; count: number; error?: string }> {
+  try {
+    const { data: lanc } = await supabase.from('ponto_lancamentos').select('data_inicio,data_fim').eq('id', lancamentoId).single()
+    if (!lanc) return { ok: false, count: 0, error: 'Lançamento não encontrado' }
+    const { data: rps } = await supabase.from('registro_ponto').select('*').eq('lancamento_id', lancamentoId).order('data')
+    const rows = (rps ?? []).map((r: any) => ({
+      colaborador_id:    colaboradorId,
+      data:              r.data,
+      hora_entrada:      r.hora_entrada  ?? null,
+      hora_saida:        r.hora_saida    ?? null,
+      horas_trabalhadas: Number(r.horas_trabalhadas) || 0,
+      horas_extra:       Number(r.horas_extras ?? r.horas_extra ?? 0),
+      horas_falta:       Number(r.horas_falta) || 0,
+      status:            r.status ?? (r.hora_entrada ? 'presente' : null),
+      observacoes:       r.observacoes ?? null,
+      lancamento_id:     lancamentoId,
+    }))
+    if (rows.length === 0) return { ok: true, count: 0 }
+    const datas = rows.map((r: any) => r.data)
+    await supabase.from('portal_ponto_diario').delete().eq('colaborador_id', colaboradorId).in('data', datas)
+    const { error } = await supabase.from('portal_ponto_diario').insert(rows)
+    if (error) return { ok: false, count: 0, error: error.message }
+    return { ok: true, count: rows.length }
+  } catch (e: any) {
+    return { ok: false, count: 0, error: e.message }
+  }
+}
+
 // ─── Modal Adicionar/Gerar Holerite ─────────────────────────────────────────
 function ModalHolerite({ open, onClose, colaborador, onSaved }: {
   open: boolean; onClose: () => void
@@ -405,6 +435,13 @@ function ModalHolerite({ open, onClose, colaborador, onSaved }: {
           .insert(pontoRows)
         if (ePonto) console.warn('Aviso: não foi possível copiar ponto para portal:', ePonto.message)
         else toast.success(`✅ Holerite publicado! ${pontoRows.length} registros de ponto sincronizados.`)
+      } else if (publicar && lancamentoId) {
+        // Fallback: registrosPonto vazio mas há lançamento — tenta buscar do registro_ponto diretamente
+        const res = await syncPontoPortal(colaborador.id, lancamentoId)
+        if (res.ok && res.count > 0)
+          toast.success(`✅ Holerite publicado! ${res.count} registros de ponto sincronizados.`)
+        else
+          toast.success(publicar ? '✅ Holerite publicado!' : 'Rascunho salvo.')
       } else {
         toast.success(publicar ? '✅ Holerite publicado!' : 'Rascunho salvo.')
       }
@@ -845,6 +882,12 @@ export default function Contracheques() {
   const [deleteId, setDeleteId]           = useState<string | null>(null)
   const [criandoLogin, setCriandoLogin]   = useState(false)
   const [resetandoSenha, setResetandoSenha] = useState(false)
+  // ── Geração em lote ──────────────────────────────────────────────────────
+  const [loteOpen, setLoteOpen]           = useState(false)
+  const [loteComp, setLoteComp]           = useState(new Date().toISOString().slice(0, 7))
+  const [loteRunning, setLoteRunning]     = useState(false)
+  const [loteLog, setLoteLog]             = useState<{ nome: string; ok: boolean; msg: string }[]>([])
+  const [loteDone, setLoteDone]           = useState(false)
 
   const carregarColaboradores = useCallback(async () => {
     setLoadingList(true)
@@ -1021,6 +1064,184 @@ export default function Contracheques() {
     if (selected) carregarHolerites(selected.id)
   }
 
+  // ── Geração em lote ────────────────────────────────────────────────────────
+  // Para cada colaborador CLT ativo que tenha lançamento aprovado na competência:
+  // 1. Busca dados do lançamento (snap)
+  // 2. Verifica se já existe holerite mensal para o período (pula se já tiver)
+  // 3. Insere contracheque e publica
+  // 4. Sincroniza ponto para portal_ponto_diario automaticamente
+  async function gerarLote() {
+    setLoteRunning(true)
+    setLoteLog([])
+    setLoteDone(false)
+    const log: { nome: string; ok: boolean; msg: string }[] = []
+
+    try {
+      // 1. Buscar todos os colaboradores CLT ativos
+      const { data: colabsAll } = await supabase
+        .from('colaboradores')
+        .select('id,nome,chapa,cpf,funcao_id,tipo_contrato,salario,funcoes(nome)')
+        .in('status', ['ativo'])
+        .eq('tipo_contrato', 'clt')
+        .order('nome')
+      if (!colabsAll?.length) { toast.error('Nenhum colaborador CLT ativo encontrado.'); setLoteRunning(false); return }
+
+      // 2. Buscar todos os lançamentos aprovados para a competência
+      const { data: lancsAll } = await supabase
+        .from('ponto_lancamentos')
+        .select('id,colaborador_id,mes_referencia,tipo_pagamento,snap_valor_horas,snap_horas_normais,snap_horas_extras,snap_valor_producao,snap_valor_dsr,snap_valor_premio,snap_valor_total,snap_faltas,snap_desconto_vt,snap_desconto_adiant,snap_inss,snap_ir,snap_liquido,snap_valor_hora,obras(nome),data_inicio,data_fim')
+        .eq('mes_referencia', loteComp)
+        .in('status', ['aprovado', 'liberado', 'pago'])
+
+      const lancMap = new Map<string, any[]>()
+      ;(lancsAll ?? []).forEach((l: any) => {
+        if (!lancMap.has(l.colaborador_id)) lancMap.set(l.colaborador_id, [])
+        lancMap.get(l.colaborador_id)!.push(l)
+      })
+
+      // 3. Buscar holerites já existentes no mês (para não duplicar)
+      const compDate = loteComp + '-01'
+      const { data: holeriteExist } = await supabase
+        .from('contracheques')
+        .select('colaborador_id')
+        .eq('competencia', compDate)
+        .eq('tipo', 'mensal')
+      const jaTemHolerite = new Set((holeriteExist ?? []).map((h: any) => h.colaborador_id))
+
+      // 4. Buscar prêmios aprovados do mês
+      const colabIds = colabsAll.map((c: any) => c.id)
+      const { data: premiosAll } = await supabase
+        .from('premios')
+        .select('colaborador_id,valor')
+        .eq('competencia', loteComp)
+        .in('status', ['aprovado', 'pago'])
+        .in('colaborador_id', colabIds)
+      const premMap = new Map<string, number>()
+      ;(premiosAll ?? []).forEach((p: any) => {
+        premMap.set(p.colaborador_id, (premMap.get(p.colaborador_id) ?? 0) + (p.valor ?? 0))
+      })
+
+      // 5. Buscar adiantamentos descontados no mês
+      const { data: adiantAll } = await supabase
+        .from('adiantamentos')
+        .select('colaborador_id,valor')
+        .eq('descontado_em', loteComp)
+        .in('status', ['pago'])
+        .in('colaborador_id', colabIds)
+      const adiantMap = new Map<string, number>()
+      ;(adiantAll ?? []).forEach((a: any) => {
+        adiantMap.set(a.colaborador_id, (adiantMap.get(a.colaborador_id) ?? 0) + (a.valor ?? 0))
+      })
+
+      // 6. Iterar colaboradores
+      for (const colab of colabsAll as any[]) {
+        const nomeCurto = colab.nome ?? colab.id
+
+        // Pular se já tem holerite mensal
+        if (jaTemHolerite.has(colab.id)) {
+          log.push({ nome: nomeCurto, ok: false, msg: 'já tem holerite mensal — pulado' })
+          setLoteLog([...log])
+          continue
+        }
+
+        const lancs = lancMap.get(colab.id)
+        if (!lancs?.length) {
+          log.push({ nome: nomeCurto, ok: false, msg: 'sem lançamento aprovado — pulado' })
+          setLoteLog([...log])
+          continue
+        }
+
+        // Somar múltiplos lançamentos (ex: 2 obras)
+        let sumHorNorm = 0, sumHorExt = 0, sumValHoras = 0, sumProd = 0
+        let sumDsr = 0, sumPremioLanc = 0, sumTotal = 0
+        let sumFaltas = 0, sumVt = 0, sumAdLanc = 0, sumInss = 0, sumIr = 0
+        let sumLiquido = 0
+        const obras: string[] = []
+        let primLancId: string | null = null
+
+        for (const l of lancs) {
+          sumHorNorm    += l.snap_horas_normais  ?? 0
+          sumHorExt     += l.snap_horas_extras   ?? 0
+          sumValHoras   += l.snap_valor_horas    ?? 0
+          sumProd       += l.snap_valor_producao ?? 0
+          sumDsr        += l.snap_valor_dsr      ?? 0
+          sumPremioLanc += l.snap_valor_premio   ?? 0
+          sumTotal      += l.snap_valor_total    ?? 0
+          sumFaltas     += l.snap_faltas         ?? 0
+          sumVt         += l.snap_desconto_vt    ?? 0
+          sumAdLanc     += l.snap_desconto_adiant?? 0
+          sumInss       += l.snap_inss           ?? 0
+          sumIr         += l.snap_ir             ?? 0
+          sumLiquido    += l.snap_liquido        ?? 0
+          if (l.obras?.nome) obras.push(l.obras.nome)
+          if (!primLancId) primLancId = l.id
+        }
+
+        const totalPremio = sumPremioLanc + (premMap.get(colab.id) ?? 0)
+        const totalAdiant = Math.max(sumAdLanc, adiantMap.get(colab.id) ?? 0)
+        const brutoFinal  = sumTotal > 0 ? sumTotal : sumValHoras + sumProd + sumDsr + totalPremio
+        const liquido     = sumLiquido > 0 ? sumLiquido : brutoFinal - sumInss - sumIr - sumVt - totalAdiant
+
+        const payload = {
+          colaborador_id:    colab.id,
+          competencia:       compDate,
+          tipo:              'mensal',
+          descricao:         `Holerite gerado automaticamente — ${loteComp}`,
+          bruto:             brutoFinal > 0 ? brutoFinal : null,
+          liquido:           liquido  > 0 ? liquido   : null,
+          descontos:         sumInss + sumIr + sumVt + totalAdiant > 0 ? sumInss + sumIr + sumVt + totalAdiant : null,
+          inss:              sumInss > 0   ? sumInss   : null,
+          fgts:              brutoFinal > 0 ? parseFloat((brutoFinal * 0.08).toFixed(2)) : null,
+          irrf:              sumIr > 0     ? sumIr     : null,
+          salario_base:      sumValHoras > 0 ? sumValHoras : (colab.salario ?? null),
+          horas_normais:     sumHorNorm > 0 ? sumHorNorm : null,
+          horas_extras:      sumHorExt  > 0 ? sumHorExt  : null,
+          valor_producao:    sumProd > 0    ? sumProd    : null,
+          valor_dsr:         sumDsr  > 0    ? sumDsr     : null,
+          valor_premio:      totalPremio > 0 ? totalPremio : null,
+          desconto_vt:       sumVt > 0      ? sumVt      : null,
+          desconto_adiant:   totalAdiant > 0 ? totalAdiant : null,
+          funcao:            colab.funcoes?.nome ?? null,
+          tipo_contrato_snap:'clt',
+          obra_nome:         obras.join(' / ') || null,
+          dias_trabalhados:  null,
+          faltas:            sumFaltas > 0 ? sumFaltas : null,
+          lancamento_id:     primLancId,
+          gerado_do_sistema: true,
+          publicado:         true,
+          publicado_em:      new Date().toISOString(),
+        }
+
+        const { error: errH } = await supabase.from('contracheques').insert(payload)
+        if (errH) {
+          log.push({ nome: nomeCurto, ok: false, msg: 'Erro ao salvar: ' + errH.message })
+          setLoteLog([...log])
+          continue
+        }
+
+        // Sincronizar ponto para portal_ponto_diario automaticamente
+        let syncMsg = ''
+        if (primLancId) {
+          const sync = await syncPontoPortal(colab.id, primLancId)
+          syncMsg = sync.ok ? ` | ponto: ${sync.count} registros sincronizados` : ` | sync ponto: ${sync.error}`
+        }
+
+        log.push({ nome: nomeCurto, ok: true, msg: `✅ publicado${syncMsg}` })
+        setLoteLog([...log])
+      }
+
+      setLoteDone(true)
+      const ok   = log.filter(l => l.ok).length
+      const skip = log.filter(l => !l.ok).length
+      toast.success(`Lote concluído: ${ok} holerite(s) gerado(s), ${skip} pulado(s).`)
+      carregarColaboradores()
+    } catch (e: any) {
+      toast.error('Erro no lote: ' + e.message)
+    } finally {
+      setLoteRunning(false)
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px)', overflow: 'hidden', background: '#f8fafc' }}>
       {/* ── Banner link portal ── */}
@@ -1048,6 +1269,12 @@ export default function Contracheques() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <Receipt size={18} color="#0d3f56" />
             <span style={{ fontWeight: 700, fontSize: 15, color: '#0d3f56' }}>Contracheques</span>
+            <button
+              onClick={() => { setLoteOpen(true); setLoteLog([]); setLoteDone(false) }}
+              title="Gerar contracheques de todos os colaboradores de uma vez"
+              style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:4, padding:'4px 10px', borderRadius:6, border:'1px solid #0d3f56', background:'#0d3f56', color:'#fff', cursor:'pointer', fontSize:11, fontWeight:700, whiteSpace:'nowrap' }}>
+              <Sparkles size={11}/> Gerar em Lote
+            </button>
           </div>
           <div style={{ position: 'relative' }}>
             <Search size={14} style={{ position: 'absolute', left: 10, top: 11, color: '#94a3b8' }} />
@@ -1291,6 +1518,81 @@ export default function Contracheques() {
           onSaved={() => carregarHolerites(selected.id)}
         />
       )}
+
+      {/* ── Modal Gerar em Lote ── */}
+      <Dialog open={loteOpen} onOpenChange={v => { if (!v && !loteRunning) setLoteOpen(false) }}>
+        <DialogContent style={{ maxWidth: 520 }}>
+          <DialogHeader>
+            <DialogTitle style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <Sparkles size={17} color="#0d3f56" /> Gerar Contracheques em Lote
+            </DialogTitle>
+          </DialogHeader>
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            {/* Competência */}
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, color:'#64748b', display:'block', marginBottom:4 }}>COMPETÊNCIA</label>
+              <input
+                type="month" value={loteComp}
+                onChange={e => setLoteComp(e.target.value)}
+                disabled={loteRunning}
+                style={{ height:38, borderRadius:8, border:'1px solid #e2e8f0', padding:'0 12px', fontSize:14, fontWeight:700, color:'#0d3f56', outline:'none', width:'100%', boxSizing:'border-box' }}
+              />
+            </div>
+            {/* Regras */}
+            <div style={{ background:'#f0f9ff', border:'1px solid #bae6fd', borderRadius:8, padding:'10px 14px', fontSize:12, color:'#0369a1', lineHeight:1.6 }}>
+              <strong>O que será gerado por colaborador:</strong>
+              <ul style={{ margin:'6px 0 0 16px', padding:0 }}>
+                <li>Busca lançamento(s) aprovado(s) no fechamento de ponto</li>
+                <li>Soma prêmios e desconta adiantamentos automaticamente</li>
+                <li>Calcula FGTS (8% do bruto)</li>
+                <li>Publica imediatamente e sincroniza o ponto no portal</li>
+                <li>Pula colaboradores que já têm holerite mensal no mês</li>
+                <li>Pula colaboradores sem lançamento aprovado</li>
+              </ul>
+            </div>
+            {/* Log em tempo real */}
+            {loteLog.length > 0 && (
+              <div style={{ border:'1px solid #e2e8f0', borderRadius:8, maxHeight:220, overflowY:'auto', background:'#fafafa' }}>
+                <div style={{ padding:'8px 12px', background:'#f1f5f9', borderBottom:'1px solid #e2e8f0', fontSize:11, fontWeight:700, color:'#475569' }}>
+                  LOG ({loteLog.length} processado(s))
+                </div>
+                {loteLog.map((l, i) => (
+                  <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:8, padding:'6px 12px', borderBottom:'1px solid #f1f5f9', fontSize:12 }}>
+                    <span style={{ fontWeight:700, color: l.ok ? '#15803d' : '#b45309', flexShrink:0 }}>{l.ok ? '✅' : '⚠️'}</span>
+                    <span style={{ fontWeight:600, color:'#1e293b', flexShrink:0, minWidth:160 }}>{l.nome}</span>
+                    <span style={{ color:'#64748b' }}>{l.msg}</span>
+                  </div>
+                ))}
+                {loteRunning && (
+                  <div style={{ padding:'8px 12px', display:'flex', alignItems:'center', gap:6, color:'#0369a1', fontSize:12 }}>
+                    <Loader2 size={12} className="animate-spin"/> Processando…
+                  </div>
+                )}
+                {loteDone && (
+                  <div style={{ padding:'8px 12px', background:'#f0fdf4', color:'#15803d', fontSize:12, fontWeight:700 }}>
+                    ✅ Lote concluído — {loteLog.filter(l=>l.ok).length} gerado(s), {loteLog.filter(l=>!l.ok).length} pulado(s).
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter style={{ marginTop:8 }}>
+            <Button variant="outline" onClick={() => setLoteOpen(false)} disabled={loteRunning}>Fechar</Button>
+            {!loteDone && (
+              <Button
+                onClick={gerarLote}
+                disabled={loteRunning || !loteComp}
+                style={{ background:'#0d3f56', color:'#fff', gap:6 }}
+              >
+                {loteRunning
+                  ? <><Loader2 size={13} className="animate-spin"/> Gerando…</>
+                  : <><Sparkles size={13}/> Gerar Todos</>
+                }
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!deleteId} onOpenChange={v => { if (!v) setDeleteId(null) }}>
         <AlertDialogContent>

@@ -147,7 +147,7 @@ export default function ComissaoEquipe() {
       supabase.from('playbook_itens')
         .select('id, obra_id, descricao, unidade, categoria'),
       supabase.from('ponto_producao')
-        .select('id, colaborador_id, obra_id, playbook_item_id, quantidade, mes_referencia, num_retrabalhos, lancamento_id, colaboradores(nome, chapa), playbook_itens(descricao, unidade, categoria)')
+        .select('id, colaborador_id, obra_id, playbook_item_id, quantidade, mes_referencia, lancamento_id, colaboradores(nome, chapa), playbook_itens(descricao, unidade, categoria)')
         .eq('mes_referencia', competencia),
       supabase.from('colaboradores').select('id, nome, chapa').order('nome').limit(2000),
       supabase.from('comissoes_equipe_v2')
@@ -333,7 +333,10 @@ export default function ComissaoEquipe() {
   async function salvarRetrabalho() {
     if (!modalRetrab) return
     setSalvandoRetrab(true)
-    const { error } = await supabase.from('ponto_producao').update({ num_retrabalhos: novoRetrab }).eq('id', modalRetrab.producaoId)
+    // num_retrabalhos não existe em ponto_producao — sempre 0 por padrão
+    const { error } = await supabase.from('ponto_producao')
+      .update({ num_retrabalhos: novoRetrab } as any)
+      .eq('id', modalRetrab.producaoId)
     setSalvandoRetrab(false)
     if (error) { toast.error('Erro ao salvar retrabalho.'); console.error(error) }
     else { toast.success('Retrabalho atualizado!'); setModalRetrab(null); fetchData() }

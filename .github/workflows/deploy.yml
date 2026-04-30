@@ -5,9 +5,6 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -33,6 +30,8 @@ jobs:
         run: npm run build
 
       - name: Deploy via git push to gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAGES_TOKEN }}
         run: |
           git config user.email "magmodrive@gmail.com"
           git config user.name "ConstrutorRH Deploy"
@@ -40,4 +39,4 @@ jobs:
           git init
           git add -A
           git commit -m "deploy: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          git push --force https://${{ secrets.GH_PAGES_TOKEN }}@github.com/magmorh/construtorrh.git HEAD:gh-pages
+          git push --force https://x-access-token:${GH_TOKEN}@github.com/magmorh/construtorrh.git HEAD:gh-pages

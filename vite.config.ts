@@ -208,6 +208,7 @@ function cdnPrefixImages(): Plugin {
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   return {
+    base: process.env.NODE_ENV === 'production' ? '/construtorrh/' : '/',
     server: {
       host: "::",
       port: 8080,
